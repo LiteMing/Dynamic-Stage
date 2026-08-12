@@ -24,6 +24,7 @@ minecraft {
             workingDirectory project.file('run')
             property 'forge.logging.markers', 'REGISTRIES'
             property 'forge.logging.console.level', 'info'
+            args '--mixin', 'dynamicstage.mixins.json'
 
             mods {
                 "${mod_id}" {
@@ -66,79 +67,25 @@ repositories {
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 
-    // Voxy LOD import (VoxyFileProvider): RocksDB read + Zstd decompression.
-    // Plain libraries, NOT mods: plain `implementation` (no fg.deobf).
-    implementation(jarJar("org.rocksdb:rocksdbjni:${rocksdb_version}")) {
-        transitive = false
-        jarJar.ranged(it, '[10.2.1,10.2.2)')
-    }
-    implementation(jarJar("com.github.luben:zstd-jni:${zstd_version}")) {
-        transitive = false
-        jarJar.ranged(it, '[1.5.6-8,1.5.6-9)')
+    // CMDCam remains a soft dependency. Enable it explicitly for its separate
+    // runClient compatibility pass: -PincludeCmdCam=true
+    if (providers.gradleProperty('includeCmdCam').orNull == 'true') {
+        runtimeOnly fg.deobf('maven.modrinth:cmdcam:as7nPEt0')
+        runtimeOnly fg.deobf('maven.modrinth:creativecore:m9VEcxwz')
     }
 
-    // Distant Horizons LOD import (DHFileReader): SQLite read + LZMA2 (XZ) decompression.
-    implementation(jarJar('org.xerial:sqlite-jdbc:3.45.3.0')) {
-        transitive = false
-        jarJar.ranged(it, '[3.45.3.0,3.45.3.1)')
-    }
-    implementation(jarJar('org.lz4:lz4-java:1.8.0')) {
-        transitive = false
-        jarJar.ranged(it, '[1.8.0,1.8.1)')
-    }
-    implementation(jarJar('org.tukaani:xz:1.9')) {
-        transitive = false
-        jarJar.ranged(it, '[1.9,1.10)')
+    // DH is also opt-in for development runs so runServer stays client-mod free:
+    // -PincludeDh=true
+    if (providers.gradleProperty('includeDh').orNull == 'true') {
+        runtimeOnly fg.deobf('maven.modrinth:distanthorizons:FWGxbEM3')
     }
 
-    // CMDCam (runtime, runClient testing only): live backdrop camera linkage.
-    runtimeOnly fg.deobf('maven.modrinth:cmdcam:as7nPEt0')
-    runtimeOnly fg.deobf('maven.modrinth:creativecore:m9VEcxwz')
-
-    // Performance mods for runClient testing (Embeddium = Sodium's Forge port;
-    // LightSpeedRe = fast resource reload). Runtime-only, not required to run.
-    runtimeOnly fg.deobf('maven.modrinth:embeddium:UTbfe5d1')
-    runtimeOnly fg.deobf('maven.modrinth:lightspeedre:NKQ15PnX')
-
-    // Distant Horizons: NOT declared here — the Modrinth maven doesn't serve its
-    // jars; drop the DH jar into run/mods/ manually (see run/mods/README).
-
-    // Unit tests (pure Java codecs, no MC runtime needed)
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-    testImplementation "org.rocksdb:rocksdbjni:${rocksdb_version}"
-    testImplementation "com.github.luben:zstd-jni:${zstd_version}"
-    testImplementation 'org.xerial:sqlite-jdbc:3.45.3.0'
-    testImplementation 'org.tukaani:xz:1.9'
 }
 
 test {
     useJUnitPlatform()
-    if (project.hasProperty('voxyProbe')) {
-        systemProperty 'voxy.probe', project.property('voxyProbe')
-    }
-}
-
-// Plain-main probe for the direct Voxy read path (bypasses JUnit discovery).
-// usage: gradlew voxyProbe -PvoxyProbe=<storageDir>
-tasks.register('voxyProbe', JavaExec) {
-    group = 'verification'
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'vibe.liteming.dynamicstage.bake.voxy.VoxyDirectProbe'
-    if (project.hasProperty('voxyProbe')) {
-        args project.property('voxyProbe')
-    }
-}
-
-// Plain-main probe for the DH read path.
-// usage: gradlew dhProbe -PdhProbe=<path-to-DistantHorizons.sqlite>
-tasks.register('dhProbe', JavaExec) {
-    group = 'verification'
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'vibe.liteming.dynamicstage.bake.dh.DHProbe'
-    if (project.hasProperty('dhProbe')) {
-        args project.property('dhProbe')
-    }
 }
 
 tasks.named('processResources', ProcessResources).configure {
@@ -171,7 +118,8 @@ tasks.named('jar', Jar).configure {
                 'Implementation-Title'    : project.name,
                 'Implementation-Version'  : project.jar.archiveVersion,
                 'Implementation-Vendor'   : mod_authors,
-                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+                'MixinConfigs'             : 'dynamicstage.mixins.json'
         ])
     }
 
@@ -196,15 +144,3 @@ publishing {
 }
 
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
-
-// FG6 dev runs launch through cpw.mods.bootstraplauncher, which builds its own
-// classloader from -DlegacyClassPath.file (minecraftClasspath.txt). Plain
-// implementation deps are IGNORED by bootstraplauncher; append the native
-// libraries so they land in the legacy classpath at runtime.
-tasks.withType(net.minecraftforge.gradle.common.util.runs.MinecraftRunTask).configureEach {
-    minecraftArtifacts.from(configurations.runtimeClasspath.files.findAll {
-        it.name.contains('rocksdbjni') || it.name.contains('zstd-jni')
-                || it.name.contains('sqlite-jdbc') || it.name.contains('lz4-java')
-                || it.name.contains('xz')
-    })
-}

@@ -1,0 +1,13 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "vibe.liteming.dynamicstage.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "DhCameraMixin",
+    "DhPlayerPositionMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

@@ -2,8 +2,6 @@ package vibe.liteming.dynamicstage.stage;
 
 import net.minecraft.core.BlockPos;
 
-import java.util.BitSet;
-
 /** Minimal spatial isolation for players sharing the otherwise empty stage dimension. */
 public final class StagePlacement {
 
@@ -13,17 +11,6 @@ public final class StagePlacement {
     public static final int STAGE_Y = 80;
 
     private StagePlacement() {
-    }
-
-    public static int allocate(StageSessionData data) {
-        BitSet occupied = new BitSet();
-        data.all().forEach(session -> {
-            if (session.slot() >= 0) {
-                occupied.set(session.slot());
-            }
-        });
-        int slot = occupied.nextClearBit(0);
-        return slot < MAX_SLOTS ? slot : -1;
     }
 
     public static BlockPos originForSlot(int slot) {

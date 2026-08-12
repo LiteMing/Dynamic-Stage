@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static vibe.liteming.dynamicstage.backdrop.BackdropProducts.sha256Hex;
+import static vibe.liteming.dynamicstage.util.ContentHash.sha256Hex;
 
 class StageSessionFlightValidationTest {
 

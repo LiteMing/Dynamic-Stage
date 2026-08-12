@@ -3,106 +3,137 @@ package vibe.liteming.dynamicstage.stage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import vibe.liteming.dynamicstage.backdrop.BackdropProducts;
-import vibe.liteming.dynamicstage.bake.StageBackdropBaker;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
-import vibe.liteming.dynamicstage.network.StageFlightPacket;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
-import vibe.liteming.dynamicstage.network.BackdropDistribution;
+import vibe.liteming.dynamicstage.network.StageFlightPacket;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
-import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicLong;
 
-/** Server authority for preparing, entering, restoring, and leaving stage sessions. */
+/** Server authority for stage instances, membership, and client backdrop readiness. */
 public final class StageSessionManager {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(StageSessionManager.class);
-    private static final AtomicLong REQUEST_SEQUENCE = new AtomicLong();
-    private static final ConcurrentHashMap<UUID, Long> PREPARATIONS = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<String, CompletableFuture<BackdropProducts.Product>> PRODUCTS =
-            new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<UUID, String> SENT_FLIGHTS = new ConcurrentHashMap<>();
-    private static final ExecutorService BAKE_WORKER = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "DynamicStage-BackdropBaker");
-        thread.setDaemon(true);
-        return thread;
-    });
+    public static final String INSTANCE_NBT = "DynamicStageInstance";
+    private static final ConcurrentHashMap<UUID, PendingEntry> PENDING = new ConcurrentHashMap<>();
+    private static final Set<UUID> SENT_FLIGHTS = ConcurrentHashMap.newKeySet();
 
     private StageSessionManager() {
     }
 
-    public static boolean prepareAndEnter(ServerPlayer player, String stageId, BlockPos anchor,
-                                          Path dataFile, String source) {
+    public static boolean createAndEnter(ServerPlayer player, String stageId, ResourceLocation lodPackId,
+                                         BlockPos lodAnchor, int capacity) {
         MinecraftServer server = player.getServer();
-        if (server == null || stageId.isBlank() || stageId.length() > 128) {
+        if (!canPrepare(player, server) || !validStageId(stageId)
+                || capacity < 1 || capacity > StageSession.MAX_CAPACITY) {
             return false;
         }
-        StageSessionData sessionData = StageSessionData.get(server);
-        if (sessionData.get(player.getUUID()).isPresent() || PREPARATIONS.containsKey(player.getUUID())) {
-            player.sendSystemMessage(Component.literal("A Dynamic Stage session is already active or preparing."));
+        StageSessionData data = StageSessionData.get(server);
+        int slot = allocateSlot(data);
+        if (slot < 0) {
+            player.sendSystemMessage(Component.literal("All Dynamic Stage instance regions are in use."));
             return false;
+        }
+        UUID instanceId = UUID.randomUUID();
+        StageSession session = createMembership(player, instanceId, stageId, lodPackId, lodAnchor,
+                slot, capacity, flightFor(server, stageId), -1L);
+        return prepare(player, session);
+    }
+
+    public static boolean join(ServerPlayer player, UUID instanceId) {
+        MinecraftServer server = player.getServer();
+        if (!canPrepare(player, server)) {
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        StageSession exemplar = data.findInstance(instanceId).orElse(null);
+        if (exemplar == null) {
+            player.sendSystemMessage(Component.literal("Unknown or inactive Dynamic Stage instance."));
+            return false;
+        }
+        long members = data.members(instanceId).size()
+                + PENDING.values().stream().filter(entry -> entry.session.instanceId().equals(instanceId)).count();
+        if (members >= exemplar.capacity()) {
+            player.sendSystemMessage(Component.literal("That Dynamic Stage instance is full."));
+            return false;
+        }
+        if (exemplar.hasFlight() && !validFlight(server, exemplar)) {
+            player.sendSystemMessage(Component.literal("That Dynamic Stage instance's flight is unavailable."));
+            return false;
+        }
+        StageSession session = createMembership(player, exemplar);
+        return prepare(player, session);
+    }
+
+    public static boolean setAnchor(ServerPlayer player, BlockPos anchor) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        StageSession session = data.get(player.getUUID()).orElse(null);
+        if (session == null) {
+            return false;
+        }
+        data.updateInstanceAnchor(session.instanceId(), anchor);
+        PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
+                ? new PendingEntry(entry.session.withLodAnchor(anchor))
+                : entry);
+        for (StageSession member : data.members(session.instanceId())) {
+            ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
+            if (target != null) {
+                DynamicStageNetwork.sendSession(target, member.withLodAnchor(anchor));
+            }
+        }
+        for (PendingEntry entry : PENDING.values()) {
+            if (entry.session.instanceId().equals(session.instanceId())) {
+                ServerPlayer target = server.getPlayerList().getPlayer(entry.session.playerId());
+                if (target != null) {
+                    DynamicStageNetwork.sendSession(target, entry.session);
+                }
+            }
+        }
+        return true;
+    }
+
+    public static void onClientReady(ServerPlayer player, UUID instanceId, boolean ready, String error) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return;
+        }
+        PendingEntry pending = PENDING.get(player.getUUID());
+        if (pending != null && pending.session.instanceId().equals(instanceId)) {
+            PENDING.remove(player.getUUID(), pending);
+            if (!ready) {
+                DynamicStageNetwork.clearSession(player);
+                player.sendSystemMessage(Component.literal("LOD backdrop unavailable: " + boundedError(error)));
+                return;
+            }
+            enterPrepared(player, pending.session);
+            return;
         }
 
-        Path worldRoot = server.getWorldPath(LevelResource.ROOT);
-        String sourceDimension = player.serverLevel().dimension().location().toString();
-        ResourceKey<Level> expectedDimension = player.serverLevel().dimension();
-        long request = REQUEST_SEQUENCE.incrementAndGet();
-        PREPARATIONS.put(player.getUUID(), request);
-        UUID playerId = player.getUUID();
-        ReturnPoint returnPoint = new ReturnPoint(player.serverLevel().dimension(), player.position(),
-                player.getYRot(), player.getXRot());
-        player.sendSystemMessage(Component.literal("Preparing LOD backdrop for stage '" + stageId + "'..."));
-        String productKey = worldRoot.toAbsolutePath().normalize() + "|" + stageId + '|' + sourceDimension + '|'
-                + source + '|'
-                + dataFile.toAbsolutePath().normalize() + '|' + anchor.asLong();
-        CompletableFuture<BackdropProducts.Product> productFuture = PRODUCTS.computeIfAbsent(productKey, ignored ->
-                CompletableFuture.supplyAsync(() -> {
-                    try {
-                        String requestKey = StageBackdropBaker.requestKey(dataFile, anchor, source, sourceDimension);
-                        BackdropProducts.Product cached = BackdropProducts.findByRequest(worldRoot, stageId, requestKey);
-                        return cached != null ? cached : StageBackdropBaker.bake(worldRoot, stageId, sourceDimension,
-                                dataFile, anchor, source, requestKey);
-                    } catch (Exception e) {
-                        throw new java.util.concurrent.CompletionException(e);
-                    }
-                }, BAKE_WORKER));
-        productFuture.whenComplete((product, error) -> PRODUCTS.remove(productKey, productFuture));
-        productFuture.whenComplete((product, error) -> server.execute(() -> {
-            if (!PREPARATIONS.remove(playerId, request)) {
-                return;
+        StageSession restored = StageSessionData.get(server).get(player.getUUID()).orElse(null);
+        if (restored != null && restored.instanceId().equals(instanceId)
+                && StageWorlds.isStageLevel(player.level())) {
+            if (!ready) {
+                player.sendSystemMessage(Component.literal("LOD backdrop unavailable after reconnect: "
+                        + boundedError(error)));
+                exit(player);
+            } else {
+                sendOrStartFlight(player, restored);
             }
-            ServerPlayer current = server.getPlayerList().getPlayer(playerId);
-            if (current == null) {
-                return;
-            }
-            if (error != null) {
-                LOGGER.warn("Backdrop preparation failed for {}: {}", playerId, error.toString());
-                current.sendSystemMessage(Component.literal("Failed to prepare the LOD backdrop: "
-                        + rootMessage(error)));
-                return;
-            }
-            if (!current.serverLevel().dimension().equals(expectedDimension)) {
-                current.sendSystemMessage(Component.literal("Stage entry cancelled because the source dimension changed."));
-                return;
-            }
-            enter(current, stageId, anchor, source, product, returnPoint);
-        }));
-        return true;
+        }
     }
 
     public static boolean exit(ServerPlayer player) {
@@ -110,12 +141,13 @@ public final class StageSessionManager {
         if (server == null) {
             return false;
         }
-        boolean cancelledPreparation = PREPARATIONS.remove(player.getUUID()) != null;
+        boolean cancelled = PENDING.remove(player.getUUID()) != null;
         Optional<StageSession> removed = StageSessionData.get(server).remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
+        clearPlayerMarker(player);
         DynamicStageNetwork.clearSession(player);
         if (removed.isEmpty()) {
-            return cancelledPreparation;
+            return cancelled;
         }
         StageSession session = removed.get();
         ServerLevel returnLevel = server.getLevel(session.returnDimension());
@@ -124,9 +156,8 @@ public final class StageSessionManager {
         }
         player.stopRiding();
         player.fallDistance = 0.0F;
-        player.teleportTo(returnLevel,
-                session.returnPosition().x, session.returnPosition().y, session.returnPosition().z,
-                session.returnYRot(), session.returnXRot());
+        player.teleportTo(returnLevel, session.returnPosition().x, session.returnPosition().y,
+                session.returnPosition().z, session.returnYRot(), session.returnXRot());
         return true;
     }
 
@@ -135,24 +166,20 @@ public final class StageSessionManager {
         if (server != null) {
             StageSessionData.get(server).remove(player.getUUID());
         }
-        PREPARATIONS.remove(player.getUUID());
+        PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
+        clearPlayerMarker(player);
         DynamicStageNetwork.clearSession(player);
     }
 
-    /** Cancels only an in-flight preparation; active persisted sessions survive logout. */
     public static void onLogout(ServerPlayer player) {
-        PREPARATIONS.remove(player.getUUID());
+        PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
-        BackdropDistribution.clearPlayer(player.getUUID());
     }
 
     public static void onServerStopped() {
-        PREPARATIONS.clear();
-        PRODUCTS.values().forEach(future -> future.cancel(true));
-        PRODUCTS.clear();
+        PENDING.clear();
         SENT_FLIGHTS.clear();
-        BackdropDistribution.clearAll();
     }
 
     public static void restore(ServerPlayer player) {
@@ -160,8 +187,9 @@ public final class StageSessionManager {
         if (server == null) {
             return;
         }
-        Optional<StageSession> found = StageSessionData.get(server).get(player.getUUID());
-        if (found.isEmpty()) {
+        StageSession session = StageSessionData.get(server).get(player.getUUID()).orElse(null);
+        if (session == null) {
+            clearPlayerMarker(player);
             DynamicStageNetwork.clearSession(player);
             if (StageWorlds.isStageLevel(player.level())) {
                 BlockPos spawn = server.overworld().getSharedSpawnPos();
@@ -170,26 +198,18 @@ public final class StageSessionManager {
             }
             return;
         }
-        StageSession session = found.get();
         if (!StageWorlds.isStageLevel(player.level())) {
             StageSessionData.get(server).remove(player.getUUID());
+            clearPlayerMarker(player);
             DynamicStageNetwork.clearSession(player);
             return;
         }
-        if (BackdropProducts.resolve(server, session.stageId(), session.backdropHash()) == null) {
-            player.sendSystemMessage(Component.literal("The saved stage backdrop is unavailable; returning safely."));
+        if (session.hasFlight() && !validFlight(server, session)) {
+            player.sendSystemMessage(Component.literal("The saved stage flight is unavailable; returning safely."));
             exit(player);
             return;
         }
-        if (session.hasFlight()) {
-            StageFlightAssets.Asset flight = StageFlightAssets.load(server, session.stageId(), session.flightHash());
-            if (flight == null || flight.bytes() != session.flightBytes()
-                    || flight.durationMillis() != session.flightDurationMillis()) {
-                player.sendSystemMessage(Component.literal("The saved stage flight is unavailable; returning safely."));
-                exit(player);
-                return;
-            }
-        }
+        markPlayer(player, session.instanceId());
         DynamicStageNetwork.sendSession(player, session);
     }
 
@@ -198,94 +218,134 @@ public final class StageSessionManager {
         return server == null ? Optional.empty() : StageSessionData.get(server).get(player.getUUID());
     }
 
-    /** Starts or resumes an authorized flight only after the client has activated its backdrop mesh. */
-    public static void onBackdropReady(ServerPlayer player, String stageId, String backdropHash, String flightHash) {
-        MinecraftServer server = player.getServer();
-        if (server == null || !StageWorlds.isStageLevel(player.level())) {
-            return;
-        }
-        StageSessionData data = StageSessionData.get(server);
-        Optional<StageSession> found = data.get(player.getUUID());
-        if (found.isEmpty()) {
-            return;
-        }
-        StageSession session = found.get();
-        if (!session.hasFlight() || !session.stageId().equals(stageId)
-                || !session.backdropHash().equals(backdropHash) || !session.flightHash().equals(flightHash)) {
-            return;
-        }
-        if (SENT_FLIGHTS.containsKey(player.getUUID())) {
-            return;
-        }
-        StageFlightAssets.Asset asset = StageFlightAssets.load(server, session.stageId(), session.flightHash());
-        if (asset == null || asset.bytes() != session.flightBytes()
-                || asset.durationMillis() != session.flightDurationMillis()) {
-            player.sendSystemMessage(Component.literal("The stage flight asset is unavailable; returning safely."));
-            exit(player);
-            return;
-        }
-        if (session.flightStartGameTime() < 0L) {
-            long startGameTime = player.serverLevel().getGameTime() + 20L;
-            session = session.withFlightStart(startGameTime);
-            data.put(session);
-        }
-        String sendKey = session.flightHash() + ':' + session.flightStartGameTime();
-        if (SENT_FLIGHTS.putIfAbsent(player.getUUID(), sendKey) != null) {
-            return;
-        }
-        DynamicStageNetwork.sendFlight(player, StageFlightPacket.active(session, asset.sceneJson()));
+    private static boolean prepare(ServerPlayer player, StageSession session) {
+        PENDING.put(player.getUUID(), new PendingEntry(session));
+        DynamicStageNetwork.sendSession(player, session);
+        player.sendSystemMessage(Component.literal("Checking local LOD pack '" + session.lodPackId() + "'..."));
+        return true;
     }
 
-    private static boolean enter(ServerPlayer player, String stageId, BlockPos anchor, String source,
-                                 BackdropProducts.Product product, ReturnPoint returnPoint) {
+    private static void enterPrepared(ServerPlayer player, StageSession session) {
         MinecraftServer server = player.getServer();
         if (server == null) {
-            return false;
+            return;
         }
         ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
         if (stageLevel == null) {
+            DynamicStageNetwork.clearSession(player);
             player.sendSystemMessage(Component.literal("The Dynamic Stage dimension is unavailable."));
-            return false;
+            return;
         }
         StageSessionData data = StageSessionData.get(server);
-        if (data.get(player.getUUID()).isPresent()) {
-            return false;
+        if (data.get(player.getUUID()).isPresent() || slotClaimedByOtherInstance(data, session)) {
+            DynamicStageNetwork.clearSession(player);
+            player.sendSystemMessage(Component.literal("The Dynamic Stage instance changed while preparing."));
+            return;
         }
-        int slot = StagePlacement.allocate(data);
-        if (slot < 0) {
-            player.sendSystemMessage(Component.literal("All isolated Dynamic Stage regions are in use."));
-            return false;
-        }
-        StageFlightAssets.Asset flight = StageFlightAssets.findConfigured(
-                server.getWorldPath(LevelResource.ROOT), stageId);
-        StageSession session = new StageSession(
-                player.getUUID(), stageId, source, anchor, slot,
-                returnPoint.dimension(), returnPoint.position(), returnPoint.yRot(), returnPoint.xRot(),
-                product.hash(), product.bytes(),
-                flight == null ? "" : flight.hash(),
-                flight == null ? 0 : flight.bytes(),
-                flight == null ? 0L : flight.durationMillis(),
-                -1L);
         data.put(session);
+        markPlayer(player, session.instanceId());
         BlockPos origin = session.stageOrigin();
         player.stopRiding();
         player.fallDistance = 0.0F;
         player.teleportTo(stageLevel, origin.getX() + 0.5D, origin.getY(), origin.getZ() + 0.5D,
                 player.getYRot(), player.getXRot());
-        DynamicStageNetwork.sendSession(player, session);
-        player.sendSystemMessage(Component.literal("Entered stage '" + stageId + "' in isolated region " + slot + '.'));
+        player.sendSystemMessage(Component.literal("Entered stage '" + session.stageId() + "' instance "
+                + session.instanceId() + '.'));
+        sendOrStartFlight(player, session);
+    }
+
+    private static void sendOrStartFlight(ServerPlayer player, StageSession session) {
+        if (!session.hasFlight() || !SENT_FLIGHTS.add(player.getUUID())) {
+            return;
+        }
+        MinecraftServer server = player.getServer();
+        StageSessionData data = StageSessionData.get(server);
+        if (session.flightStartGameTime() < 0L) {
+            long start = player.serverLevel().getGameTime() + 20L;
+            data.updateInstanceFlightStart(session.instanceId(), start);
+            session = data.get(player.getUUID()).orElse(session.withFlightStart(start));
+        }
+        StageFlightAssets.Asset asset = StageFlightAssets.load(server, session.stageId(), session.flightHash());
+        if (asset == null) {
+            SENT_FLIGHTS.remove(player.getUUID());
+            return;
+        }
+        DynamicStageNetwork.sendFlight(player, StageFlightPacket.active(session, asset.sceneJson()));
+    }
+
+    private static StageSession createMembership(ServerPlayer player, UUID instanceId, String stageId,
+                                                  ResourceLocation lodPackId, BlockPos anchor, int slot, int capacity,
+                                                  StageFlightAssets.Asset flight, long flightStart) {
+        return new StageSession(player.getUUID(), instanceId, stageId, lodPackId, anchor, slot, capacity,
+                player.serverLevel().dimension(), player.position(), player.getYRot(), player.getXRot(),
+                flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
+                flight == null ? 0L : flight.durationMillis(), flight == null ? -1L : flightStart);
+    }
+
+    private static StageSession createMembership(ServerPlayer player, StageSession instance) {
+        return new StageSession(player.getUUID(), instance.instanceId(), instance.stageId(), instance.lodPackId(),
+                instance.lodAnchor(), instance.slot(), instance.capacity(), player.serverLevel().dimension(),
+                player.position(), player.getYRot(), player.getXRot(), instance.flightHash(), instance.flightBytes(),
+                instance.flightDurationMillis(), instance.flightStartGameTime());
+    }
+
+    private static StageFlightAssets.Asset flightFor(MinecraftServer server, String stageId) {
+        return StageFlightAssets.findConfigured(server.getWorldPath(LevelResource.ROOT), stageId);
+    }
+
+    private static boolean validFlight(MinecraftServer server, StageSession session) {
+        StageFlightAssets.Asset flight = StageFlightAssets.load(server, session.stageId(), session.flightHash());
+        return flight != null && flight.bytes() == session.flightBytes()
+                && flight.durationMillis() == session.flightDurationMillis();
+    }
+
+    private static boolean canPrepare(ServerPlayer player, MinecraftServer server) {
+        if (server == null || PENDING.containsKey(player.getUUID())) {
+            return false;
+        }
+        if (StageSessionData.get(server).get(player.getUUID()).isPresent()) {
+            player.sendSystemMessage(Component.literal("A Dynamic Stage session is already active."));
+            return false;
+        }
         return true;
     }
 
-    private static String rootMessage(Throwable error) {
-        Throwable current = error;
-        while (current.getCause() != null) {
-            current = current.getCause();
+    private static int allocateSlot(StageSessionData data) {
+        Set<Integer> occupied = new HashSet<>();
+        data.all().forEach(session -> occupied.add(session.slot()));
+        PENDING.values().forEach(entry -> occupied.add(entry.session.slot()));
+        for (int slot = 0; slot < StagePlacement.MAX_SLOTS; slot++) {
+            if (!occupied.contains(slot)) {
+                return slot;
+            }
         }
-        String message = current.getMessage();
-        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
+        return -1;
     }
 
-    private record ReturnPoint(ResourceKey<Level> dimension, Vec3 position, float yRot, float xRot) {
+    private static boolean slotClaimedByOtherInstance(StageSessionData data, StageSession candidate) {
+        return data.all().stream().anyMatch(session -> session.slot() == candidate.slot()
+                && !session.instanceId().equals(candidate.instanceId()));
+    }
+
+    private static boolean validStageId(String stageId) {
+        return stageId != null && !stageId.isBlank() && stageId.length() <= 128;
+    }
+
+    private static String boundedError(String error) {
+        if (error == null || error.isBlank()) {
+            return "unknown client error";
+        }
+        return error.length() <= 256 ? error : error.substring(0, 256);
+    }
+
+    private static void markPlayer(ServerPlayer player, UUID instanceId) {
+        player.getPersistentData().putUUID(INSTANCE_NBT, instanceId);
+    }
+
+    private static void clearPlayerMarker(ServerPlayer player) {
+        player.getPersistentData().remove(INSTANCE_NBT);
+    }
+
+    private record PendingEntry(StageSession session) {
     }
 }

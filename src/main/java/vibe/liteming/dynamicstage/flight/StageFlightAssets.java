@@ -2,7 +2,7 @@ package vibe.liteming.dynamicstage.flight;
 
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
-import vibe.liteming.dynamicstage.backdrop.BackdropProducts;
+import vibe.liteming.dynamicstage.util.ContentHash;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
@@ -39,12 +39,12 @@ public final class StageFlightAssets {
         }
         StageFlightCodec.Scene scene = StageFlightCodec.select(readBounded(source), sceneSlot);
         byte[] canonical = scene.json();
-        String hash = BackdropProducts.sha256Hex(canonical);
+        String hash = ContentHash.sha256Hex(canonical);
         Path directory = stageDirectory(worldRoot, stageId);
         Files.createDirectories(directory);
         Path target = directory.resolve(hash + ".json");
         if (!Files.isRegularFile(target) || Files.size(target) != canonical.length
-                || !hash.equals(BackdropProducts.sha256Hex(target))) {
+                || !hash.equals(ContentHash.sha256Hex(target))) {
             atomicWrite(directory, target, canonical);
         }
         atomicWrite(directory, directory.resolve(ACTIVE_REF),
@@ -79,7 +79,7 @@ public final class StageFlightAssets {
 
     @Nullable
     public static Asset load(Path worldRoot, String stageId, String hash) {
-        if (!BackdropProducts.isSha256(hash)) {
+        if (!ContentHash.isSha256(hash)) {
             return null;
         }
         try {
@@ -93,7 +93,7 @@ public final class StageFlightAssets {
                 return null;
             }
             byte[] bytes = readBounded(path);
-            if (!hash.equals(BackdropProducts.sha256Hex(bytes))) {
+            if (!hash.equals(ContentHash.sha256Hex(bytes))) {
                 return null;
             }
             StageFlightCodec.Scene scene = StageFlightCodec.readSingle(bytes);
@@ -114,7 +114,7 @@ public final class StageFlightAssets {
 
     public static Path stageDirectory(Path worldRoot, String stageId) {
         return worldRoot.resolve("data").resolve("dynamicstage").resolve("flights")
-                .resolve(BackdropProducts.sha256Hex(stageId.getBytes(StandardCharsets.UTF_8)).substring(0, 24))
+                .resolve(ContentHash.sha256Hex(stageId.getBytes(StandardCharsets.UTF_8)).substring(0, 24))
                 .toAbsolutePath().normalize();
     }
 

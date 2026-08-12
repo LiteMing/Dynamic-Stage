@@ -6,11 +6,11 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.nbt.CompoundTag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import vibe.liteming.dynamicstage.backdrop.BackdropProducts;
 import vibe.liteming.dynamicstage.client.backdrop.CMDCamPoseBridge;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.flight.StageFlightCodec;
 import vibe.liteming.dynamicstage.network.StageFlightPacket;
+import vibe.liteming.dynamicstage.util.ContentHash;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
 import javax.annotation.Nullable;
@@ -52,7 +52,7 @@ public final class StageFlightController {
                 || snapshot.flightBytes() != packetJson.length
                 || snapshot.flightDurationMillis() != packet.durationMillis()
                 || packet.startGameTime() < 0L
-                || !BackdropProducts.sha256Hex(packetJson).equals(packet.flightHash())) {
+                || !ContentHash.sha256Hex(packetJson).equals(packet.flightHash())) {
             LOGGER.warn("Rejected a stage flight that does not match the active session");
             return;
         }

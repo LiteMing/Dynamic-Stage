@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -56,9 +57,43 @@ public final class StageSessionData extends SavedData {
         return sessions.values();
     }
 
+    public Optional<StageSession> findInstance(UUID instanceId) {
+        return sessions.values().stream().filter(session -> session.instanceId().equals(instanceId)).findFirst();
+    }
+
+    public List<StageSession> members(UUID instanceId) {
+        return sessions.values().stream().filter(session -> session.instanceId().equals(instanceId)).toList();
+    }
+
     public void put(StageSession session) {
         sessions.put(session.playerId(), session);
         setDirty();
+    }
+
+    public void updateInstanceAnchor(UUID instanceId, net.minecraft.core.BlockPos anchor) {
+        boolean changed = false;
+        for (StageSession session : List.copyOf(sessions.values())) {
+            if (session.instanceId().equals(instanceId)) {
+                sessions.put(session.playerId(), session.withLodAnchor(anchor));
+                changed = true;
+            }
+        }
+        if (changed) {
+            setDirty();
+        }
+    }
+
+    public void updateInstanceFlightStart(UUID instanceId, long startGameTime) {
+        boolean changed = false;
+        for (StageSession session : List.copyOf(sessions.values())) {
+            if (session.instanceId().equals(instanceId) && session.hasFlight()) {
+                sessions.put(session.playerId(), session.withFlightStart(startGameTime));
+                changed = true;
+            }
+        }
+        if (changed) {
+            setDirty();
+        }
     }
 
     public Optional<StageSession> remove(UUID playerId) {

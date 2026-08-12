@@ -4,85 +4,112 @@
 
 ## 结论
 
-当前仓库是 Minecraft Forge 1.20.1 单模块原型，并非已经完成的 Architectury 多平台工程。它已经具备“进入空关卡维度、从 Voxy 或 Distant Horizons 读取周边 LOD、客户端生成背景网格、禁止关卡方块交互、用 CMDCam 当前播放姿态驱动背景反向变换”的最小链路。
+当前仓库已经从“DS 读取 Voxy/DH 缓存、烘焙 `.sdb`、经服务端分块传输、客户端自行建网格渲染”重构为 DH 原生渲染方案：
 
-这条链路已经补上远程背景分发、per-player 持久化会话、隔离 region 和可部署的 CMDCam flight 资产，但自动遭遇战入口、战斗完成条件和实际多人/视觉验收仍未完成，因此目标 1/2 仍是可运行基础设施而非成品。
+```text
+服务端 Dynamic Stage
+  -> 管理实例、成员、容量、物理 region
+  -> 同步 lodPackId、lodAnchor、flight epoch
+  -> 等客户端 ready 后传送
 
-## 平台与参考基线
+客户端 Dynamic Stage
+  -> 校验本地独立 LOD 包
+  -> 将关卡维度的 DH 保存目录重定向到包内 dh/
+  -> 临时开启 DH read-only
+  -> 向 DH 提供虚拟相机/玩家位置
 
-- 当前工程：Forge 1.20.1，ForgeGradle 6，Java 17。
-- Voxy 参考：`D:\IdeaProjects\voxy-thirdparty`，分支 `mc_1201`，审查提交 `69b19fe`。
-- Distant Horizons 参考：`D:\IdeaProjects\DistantHorizons`。
-- CMDCam 参考：`D:\IdeaProjects\CMDCam`，分支 `1.20`，审查提交 `f0f18cb`。
-- 旧主体参考：`D:\IdeaProjects\Stage-Dimensions`。该仓库存在未提交改动，本次只读审查，没有修改。
+Distant Horizons
+  -> 打开自己的 SQLite
+  -> 自己缓存、建模、调度和渲染
+```
 
-## 目标 1：隔离遭遇战关卡
+因此 DS 不再承担 LOD 烘焙、文件传输、格式转换、网格上传或渲染。服务器负担只剩实例状态、ready 握手和少量控制包；LOD 数据的分发由整合包或其他客户端文件分发机制负责。
 
-已具备：
+## 仓库基线
 
-- `dynamicstage:stg_stage` 空维度和手动进入/退出命令。
-- 按锚点读取 Voxy RocksDB 或 DH SQLite 的周边 LOD，并在后台生成内容寻址 `.sdb`。
-- Voxy 按当前维度与 biome seed 的官方目录哈希精确定位；DH 按原版维度存档目录精确定位。
-- LOD 只在客户端建立 GPU 网格，关卡服务端不需要复制背景方块。
-- 关卡维度内方块左键、右键、物品对方块使用及破坏事件被禁止。
-- 离开关卡会释放背景网格；异步旧请求不能覆盖新关卡背景。
-- `.sdb` 通过 16 KiB S2C 分块按需传输，客户端校验 SHA-256、Blob CRC 并支持断点缓存。
-- 服务端使用持久化 per-player 会话，分配间隔 2048 方块的独立 region。
-- `/dynamicstage exit` 精确恢复原维度、位置和朝向；登录、手动切维度、重生有清理/恢复路径。
+- 当前工程：Forge 1.20.1、ForgeGradle 6、Java 17。
+- 当前并非 Architectury 多平台工程；Fabric/Voxy 尚未接入。
+- DH 参考源码：`D:\IdeaProjects\DistantHorizons`，`multiversion_test`。
+- 实际开发运行 JAR：Distant Horizons 3.2.0-b（Minecraft 1.20.1）。
+- Voxy 参考：`D:\IdeaProjects\voxy-thirdparty`，`mc_1201`；本轮未修改。
+- 音乐参考：`D:\IdeaProjects\mob-battle-music`；本轮未修改，音乐仍由 MBM 负责。
 
-主要缺口：
+## 已完成：关卡实例
 
-- 没有自动遭遇触发和战斗结束条件。
-- 目前是一人一个 region，没有组队共享实例、容量策略或战斗状态机。
-- 掉线会保留会话并在重连后恢复背景，但尚未做完整的服务端崩溃/产品丢失实机演练。
-- LOD 准备是单后台 worker 且会合并同产品请求，但尚未记录大世界烘焙耗时与服务端内存峰值。
+- `StageSession` 持久化玩家、实例 UUID、stage ID、LOD 包 ID、LOD 锚点、region slot、容量、返回点和 flight 状态。
+- 旧 `.sdb` 会话没有实例/LOD 包字段，会被明确视为不兼容状态并忽略；旧测试世界应先退出/清理旧关卡会话。
+- `capacity = 1` 表示单人实例；多人可通过实例 UUID 加入同一 region。
+- 不同实例使用间隔 2048 方块的独立 region，同一实例成员共享 region。
+- 玩家 persistent NBT 写入 `DynamicStageInstance=<instance UUID>`，供 KubeJS/MBM 等外部编排检查。
+- 客户端先校验 LOD 包，发送首个 ready 后服务端才传送；目标 wrapper 出现后再重绑外部数据库，flight 在重绑成功前暂停，重绑失败会安全退出。
+- 重连时若本地包丢失或损坏，玩家会退出关卡并返回原位置。
+- LOD 锚点与物理 region 解耦；更新锚点会广播给已进入和仍在 ready 握手中的成员。
+- 关卡维度禁止方块左键、右键、物品对方块使用和破坏。
 
-## 目标 2：STG 摄像机背景
+目前实例是“只要至少一个持久化成员存在即存活”的轻量模型，还没有战斗状态机、房主/权限、胜负条件、自动遭遇入口或实例列表 API。
 
-已具备：
+## 已完成：DH 原生兼容
 
-- Voxy 与 DH 数据可以转为客户端体素网格。
-- Voxy 多级 LOD 使用距离环带，并按 `2^level` 还原高级 LOD 单元坐标和尺寸。
-- DH 按 section 坐标和 detail level 计算方块范围，支持未压缩、LZ4 和 XZ，校验 `DataFormatVersion == 1`。
-- CMDCam 反射桥读取 `CamRun.currentStage` 和当前 stage 内时间，按帧插值获取 6DoF 姿态。
-- 渲染器将虚拟摄像机位姿反向应用到背景，运动逻辑只在客户端执行。
-- 管理员可从世界存档内固定收件目录导入 CMDCam 原生场景数组，并显式选择 1-10 的场景槽位。
-- 导入会限制 256 KiB、JSON 深度/节点/字符串、2-4096 路径点、时长、模式、循环和跟随目标，并按 SHA-256 持久化引用。
-- 客户端完成背景校验与 GPU 上传后才发送 ready；服务端授权未来开始 tick，并在重连时用关卡维度游戏时钟恢复对应路径时间。
-- flight 场景本身通过 S2C 下发，客户端复用 CMDCam 的 `CamScene` 反序列化、插值和播放实现，服务端不移动方块或摄像机。
+- LOD 包位于 `.minecraft/dynamicstage/lodpacks/<namespace>/<path>/`，可完全独立于当前存档和 DH 默认缓存目录。
+- `manifest.json` 锁定格式版本、后端、MC/DH 版本和关卡高度；路径和数据库有边界、符号链接、大小及 SQLite header 校验。
+- 使用 DH 公开 `IDhApiSaveStructure` 扩展点重定向 `dynamicstage:stg_stage` 的保存目录。
+- override 只在 DS 会话期间绑定，退出时解除，避免长期遮蔽其他 DH 兼容模组。
+- DH world API 必须已加载且成功进入 read-only，客户端才会报告 ready。
+- 退出或切包时先关闭 DH level，精确失效当前 wrapper 的保存目录缓存，再重新加载；不会清空其他维度缓存。
+- Mixin 覆盖 DH 3.2.0-b Forge 的：
+  - `MinecraftRenderWrapper_forge#getCameraExactPosition`
+  - `MinecraftClientWrapper_forge#getPlayerBlockPos`
+  - `MinecraftClientWrapper_forge#getPlayerChunkPos`
+- 虚拟位置只在客户端已经处于 `dynamicstage:stg_stage` 时生效，ready 握手期间不会污染来源世界 DH 视点。
 
-主要缺口：
+开发客户端日志已确认 `dynamicstage.mixins.json (2)` 被加载，两个 Mixin 均实际注入对应 `_forge` 类，随后 DH 3.2.0-b 完成初始化、OpenGL 绑定和主菜单资源加载，无 `InvalidMixin`/注入失败。
 
-- 每个玩家会话有服务端授权时钟，但组队共享实例和跨玩家共同起点尚未实现。
-- CMDCam 追帧依赖 1.20 分支 `RealTimeTimer` 私有字段的反射软适配；升级 CMDCam 时必须重新验收，失配时会跳过 flight 而不使服务端崩溃。
-- 单个 `VertexBuffer` 有内存和上传峰值风险，尚未分页、分区或按视锥调度。
-- 尚未用实际游戏截图或录像验证所有 yaw、pitch、roll 和位移方向。
-- 没有在目标硬件上记录帧时间、显存、加载耗时和大范围 LOD 上限。
+## 已完成：客户端动画基础
 
-## 目标 3：边界与自定义场地
+- CMDCam 场景仍采用受限导入、内容寻址存储和服务端授权的 game-time epoch。
+- 同一实例锁定同一个 flight hash、字节数、时长和起点；后来替换同名 stage 配置只影响新实例。
+- 加入者继承已有实例的 flight，不会重新读取当前 active 配置造成成员分叉。
+- 客户端通过 CMDCam 自己的插值/播放管线运行动画；DS 只读取相对位移并改变 DH 虚拟来源坐标。
+- DS 不实现音乐播放。KubeJS 可同时检查 MBM marker 与 `DynamicStageInstance` 驱动客户端效果。
 
-新仓库没有迁入旧项目的场地编辑器、模板和自定义场地主体，因此没有大块目标 3 实现需要删除。本次只移除了空的 Mixin、Access Transformer、服务器事件占位和 Postman 元数据。
+需要注意：DH 朝向仍读取 Minecraft/CMDCam 主相机，DS 只覆盖 DH 坐标；yaw、pitch、roll 的最终视觉必须用真实 CMDCam 路径验收。
 
-保留 `.sdb`/Backdrop Blob 数据层是有意的：它属于目标 1 的专用服务器背景分发方案，不是自定义场地功能。未来确需边界时，应只加入最小运行时边界和基础场地生成，不迁回编辑器/UI 系统。
+## 已删除
 
-## 本轮修正与验证
+- `.sdb`/Backdrop Blob 格式及所有分块网络协议。
+- 服务端 DH SQLite、Voxy RocksDB 读取器和 portable baker。
+- DS 自有客户端 LOD cache/downloader/voxel renderer。
+- RocksDB、Zstd、SQLite JDBC、LZ4、XZ 等内嵌依赖。
+- 与上述旧链路对应的探针和单元测试。
 
-- 修正非原点背景锚点的重复偏移。
-- 修正 Voxy 多级 LOD 重叠、预算和高级 LOD 尺度。
-- 删除已无调用的旧 `VoxyProvider/LodProvider` 烘焙分支，统一走 portable baker。
-- 修正 DH 坐标、逐行 mapping、压缩模式、格式版本与多级距离环带。
-- 修正 CMDCam 帧插值入口和 stage 内时间来源。
-- 增加 CMDCam flight 的受限导入、内容寻址存储、背景 ready 握手、服务端播放 epoch 与重连追帧。
-- 增加关卡方块交互隔离、客户端资源释放和异步加载请求隔离。
-- 发布包通过 Jar-in-Jar 内嵌 RocksDB、Zstd、SQLite JDBC、LZ4 和 XZ。
-- 自动测试覆盖 Backdrop Blob 往返/结构拒绝、内容寻址与损坏缓存拒绝、portable baker 合并、源维度指纹、Voxy 有符号 section key/高级 LOD 缩放和 region 布局。
-- 真实 DH 数据库探针覆盖 62 个 section、三档 detail level、XZ 解压与 mapping/column 解析。
+这些删除直接落实“DS 不负责 LOD 渲染和重构缓存”的目标，也移除了与目标 3 无关的未完成负担。
 
-## 推荐实现顺序
+## 当前验证
 
-1. 用 `runClient`/双客户端实测远程 Blob 下载、缓存命中、断线重连、原位返回和两个隔离 region。
-2. 定义自动遭遇触发接口、战斗开始/完成/取消状态机及共享实例策略。
-3. 用实际路径录制验证 CMDCam XYZ、yaw、pitch、roll 方向以及断线重连的中途恢复位置。
-4. 对背景网格分页并记录实际运动方向、烘焙/下载耗时、帧时间、显存和服务端内存峰值。
-5. 将平台无关协议/格式抽到 common 后再迁移 Architectury/Fabric；当前不能声称 Fabric/Voxy 平台完成。
-6. 目标 1/2 稳定后，再实现最小边界和基础方块场地。
+已通过：
+
+```powershell
+.\gradlew.bat clean test jarJar
+.\gradlew.bat -PincludeDh=true runClient
+```
+
+- JUnit 覆盖 flight 格式/资产、region 布局、LOD manifest、SQLite header 和符号链接路径拒绝。
+- 发布 JAR 含 DS Mixin 配置和两个 DH Mixin，不含旧 LOD 数据库/压缩依赖。
+- DH 3.2.0-b 客户端初始化与 Mixin 实际应用通过。
+
+尚未完成：
+
+- 用真实外部 `DistantHorizons.sqlite` 进入关卡并截图确认画面。
+- 同一连接内切换两个 LOD 包，确认 DH 实际打开不同数据库。
+- 双客户端多人容量、共同锚点和共同 flight epoch 验收。
+- 断线重连、包删除、数据库被占用、集成服务器与专用服务器全流程。
+- CMDCam 与当前 CreativeCore 运行依赖的兼容性；现有 Modrinth CreativeCore 在开发映射环境会先于 DS 因自身 `ShapesMixin` 失败。
+- KubeJS + MBM marker/NBT 的实际脚本接口和音乐同步效果。
+
+## 后续顺序
+
+1. 准备真实 DH 3.2.0-b LOD 包，完成挂载、锚点、切包、退出和只读恢复的游戏内验收。
+2. 完成双客户端实例/重连测试，并定义自动遭遇、完成、取消和超时状态机。
+3. 选择与当前 Forge 映射兼容的 CMDCam/CreativeCore 构建，验证 XYZ/yaw/pitch/roll 和 MBM/KubeJS 同步。
+4. 固化 DH 兼容版本范围和失败提示，再开始 Fabric 1.20.1 Voxy 原生渲染适配。
+5. 目标 1/2 稳定后，只恢复目标 3 所需的最小边界与基础场地，不迁回旧编辑器/烘焙架构。
