@@ -55,14 +55,17 @@ Distant Horizons
 - 使用 DH 公开 `IDhApiSaveStructure` 扩展点重定向 `dynamicstage:stg_stage` 的保存目录。
 - override 只在 DS 会话期间绑定，退出时解除，避免长期遮蔽其他 DH 兼容模组。
 - DH world API 必须已加载且成功进入 read-only，客户端才会报告 ready。
-- 退出或切包时先关闭 DH level，精确失效当前 wrapper 的保存目录缓存，再重新加载；不会清空其他维度缓存。
+- 切包/解绑时只关闭对应 DH level，并精确失效当前 wrapper 的保存目录缓存；integrated server 退出时会先完成服务端维度事件，再让客户端解绑，不会清空其他维度缓存。
+- 激活后会从 DH 实际 level/repository 反查打开的 SQLite 路径，只有与包内文件一致才报告 ready；若其他模组抢占 save override，DS 会明确失败而不是渲染错误缓存。
+- DH 3.2 的 read-only API 只停止 LOD 更新、生成和网络取回；其 SQLite 初始化仍要求目录/文件可写，也可能执行 DH 自己的 schema migration。分发包应由相同兼容版本生成，并保留独立只读母版用于恢复。
+- integrated server 退出顺序已实测：先让 DH 服务端监听维度切换，再清理客户端 DH level，避免 `AbstractDhServerWorld.changePlayerLevel` 对已卸载 level 的空引用。
 - Mixin 覆盖 DH 3.2.0-b Forge 的：
   - `MinecraftRenderWrapper_forge#getCameraExactPosition`
   - `MinecraftClientWrapper_forge#getPlayerBlockPos`
   - `MinecraftClientWrapper_forge#getPlayerChunkPos`
 - 虚拟位置只在客户端已经处于 `dynamicstage:stg_stage` 时生效，ready 握手期间不会污染来源世界 DH 视点。
 
-开发客户端日志已确认 `dynamicstage.mixins.json (2)` 被加载，两个 Mixin 均实际注入对应 `_forge` 类，随后 DH 3.2.0-b 完成初始化、OpenGL 绑定和主菜单资源加载，无 `InvalidMixin`/注入失败。
+开发客户端日志已确认 `dynamicstage.mixins.json (2)` 被加载，两个 Mixin 均实际注入对应 `_forge` 类。真实 6.7 MB DH 数据库验收中，DH 依次打开 `dev:overworld` 和第二个包路径，完成 OpenGL renderer 初始化、锚点更新、退出卸载与 read-only 恢复；修复退出顺序后无 DH level-change 异常。
 
 ## 已完成：客户端动画基础
 
@@ -99,8 +102,7 @@ Distant Horizons
 
 尚未完成：
 
-- 用真实外部 `DistantHorizons.sqlite` 进入关卡并截图确认画面。
-- 同一连接内切换两个 LOD 包，确认 DH 实际打开不同数据库。
+- 用真实外部 `DistantHorizons.sqlite` 进入关卡并截图做像素级画面对比（实际数据库打开与 renderer 初始化已通过日志验证）。
 - 双客户端多人容量、共同锚点和共同 flight epoch 验收。
 - 断线重连、包删除、数据库被占用、集成服务器与专用服务器全流程。
 - CMDCam 与当前 CreativeCore 运行依赖的兼容性；现有 Modrinth CreativeCore 在开发映射环境会先于 DS 因自身 `ShapesMixin` 失败。

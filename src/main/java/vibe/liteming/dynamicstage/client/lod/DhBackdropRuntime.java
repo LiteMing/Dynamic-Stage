@@ -11,6 +11,8 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
 
@@ -264,6 +266,7 @@ public final class DhBackdropRuntime {
     }
 
     private static void reloadCurrentDhLevel() throws ReflectiveOperationException {
+        requireSelectedSaveOverride();
         Object[] pair = currentWorldAndWrapper();
         if (pair == null) {
             throw new IllegalStateException("Distant Horizons has no wrapper for the current stage level");
@@ -281,9 +284,11 @@ public final class DhBackdropRuntime {
         invalidateSaveFolder(world, clientWrapper);
         if (serverWrapper != null) {
             invalidateSaveFolder(world, serverWrapper);
-            requireLoaded(invokeCompatible(world, "getOrLoadLevel", serverWrapper));
+            Object level = requireLoaded(invokeCompatible(world, "getOrLoadLevel", serverWrapper));
+            verifyLoadedDatabase(level);
         }
-        requireLoaded(invokeCompatible(world, "getOrLoadLevel", clientWrapper));
+        Object level = requireLoaded(invokeCompatible(world, "getOrLoadLevel", clientWrapper));
+        verifyLoadedDatabase(level);
     }
 
     private static void unloadCurrentDhLevel() throws ReflectiveOperationException {
@@ -348,10 +353,49 @@ public final class DhBackdropRuntime {
         throw new NoSuchMethodException(target.getClass().getName() + '.' + name);
     }
 
-    private static void requireLoaded(@Nullable Object level) {
+    private static Object requireLoaded(@Nullable Object level) {
         if (level == null) {
             throw new IllegalStateException("Distant Horizons did not load the stage level");
         }
+        return level;
+    }
+
+    private static void requireSelectedSaveOverride() throws ReflectiveOperationException {
+        Object proxy = saveOverrideProxy;
+        if (!overrideRegistered || proxy == null) {
+            throw new IllegalStateException("Dynamic Stage's DH save override is not registered");
+        }
+        Class<?> overrideClass = Class.forName(SAVE_OVERRIDE);
+        Object injector = Class.forName(DH_API).getField("overrides").get(null);
+        Object selected = findMethod(injector.getClass(), "get", 1).invoke(injector, overrideClass);
+        if (selected != proxy) {
+            throw new IllegalStateException("Another mod replaced Dynamic Stage's DH save override");
+        }
+    }
+
+    private static void verifyLoadedDatabase(Object level) throws ReflectiveOperationException {
+        Mounted current = mounted;
+        if (current == null) {
+            throw new IllegalStateException("The DH LOD package was unmounted while its level was loading");
+        }
+        Object provider = findMethod(level.getClass(), "getFullDataProvider", 0).invoke(level);
+        Field repoField = findField(provider.getClass(), "repo");
+        Object repo = repoField.get(provider);
+        Field databaseField = findField(repo.getClass(), "databaseFile");
+        Object value = databaseField.get(repo);
+        if (!(value instanceof File database)) {
+            throw new IllegalStateException("DH returned an unsupported database path");
+        }
+        Path actual = database.toPath().toAbsolutePath().normalize();
+        Path expected = current.pack.database().toAbsolutePath().normalize();
+        try {
+            if (!Files.isSameFile(actual, expected)) {
+                throw new IllegalStateException("DH opened a different database: " + actual);
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Could not verify DH's opened database: " + actual, e);
+        }
+        LOGGER.info("DH opened stage LOD database {}", actual);
     }
 
     @Nullable

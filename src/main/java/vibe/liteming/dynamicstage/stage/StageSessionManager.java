@@ -145,8 +145,8 @@ public final class StageSessionManager {
         Optional<StageSession> removed = StageSessionData.get(server).remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
         clearPlayerMarker(player);
-        DynamicStageNetwork.clearSession(player);
         if (removed.isEmpty()) {
+            DynamicStageNetwork.clearSession(player);
             return cancelled;
         }
         StageSession session = removed.get();
@@ -158,6 +158,7 @@ public final class StageSessionManager {
         player.fallDistance = 0.0F;
         player.teleportTo(returnLevel, session.returnPosition().x, session.returnPosition().y,
                 session.returnPosition().z, session.returnYRot(), session.returnXRot());
+        DynamicStageNetwork.clearSession(player);
         return true;
     }
 

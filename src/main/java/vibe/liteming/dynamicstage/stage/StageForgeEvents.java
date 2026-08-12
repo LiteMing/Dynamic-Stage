@@ -42,8 +42,10 @@ public final class StageForgeEvents {
     public static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player
                 && event.getFrom().equals(StageWorlds.STG_STAGE)
-                && !event.getTo().equals(StageWorlds.STG_STAGE)) {
-            StageSessionManager.releaseWithoutTeleport(player);
+                && !event.getTo().equals(StageWorlds.STG_STAGE)
+                && StageSessionManager.get(player).isPresent()) {
+            // DH also consumes this event. Defer its level teardown until every listener has observed the transition.
+            player.getServer().execute(() -> StageSessionManager.releaseWithoutTeleport(player));
         }
     }
 

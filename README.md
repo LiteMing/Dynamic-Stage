@@ -42,6 +42,8 @@ Example `.minecraft/dynamicstage/lodpacks/stages/forest/manifest.json`:
 
 The package is selected as `stages:forest`. Dynamic Stage validates the manifest, rejects symbolic-link paths, checks the SQLite header, mounts the directory through DH's save-structure override, and forces DH read-only while the stage is active. The database is never sent over the Dynamic Stage network channel.
 
+DH 3.2 still requires the database file and its directory to be writable when opening it, and may apply its own schema migrations. "Read-only" here means DS asks DH to stop LOD updates, generation, and network retrieval while the stage is active; it is not a SQLite read-only connection. Distribute a writable package produced by the same supported DH version and keep an immutable source copy outside the live instance when exact byte preservation matters.
+
 ## Commands
 
 Commands currently require permission level 2:
@@ -86,6 +88,6 @@ Run the separate CMDCam compatibility pass:
 .\gradlew.bat -PincludeDh=true -PincludeCmdCam=true runClient
 ```
 
-DH 3.2.0-b has been verified to initialize with both Dynamic Stage DH mixins on Forge 1.20.1. Loading an actual external package, switching packages in one connection, multiplayer timing, and CMDCam XYZ/yaw/pitch/roll still require in-world acceptance tests.
+DH 3.2.0-b has been verified on Forge 1.20.1 with a real external database: both Dynamic Stage mixins apply, DH opens the selected package, anchor updates succeed, two package paths can be selected in one connection, and exit restores DH state without a level-change error. Multiplayer timing, visual screenshot comparison, and CMDCam XYZ/yaw/pitch/roll still require acceptance tests.
 
 See [docs/REPOSITORY_REVIEW.md](docs/REPOSITORY_REVIEW.md) for the current architecture review and remaining work.
