@@ -14,19 +14,19 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
 import org.joml.Matrix4f;
-import vibe.liteming.dynamicstage.stage.StageSession;
+import vibe.liteming.dynamicstage.backdrop.BackdropBlobIO;
+import vibe.liteming.dynamicstage.backdrop.BackdropColumn;
+import vibe.liteming.dynamicstage.backdrop.BackdropManifest;
+import vibe.liteming.dynamicstage.bake.lod.Voxel;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
 import javax.annotation.Nullable;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Renders the Voxy backdrop DIRECTLY from raw section voxels — no bake step,
- * no .sdb intermediate, no column reconstruction. The mesh is built once into a
+ * Renders a downloaded portable LOD backdrop. The mesh is built once into a
  * GPU-resident {@link VertexBuffer}; {@link #render} only binds and draws.
  * <p>
  * Surface culling: a face is only emitted when the neighbouring voxel is absent,
@@ -37,42 +37,35 @@ public final class BackdropRenderer {
 
     @Nullable
     private static volatile VoxelMesh activeMesh;
-    private static final AtomicLong LOAD_SEQUENCE = new AtomicLong();
 
     private BackdropRenderer() {
     }
 
-    /**
-     * Loads the backdrop for the given anchor from the given LOD data source:
-     * voxel read on a background thread, mesh build on the client thread.
-     *
-     * @param dataFile Voxy storage directory or Distant Horizons sqlite file
-     * @param source   {@link vibe.liteming.dynamicstage.stage.StageSession#SOURCE_VOXY}
-     *                 or {@code SOURCE_DH}
-     */
-    public static void loadDirect(java.nio.file.Path dataFile, BlockPos anchor, String source) {
-        long request = LOAD_SEQUENCE.incrementAndGet();
-        CompletableFuture.runAsync(() -> {
-            List<Voxel> voxels;
-            try {
-                voxels = StageSession.SOURCE_DH.equals(source)
-                        ? DHFileReader.read(dataFile, anchor)
-                        : VoxyDirectReader.read(dataFile, anchor);
-            } catch (Throwable ignored) {
-                voxels = List.of();
+    /** Builds a stage-local voxel mesh from a downloaded portable backdrop blob. */
+    public static void setBlob(BackdropBlobIO.Blob blob, BlockPos stageOrigin) {
+        BackdropManifest manifest = blob.manifest();
+        int[] palette = manifest.getPalette();
+        List<Voxel> voxels = new java.util.ArrayList<>(blob.columns().size());
+        for (BackdropColumn column : blob.columns()) {
+            if (column.paletteIndex() < 0 || column.paletteIndex() >= palette.length) {
+                continue;
             }
-            List<Voxel> loaded = voxels;
-            Minecraft.getInstance().execute(() -> {
-                if (request != LOAD_SEQUENCE.get() || !StageWorlds.isStageLevel(Minecraft.getInstance().level)) {
-                    return;
-                }
-                if (loaded.isEmpty()) {
-                    clearBackdrop();
-                } else {
-                    setVoxels(loaded, anchor);
-                }
-            });
-        });
+            int size = 1 << Math.min(column.lodLevel(), 15);
+            int height = column.yEnd() - column.yStart();
+            if (height <= 0) {
+                continue;
+            }
+            voxels.add(new Voxel(
+                    stageOrigin.getX() + column.x(),
+                    stageOrigin.getY() + column.yStart() - manifest.getAnchorY(),
+                    stageOrigin.getZ() + column.z(),
+                    palette[column.paletteIndex()], size, height));
+        }
+        if (voxels.isEmpty()) {
+            clearBackdrop();
+        } else {
+            setVoxels(voxels, stageOrigin);
+        }
     }
 
     /** Builds a new mesh from raw voxels (client thread; GPU upload). */
@@ -86,7 +79,6 @@ public final class BackdropRenderer {
     }
 
     public static void clearBackdrop() {
-        LOAD_SEQUENCE.incrementAndGet();
         VoxelMesh previous = activeMesh;
         activeMesh = null;
         if (previous != null) {

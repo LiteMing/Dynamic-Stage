@@ -1,4 +1,4 @@
-package vibe.liteming.dynamicstage.client.backdrop;
+package vibe.liteming.dynamicstage.bake.lod;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
@@ -13,9 +13,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Reads a Voxy RocksDB database directly into voxels for the renderer, using
+ * Reads a Voxy RocksDB database into portable bake voxels, using
  * Voxy's native LoD levels (32/64/128-block sections) selected by distance.
- * No bake step, no .sdb intermediate — the renderer consumes these voxels as-is.
+ * The server-side baker serialises the result into a distributed {@code .sdb}.
  */
 public final class VoxyDirectReader {
 
@@ -73,9 +73,9 @@ public final class VoxyDirectReader {
         long limit = Math.min(VOXEL_BUDGET, out.size() + budget);
         int size = VoxySectionKey.sectionSize(level);
         int cellSize = 1 << level;
-        db.iterateSections(level, key -> {
+        db.iterateSectionsWhile(level, key -> {
             if (out.size() >= limit) {
-                return;
+                return false;
             }
             int sx = VoxySectionKey.xOf(key);
             int sz = VoxySectionKey.zOf(key);
@@ -84,12 +84,12 @@ public final class VoxyDirectReader {
             double dx = cx - anchor.getX();
             double dz = cz - anchor.getZ();
             double dist = Math.sqrt(dx * dx + dz * dz);
-            if (dist > maxDist || dist <= minDist) {
-                return;
+            if (dist > maxDist || (minDist > 0 && dist <= minDist)) {
+                return true;
             }
             byte[] compressed = db.getSection(key);
             if (compressed == null) {
-                return;
+                return true;
             }
             VoxySectionParser.parseAll(compressed, (bx, by, bz, blockId) -> {
                 if (out.size() >= limit) {
@@ -102,6 +102,7 @@ public final class VoxyDirectReader {
                 out.add(new Voxel((int) bx, (int) by, (int) bz, colorMapper.colorFor(state),
                         cellSize, cellSize));
             });
+            return out.size() < limit;
         });
     }
 }

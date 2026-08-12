@@ -150,6 +150,14 @@ public final class VoxyRocksDB {
      * Iterates all section keys (optionally filtered by level).
      */
     public void iterateSections(int level, java.util.function.LongConsumer consumer) {
+        iterateSectionsWhile(level, key -> {
+            consumer.accept(key);
+            return true;
+        });
+    }
+
+    /** Iterates section keys until the predicate returns false. */
+    public void iterateSectionsWhile(int level, java.util.function.LongPredicate consumer) {
         if (!open || db == null || sectionsHandle == null) {
             return;
         }
@@ -172,7 +180,9 @@ public final class VoxyRocksDB {
                     if (level >= 0 && VoxySectionKey.levelOf(key) != level) {
                         break;
                     }
-                    consumer.accept(key);
+                    if (!consumer.test(key)) {
+                        break;
+                    }
                 }
                 iterator.next();
             }

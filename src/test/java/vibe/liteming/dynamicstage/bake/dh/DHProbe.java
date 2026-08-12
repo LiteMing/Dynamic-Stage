@@ -34,6 +34,7 @@ public final class DHProbe {
         Class.forName("org.sqlite.JDBC");
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + Path.of(path).toAbsolutePath())) {
             for (int level = 6; level <= 8; level++) {
+                printBounds(conn, level);
                 String sql = "SELECT PosX, PosZ, MinY, Data, Mapping, CompressionMode, DataFormatVersion "
                         + "FROM FullData WHERE DetailLevel = " + (level - 6);
                 AtomicLong sections = new AtomicLong();
@@ -65,6 +66,20 @@ public final class DHProbe {
                 System.out.println("detail=" + level + " (blockWidth " + (1 << level) + ") sections-scan ok"
                         + " sections=" + sections + " columnRuns=" + columns + " segments=" + segments
                         + " mappingEntries=" + mappingEntries + " unsupportedVersions=" + unsupported);
+            }
+        }
+    }
+
+    private static void printBounds(Connection conn, int level) throws Exception {
+        String sql = "SELECT MIN(PosX) MinX, MAX(PosX) MaxX, MIN(PosZ) MinZ, MAX(PosZ) MaxZ "
+                + "FROM FullData WHERE DetailLevel = " + (level - 6);
+        try (Statement statement = conn.createStatement(); ResultSet result = statement.executeQuery(sql)) {
+            if (result.next()) {
+                int width = 1 << level;
+                System.out.println("detail=" + level + " blockBounds=["
+                        + result.getInt("MinX") * width + ',' + result.getInt("MinZ") * width + "]..["
+                        + ((result.getInt("MaxX") + 1) * width - 1) + ','
+                        + ((result.getInt("MaxZ") + 1) * width - 1) + ']');
             }
         }
     }

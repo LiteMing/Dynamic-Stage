@@ -37,6 +37,9 @@ public final class BackdropBlobIO {
 
     public static final String MAGIC = "SDDBL01\0";
     public static final int FORMAT_VERSION = 1;
+    public static final int MAX_BLOB_BYTES = 50 * 1024 * 1024;
+    public static final int MAX_MANIFEST_BYTES = 1024 * 1024;
+    public static final int MAX_COLUMNS = 2_000_000;
 
     private BackdropBlobIO() {
     }
@@ -57,14 +60,14 @@ public final class BackdropBlobIO {
         }
 
         byte[] blob = out.toByteArray();
-        if (blob.length > 50 * 1024 * 1024) {
+        if (blob.length > MAX_BLOB_BYTES) {
             throw new IllegalArgumentException("Backdrop blob exceeds 50MB cap: " + blob.length + " bytes");
         }
         return blob;
     }
 
     public static Blob read(byte[] blob) {
-        if (blob.length > 50 * 1024 * 1024) {
+        if (blob.length > MAX_BLOB_BYTES) {
             throw new IllegalArgumentException("Backdrop blob exceeds 50MB cap: " + blob.length + " bytes");
         }
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(blob));
@@ -76,7 +79,7 @@ public final class BackdropBlobIO {
             }
 
             int manifestLen = in.readInt();
-            if (manifestLen <= 0 || manifestLen > blob.length) {
+            if (manifestLen <= 0 || manifestLen > MAX_MANIFEST_BYTES || manifestLen > blob.length) {
                 throw new IllegalArgumentException("Corrupt backdrop blob: invalid manifest length " + manifestLen);
             }
             byte[] manifestBytes = new byte[manifestLen];
@@ -89,6 +92,9 @@ public final class BackdropBlobIO {
             }
             byte[] payload = new byte[payloadLen];
             in.readFully(payload);
+            if (in.available() != 0) {
+                throw new IllegalArgumentException("Corrupt backdrop blob: trailing bytes");
+            }
 
             List<BackdropColumn> columns = decodePayload(payload);
             return new Blob(manifest, columns);
@@ -100,6 +106,9 @@ public final class BackdropBlobIO {
     }
 
     private static byte[] encodePayload(List<BackdropColumn> columns) {
+        if (columns.size() > MAX_COLUMNS) {
+            throw new IllegalArgumentException("Backdrop column count exceeds " + MAX_COLUMNS);
+        }
         List<BackdropColumn> sorted = new ArrayList<>(columns);
         sorted.sort((a, b) -> {
             int byLod = Integer.compare(a.lodLevel(), b.lodLevel());
@@ -152,6 +161,9 @@ public final class BackdropBlobIO {
             byte[] buffer = new byte[8192];
             int read;
             while ((read = inflater.read(buffer)) != -1) {
+                if (decompressed.size() + read > MAX_BLOB_BYTES) {
+                    throw new IllegalArgumentException("Corrupt backdrop payload: decompressed size exceeds 50MB cap");
+                }
                 decompressed.write(buffer, 0, read);
             }
         } catch (IOException e) {
@@ -159,7 +171,7 @@ public final class BackdropBlobIO {
         }
 
         byte[] data = decompressed.toByteArray();
-        if (data.length > 50 * 1024 * 1024) {
+        if (data.length > MAX_BLOB_BYTES) {
             throw new IllegalArgumentException("Corrupt backdrop payload: decompressed size " + data.length
                     + " exceeds 50MB cap");
         }
@@ -175,10 +187,10 @@ public final class BackdropBlobIO {
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(data));
         try {
             int count = in.readInt();
-            if (count < 0 || count > 100_000_000) {
+            if (count < 0 || count > MAX_COLUMNS) {
                 throw new IllegalArgumentException("Corrupt backdrop payload: implausible column count " + count);
             }
-            List<BackdropColumn> columns = new ArrayList<>(Math.min(count, 4_000_000));
+            List<BackdropColumn> columns = new ArrayList<>(count);
             for (int i = 0; i < count; i++) {
                 int x = in.readShort();
                 int z = in.readShort();
@@ -187,6 +199,9 @@ public final class BackdropBlobIO {
                 int paletteIndex = readVarInt(in);
                 int lodLevel = in.readUnsignedByte();
                 columns.add(new BackdropColumn(x, z, yStart, yEnd, paletteIndex, lodLevel));
+            }
+            if (in.available() != Long.BYTES) {
+                throw new IllegalArgumentException("Corrupt backdrop payload: trailing column data");
             }
             return columns;
         } catch (EOFException e) {

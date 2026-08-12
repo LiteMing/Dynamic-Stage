@@ -11,7 +11,7 @@ import net.minecraft.server.level.ServerPlayer;
 import vibe.liteming.dynamicstage.bake.DHStorageLocator;
 import vibe.liteming.dynamicstage.bake.VoxyStorageLocator;
 import vibe.liteming.dynamicstage.stage.StageSession;
-import vibe.liteming.dynamicstage.world.StageWorlds;
+import vibe.liteming.dynamicstage.stage.StageSessionManager;
 
 import java.nio.file.Path;
 
@@ -19,10 +19,9 @@ import java.nio.file.Path;
  * Minimal stage commands:
  * <pre>
  * /dynamicstage start <stage> dim <x> <y> <z> [voxy|dh]
- *     → resolve the world's LOD data (Voxy RocksDB or Distant Horizons sqlite),
- *       record the anchor, teleport into the stage dimension; the client then
- *       renders the LOD directly (no bake).
- * /dynamicstage exit → teleport back to overworld spawn
+ *     → resolve the world's LOD data, prepare/cache a portable backdrop, then
+ *       teleport into an isolated stage region and distribute it to the client.
+ * /dynamicstage exit → restore the exact pre-stage dimension and pose
  * </pre>
  */
 public final class DynamicStageCommands {
@@ -63,26 +62,27 @@ public final class DynamicStageCommands {
         String src = sourceName == null ? StageSession.SOURCE_VOXY : sourceName;
         Path dataFile;
         if (StageSession.SOURCE_DH.equals(src)) {
-            dataFile = DHStorageLocator.locate(player.getServer());
+            dataFile = DHStorageLocator.locate(player.getServer(), player.serverLevel());
             if (dataFile == null) {
-                source.sendFailure(Component.literal("No DistantHorizons.sqlite found for this world."));
+                source.sendFailure(Component.literal("No DistantHorizons.sqlite found for the current dimension."));
                 return 0;
             }
         } else {
-            dataFile = VoxyStorageLocator.locate(player.getServer());
+            dataFile = VoxyStorageLocator.locate(player.getServer(), player.serverLevel());
             if (dataFile == null) {
-                source.sendFailure(Component.literal("No Voxy storage found under this world's voxy/ directory."));
+                source.sendFailure(Component.literal("No Voxy storage found for the current dimension and seed."));
                 return 0;
             }
             src = StageSession.SOURCE_VOXY;
         }
         final String resolvedSource = src;
         BlockPos anchor = new BlockPos(x, y, z);
-        StageSession.set(anchor, stage, dataFile, resolvedSource);
-        player.teleportTo(player.getServer().getLevel(StageWorlds.STG_STAGE), x + 0.5D, y, z + 0.5D,
-                player.getYRot(), player.getXRot());
-        source.sendSuccess(() -> Component.literal("Stage '" + stage + "' anchored at (" + x + ", " + y + ", " + z
-                + ") source=" + resolvedSource + ". LOD will render on arrival."), true);
+        if (!StageSessionManager.prepareAndEnter(player, stage, anchor, dataFile, resolvedSource)) {
+            source.sendFailure(Component.literal("Could not start the stage session."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Stage '" + stage + "' queued at (" + x + ", " + y + ", " + z
+                + ") source=" + resolvedSource + "."), true);
         return 1;
     }
 
@@ -90,11 +90,11 @@ public final class DynamicStageCommands {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
             return 0;
         }
-        BlockPos spawn = player.getServer().overworld().getSharedSpawnPos();
-        player.teleportTo(player.getServer().overworld(), spawn.getX() + 0.5D, spawn.getY(), spawn.getZ() + 0.5D,
-                player.getYRot(), player.getXRot());
-        StageSession.reset();
-        source.sendSuccess(() -> Component.literal("Returned to overworld."), true);
+        if (!StageSessionManager.exit(player)) {
+            source.sendFailure(Component.literal("No active stage session."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Stage preparation cancelled or player returned."), true);
         return 1;
     }
 }

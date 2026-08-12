@@ -7,8 +7,9 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import vibe.liteming.dynamicstage.DynamicStage;
+import vibe.liteming.dynamicstage.client.backdrop.BackdropClientDownloader;
 import vibe.liteming.dynamicstage.client.backdrop.BackdropRenderer;
-import vibe.liteming.dynamicstage.stage.StageSession;
+import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -26,10 +27,7 @@ public final class ClientForgeEvents {
         BackdropRenderer.render(event);
     }
 
-    /**
-     * When the local player enters the stage dimension, directly read the Voxy
-     * LOD at the recorded anchor and render it — no bake involved.
-     */
+    /** Maintains the downloaded backdrop lifecycle across stage transitions. */
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) {
@@ -37,16 +35,16 @@ public final class ClientForgeEvents {
         }
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) {
+            ClientStageSession.clearLocal();
             if (LOADED_FOR_LEVEL.getAndSet(false)) {
                 BackdropRenderer.clearBackdrop();
             }
             return;
         }
+        BackdropClientDownloader.tick();
         boolean inStage = StageWorlds.isStageLevel(mc.level);
         if (inStage && !LOADED_FOR_LEVEL.getAndSet(true)) {
-            if (StageSession.anchor != null && StageSession.dataFile != null) {
-                BackdropRenderer.loadDirect(StageSession.dataFile, StageSession.anchor, StageSession.source);
-            } else {
+            if (ClientStageSession.active() == null) {
                 BackdropRenderer.clearBackdrop();
             }
         } else if (!inStage) {

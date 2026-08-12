@@ -1,8 +1,9 @@
-package vibe.liteming.dynamicstage.client.backdrop;
+package vibe.liteming.dynamicstage.bake.lod;
 
 /**
- * Single voxel of the direct LOD backdrop mesh. Coordinates are absolute
- * source-world block coordinates.
+ * Single source-world voxel shared by LOD readers, the portable baker, and the
+ * client backdrop mesh. Coordinates are absolute source-world block positions
+ * until the downloaded Blob is projected into a stage region.
  * <p>
  * {@code size} is the XZ block extent of the cell (1 for fine levels); for
  * coarse DH levels a voxel may cover several blocks. {@code height} is the Y

@@ -1,4 +1,4 @@
-package vibe.liteming.dynamicstage.client.backdrop;
+package vibe.liteming.dynamicstage.bake.lod;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
@@ -29,8 +29,9 @@ import java.util.Map;
 import net.jpountz.lz4.LZ4FrameInputStream;
 
 /**
- * Reads a Distant Horizons {@code FullData} SQLite database directly into
- * voxels for the renderer (forge-side LOD source, same no-bake flow as Voxy).
+ * Reads a Distant Horizons {@code FullData} SQLite database into portable bake
+ * voxels. The server-side baker serialises the result into a distributed
+ * {@code .sdb}.
  * <p>
  * Format (per distant-horizons-rust + DH 2.x schema):
  * <ul>
@@ -109,7 +110,7 @@ public final class DHFileReader {
                 double dx = centerX - anchor.getX();
                 double dz = centerZ - anchor.getZ();
                 double distance = Math.sqrt(dx * dx + dz * dz);
-                if (distance > maxDistance || distance <= minDistance) {
+                if (distance > maxDistance || (minDistance > 0 && distance <= minDistance)) {
                     continue;
                 }
                 byte[] data = rs.getBytes("Data");

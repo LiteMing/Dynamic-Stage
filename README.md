@@ -1,8 +1,8 @@
 # Dynamic Stage
 
-Dynamic Stage is an early Forge 1.20.1 prototype for isolated stage dimensions backed by client-rendered LOD scenery. It currently reads Voxy RocksDB or Distant Horizons SQLite data, creates a GPU voxel mesh, and can apply a CMDCam playback pose as an inverse backdrop transform.
+Dynamic Stage is a Forge 1.20.1 prototype for per-player isolated stage regions backed by client-rendered LOD scenery. The server reads Voxy RocksDB or Distant Horizons SQLite data into a portable `.sdb`, distributes it in validated 16 KiB chunks, and the client caches it by SHA-256 before creating a GPU voxel mesh. A live CMDCam playback pose can be applied as an inverse backdrop transform.
 
-The repository is currently a single Forge module. Architectury and Fabric loaders have not been wired in yet, and the direct-file workflow is intended for integrated-client development rather than remote multiplayer.
+The repository is currently a single Forge module. Architectury and Fabric loaders have not been wired in yet. The backdrop protocol supports remote clients, but multiplayer gameplay and visual behavior still need in-game acceptance testing.
 
 ## Development commands
 
@@ -31,6 +31,8 @@ The commands require permission level 2:
 /dynamicstage exit
 ```
 
-`start` locates the selected LOD store in the current save, records the source anchor, and teleports the player into `dynamicstage:stg_stage`. The client reads the LOD data asynchronously and renders it as non-interactive scenery. `exit` currently returns to the overworld shared spawn, not the player's exact pre-stage position.
+`start` locates the selected LOD store, prepares or reuses a content-addressed backdrop on one background worker, then teleports the player into an isolated region of `dynamicstage:stg_stage`. The client downloads/cache-checks the Blob and renders it as non-interactive scenery. `exit` restores the exact pre-stage dimension, position, and rotation. Running `exit` while preparation is in progress cancels that player's pending entry.
+
+Server products are stored under the save's `data/dynamicstage/backdrops/`; client products are stored under `.minecraft/dynamicstage_cache/`. Stage identifiers are hashed before they become path components.
 
 See [docs/REPOSITORY_REVIEW.md](docs/REPOSITORY_REVIEW.md) for implementation status, known limitations, and the recommended work order.

@@ -169,6 +169,16 @@ public final class BackdropManifest {
     }
 
     public static BackdropManifest fromJson(String json) {
+        try {
+            return parseJson(json);
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("Invalid Backdrop manifest JSON: " + e.getMessage(), e);
+        }
+    }
+
+    private static BackdropManifest parseJson(String json) {
         JsonObject root;
         try {
             root = JsonParser.parseString(json).getAsJsonObject();

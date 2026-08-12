@@ -8,6 +8,8 @@ package vibe.liteming.dynamicstage.backdrop;
  */
 public record BackdropColumn(int x, int z, int yStart, int yEnd, int paletteIndex, int lodLevel) {
 
+    public static final int MAX_LOD_LEVEL = 8;
+
     public BackdropColumn {
         if (yEnd < yStart) {
             throw new IllegalArgumentException("yEnd < yStart: " + yEnd + " < " + yStart);
@@ -15,8 +17,9 @@ public record BackdropColumn(int x, int z, int yStart, int yEnd, int paletteInde
         if (paletteIndex < 0) {
             throw new IllegalArgumentException("paletteIndex must be >= 0, got " + paletteIndex);
         }
-        if (lodLevel < 0) {
-            throw new IllegalArgumentException("lodLevel must be >= 0, got " + lodLevel);
+        if (lodLevel < 0 || lodLevel > MAX_LOD_LEVEL) {
+            throw new IllegalArgumentException("lodLevel must be between 0 and " + MAX_LOD_LEVEL
+                    + ", got " + lodLevel);
         }
     }
 }

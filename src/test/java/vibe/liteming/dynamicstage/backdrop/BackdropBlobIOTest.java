@@ -3,8 +3,10 @@ package vibe.liteming.dynamicstage.backdrop;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class BackdropBlobIOTest {
 
@@ -31,5 +33,24 @@ class BackdropBlobIOTest {
         for (int i = 0; i < columns.size(); i++) {
             assertEquals(columns.get(i), parsed.columns().get(i));
         }
+    }
+
+    @Test
+    void malformedManifestStructureIsRejectedAsIllegalArgument() {
+        assertThrows(IllegalArgumentException.class,
+                () -> BackdropManifest.fromJson("{\"formatVersion\":1,\"sourceWorld\":{\"anchor\":[]}}"));
+    }
+
+    @Test
+    void trailingBytesAreRejected() {
+        BackdropManifest manifest = new BackdropManifest(
+                1, "dynamicstage:test", "minecraft:overworld",
+                0, 64, 0, "test", 1, "abc", 1L,
+                32, null, List.of(), 0, new int[]{0xFFFFFFFF}, 0, new int[]{0}, false,
+                0, 1, 1, false, false, false);
+        byte[] valid = BackdropBlobIO.write(manifest, List.of(new BackdropColumn(0, 0, 64, 65, 0, 0)));
+        byte[] withTrailingByte = Arrays.copyOf(valid, valid.length + 1);
+
+        assertThrows(IllegalArgumentException.class, () -> BackdropBlobIO.read(withTrailingByte));
     }
 }
