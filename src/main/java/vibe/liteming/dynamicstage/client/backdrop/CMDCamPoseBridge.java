@@ -142,14 +142,7 @@ public final class CMDCamPoseBridge {
                 calculatePointMethod = stage.getClass().getMethod("calculatePoint", Level.class, long.class, float.class);
             }
             Object point = calculatePointMethod.invoke(stage, level, time, partial);
-            if (point == null) {
-                return null;
-            }
-            return new Pose(
-                    new Vec3((Double) pointGetX.invoke(point), (Double) pointGetY.invoke(point), (Double) pointGetZ.invoke(point)),
-                    ((Number) yawField.get(point)).doubleValue(),
-                    ((Number) pitchField.get(point)).doubleValue(),
-                    ((Number) rollField.get(point)).doubleValue());
+            return poseFromPoint(point);
         } catch (Throwable t) {
             LOGGER.debug("CMDCam pose read failed: {}", t.toString());
             return null;
@@ -187,6 +180,61 @@ public final class CMDCamPoseBridge {
                 current.yaw() - start.yaw(),
                 current.pitch() - start.pitch(),
                 current.roll() - start.roll());
+    }
+
+    /** Prevents an earlier CMDCam playback edge from becoming a new stage's origin. */
+    public static void resetPlaybackOrigin() {
+        wasPlaying = false;
+        snapshotValid = false;
+        startPose = null;
+    }
+
+    /** Sets the canonical scene-start pose, including when playback resumes mid-flight. */
+    public static void beginPlaybackOrigin(Pose origin) {
+        startPose = origin;
+        snapshotValid = true;
+        wasPlaying = true;
+    }
+
+    /** Calculates the first rendered pose through CMDCam's own interpolation pipeline. */
+    @Nullable
+    public static Pose calculatePlaybackOrigin() {
+        resolve();
+        if (!available) {
+            return null;
+        }
+        try {
+            Object scene = getSceneMethod.invoke(null);
+            Object run = scene == null ? null : scene.getClass().getField("run").get(scene);
+            List<?> stages = run == null ? null : (List<?>) stagesField.get(run);
+            if (stages == null || stages.isEmpty()) {
+                return null;
+            }
+            Object stage = stages.get(0);
+            Class<?> stageClass = Class.forName("team.creative.cmdcam.common.scene.run.CamRunStage");
+            Method hasStarted = stageClass.getMethod("hasStarted");
+            if (!Boolean.TRUE.equals(hasStarted.invoke(stage))) {
+                stageClass.getMethod("start").invoke(stage);
+            }
+            Method calculate = stageClass.getMethod("calculatePoint", Level.class, long.class, float.class);
+            return poseFromPoint(calculate.invoke(stage, Minecraft.getInstance().level, 0L, 0.0F));
+        } catch (Throwable t) {
+            LOGGER.debug("CMDCam playback origin read failed: {}", t.toString());
+            return null;
+        }
+    }
+
+    @Nullable
+    private static Pose poseFromPoint(@Nullable Object point) throws ReflectiveOperationException {
+        if (point == null) {
+            return null;
+        }
+        return new Pose(
+                new Vec3((Double) pointGetX.invoke(point), (Double) pointGetY.invoke(point),
+                        (Double) pointGetZ.invoke(point)),
+                ((Number) yawField.get(point)).doubleValue(),
+                ((Number) pitchField.get(point)).doubleValue(),
+                ((Number) rollField.get(point)).doubleValue());
     }
 
     /** Uses the mapped client API instead of reflecting private timer fields. */

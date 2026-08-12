@@ -8,6 +8,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import vibe.liteming.dynamicstage.backdrop.BackdropProducts;
+import vibe.liteming.dynamicstage.flight.StageFlightCodec;
 
 import java.util.UUID;
 
@@ -23,7 +24,11 @@ public record StageSession(
         float returnYRot,
         float returnXRot,
         String backdropHash,
-        long backdropBytes
+        long backdropBytes,
+        String flightHash,
+        int flightBytes,
+        long flightDurationMillis,
+        long flightStartGameTime
 ) {
 
     public static final String SOURCE_VOXY = "voxy";
@@ -48,10 +53,49 @@ public record StageSession(
         if (backdropBytes <= 0 || backdropBytes > BackdropProducts.MAX_PRODUCT_BYTES) {
             throw new IllegalArgumentException("Invalid backdrop size: " + backdropBytes);
         }
+        validateFlight(flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
     public BlockPos stageOrigin() {
         return StagePlacement.originForSlot(slot);
+    }
+
+    public boolean hasFlight() {
+        return !flightHash.isEmpty();
+    }
+
+    static void validateFlight(String hash, int bytes, long durationMillis, long startGameTime) {
+        if (hash == null) {
+            throw new IllegalArgumentException("Flight hash cannot be null");
+        }
+        if (hash.isEmpty()) {
+            if (bytes != 0 || durationMillis != 0L || startGameTime != -1L) {
+                throw new IllegalArgumentException("Empty flight contains playback state");
+            }
+            return;
+        }
+        if (!BackdropProducts.isSha256(hash)) {
+            throw new IllegalArgumentException("Invalid flight hash");
+        }
+        if (bytes <= 0 || bytes > StageFlightCodec.MAX_BYTES) {
+            throw new IllegalArgumentException("Invalid flight size: " + bytes);
+        }
+        if (durationMillis < StageFlightCodec.MIN_DURATION_MILLIS
+                || durationMillis > StageFlightCodec.MAX_DURATION_MILLIS) {
+            throw new IllegalArgumentException("Invalid flight duration: " + durationMillis);
+        }
+        if (startGameTime < -1L) {
+            throw new IllegalArgumentException("Invalid flight start game time");
+        }
+    }
+
+    public StageSession withFlightStart(long startGameTime) {
+        if (!hasFlight() || startGameTime < 0L) {
+            throw new IllegalArgumentException("Cannot start this stage flight");
+        }
+        return new StageSession(playerId, stageId, source, sourceAnchor, slot,
+                returnDimension, returnPosition, returnYRot, returnXRot,
+                backdropHash, backdropBytes, flightHash, flightBytes, flightDurationMillis, startGameTime);
     }
 
     public CompoundTag save() {
@@ -69,6 +113,12 @@ public record StageSession(
         tag.putFloat("ReturnXRot", returnXRot);
         tag.putString("BackdropHash", backdropHash);
         tag.putLong("BackdropBytes", backdropBytes);
+        if (hasFlight()) {
+            tag.putString("FlightHash", flightHash);
+            tag.putInt("FlightBytes", flightBytes);
+            tag.putLong("FlightDuration", flightDurationMillis);
+            tag.putLong("FlightStart", flightStartGameTime);
+        }
         return tag;
     }
 
@@ -86,7 +136,11 @@ public record StageSession(
                 tag.getFloat("ReturnYRot"),
                 tag.getFloat("ReturnXRot"),
                 tag.getString("BackdropHash"),
-                tag.getLong("BackdropBytes")
+                tag.getLong("BackdropBytes"),
+                tag.getString("FlightHash"),
+                tag.getInt("FlightBytes"),
+                tag.getLong("FlightDuration"),
+                tag.contains("FlightStart") ? tag.getLong("FlightStart") : -1L
         );
     }
 }

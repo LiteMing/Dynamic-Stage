@@ -10,7 +10,7 @@ import vibe.liteming.dynamicstage.stage.StageSession;
 /** Minimal protocol for stage session state and content-addressed backdrop transfer. */
 public final class DynamicStageNetwork {
 
-    private static final String PROTOCOL = "1";
+    private static final String PROTOCOL = "2";
     private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
             DynamicStage.id("main"), () -> PROTOCOL, PROTOCOL::equals, PROTOCOL::equals);
     private static boolean registered;
@@ -27,8 +27,12 @@ public final class DynamicStageNetwork {
                 StageSessionPacket::encode, StageSessionPacket::decode, StageSessionPacket::handle);
         CHANNEL.registerMessage(id++, BackdropRequestPacket.class,
                 BackdropRequestPacket::encode, BackdropRequestPacket::decode, BackdropRequestPacket::handle);
-        CHANNEL.registerMessage(id, BackdropChunkPacket.class,
+        CHANNEL.registerMessage(id++, BackdropChunkPacket.class,
                 BackdropChunkPacket::encode, BackdropChunkPacket::decode, BackdropChunkPacket::handle);
+        CHANNEL.registerMessage(id++, BackdropReadyPacket.class,
+                BackdropReadyPacket::encode, BackdropReadyPacket::decode, BackdropReadyPacket::handle);
+        CHANNEL.registerMessage(id, StageFlightPacket.class,
+                StageFlightPacket::encode, StageFlightPacket::decode, StageFlightPacket::handle);
         registered = true;
     }
 
@@ -45,6 +49,14 @@ public final class DynamicStageNetwork {
     }
 
     public static void sendChunk(ServerPlayer player, BackdropChunkPacket packet) {
+        send(player, packet);
+    }
+
+    public static void backdropReady(String stageId, String backdropHash, String flightHash) {
+        CHANNEL.sendToServer(new BackdropReadyPacket(stageId, backdropHash, flightHash));
+    }
+
+    public static void sendFlight(ServerPlayer player, StageFlightPacket packet) {
         send(player, packet);
     }
 

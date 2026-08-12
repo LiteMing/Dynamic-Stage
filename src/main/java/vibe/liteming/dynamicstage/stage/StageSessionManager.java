@@ -13,6 +13,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import vibe.liteming.dynamicstage.backdrop.BackdropProducts;
 import vibe.liteming.dynamicstage.bake.StageBackdropBaker;
+import vibe.liteming.dynamicstage.flight.StageFlightAssets;
+import vibe.liteming.dynamicstage.network.StageFlightPacket;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.BackdropDistribution;
 import vibe.liteming.dynamicstage.world.StageWorlds;
@@ -34,6 +36,7 @@ public final class StageSessionManager {
     private static final ConcurrentHashMap<UUID, Long> PREPARATIONS = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, CompletableFuture<BackdropProducts.Product>> PRODUCTS =
             new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, String> SENT_FLIGHTS = new ConcurrentHashMap<>();
     private static final ExecutorService BAKE_WORKER = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "DynamicStage-BackdropBaker");
         thread.setDaemon(true);
@@ -109,6 +112,7 @@ public final class StageSessionManager {
         }
         boolean cancelledPreparation = PREPARATIONS.remove(player.getUUID()) != null;
         Optional<StageSession> removed = StageSessionData.get(server).remove(player.getUUID());
+        SENT_FLIGHTS.remove(player.getUUID());
         DynamicStageNetwork.clearSession(player);
         if (removed.isEmpty()) {
             return cancelledPreparation;
@@ -132,12 +136,14 @@ public final class StageSessionManager {
             StageSessionData.get(server).remove(player.getUUID());
         }
         PREPARATIONS.remove(player.getUUID());
+        SENT_FLIGHTS.remove(player.getUUID());
         DynamicStageNetwork.clearSession(player);
     }
 
     /** Cancels only an in-flight preparation; active persisted sessions survive logout. */
     public static void onLogout(ServerPlayer player) {
         PREPARATIONS.remove(player.getUUID());
+        SENT_FLIGHTS.remove(player.getUUID());
         BackdropDistribution.clearPlayer(player.getUUID());
     }
 
@@ -145,6 +151,7 @@ public final class StageSessionManager {
         PREPARATIONS.clear();
         PRODUCTS.values().forEach(future -> future.cancel(true));
         PRODUCTS.clear();
+        SENT_FLIGHTS.clear();
         BackdropDistribution.clearAll();
     }
 
@@ -174,12 +181,59 @@ public final class StageSessionManager {
             exit(player);
             return;
         }
+        if (session.hasFlight()) {
+            StageFlightAssets.Asset flight = StageFlightAssets.load(server, session.stageId(), session.flightHash());
+            if (flight == null || flight.bytes() != session.flightBytes()
+                    || flight.durationMillis() != session.flightDurationMillis()) {
+                player.sendSystemMessage(Component.literal("The saved stage flight is unavailable; returning safely."));
+                exit(player);
+                return;
+            }
+        }
         DynamicStageNetwork.sendSession(player, session);
     }
 
     public static Optional<StageSession> get(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         return server == null ? Optional.empty() : StageSessionData.get(server).get(player.getUUID());
+    }
+
+    /** Starts or resumes an authorized flight only after the client has activated its backdrop mesh. */
+    public static void onBackdropReady(ServerPlayer player, String stageId, String backdropHash, String flightHash) {
+        MinecraftServer server = player.getServer();
+        if (server == null || !StageWorlds.isStageLevel(player.level())) {
+            return;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        Optional<StageSession> found = data.get(player.getUUID());
+        if (found.isEmpty()) {
+            return;
+        }
+        StageSession session = found.get();
+        if (!session.hasFlight() || !session.stageId().equals(stageId)
+                || !session.backdropHash().equals(backdropHash) || !session.flightHash().equals(flightHash)) {
+            return;
+        }
+        if (SENT_FLIGHTS.containsKey(player.getUUID())) {
+            return;
+        }
+        StageFlightAssets.Asset asset = StageFlightAssets.load(server, session.stageId(), session.flightHash());
+        if (asset == null || asset.bytes() != session.flightBytes()
+                || asset.durationMillis() != session.flightDurationMillis()) {
+            player.sendSystemMessage(Component.literal("The stage flight asset is unavailable; returning safely."));
+            exit(player);
+            return;
+        }
+        if (session.flightStartGameTime() < 0L) {
+            long startGameTime = player.serverLevel().getGameTime() + 20L;
+            session = session.withFlightStart(startGameTime);
+            data.put(session);
+        }
+        String sendKey = session.flightHash() + ':' + session.flightStartGameTime();
+        if (SENT_FLIGHTS.putIfAbsent(player.getUUID(), sendKey) != null) {
+            return;
+        }
+        DynamicStageNetwork.sendFlight(player, StageFlightPacket.active(session, asset.sceneJson()));
     }
 
     private static boolean enter(ServerPlayer player, String stageId, BlockPos anchor, String source,
@@ -202,10 +256,16 @@ public final class StageSessionManager {
             player.sendSystemMessage(Component.literal("All isolated Dynamic Stage regions are in use."));
             return false;
         }
+        StageFlightAssets.Asset flight = StageFlightAssets.findConfigured(
+                server.getWorldPath(LevelResource.ROOT), stageId);
         StageSession session = new StageSession(
                 player.getUUID(), stageId, source, anchor, slot,
                 returnPoint.dimension(), returnPoint.position(), returnPoint.yRot(), returnPoint.xRot(),
-                product.hash(), product.bytes());
+                product.hash(), product.bytes(),
+                flight == null ? "" : flight.hash(),
+                flight == null ? 0 : flight.bytes(),
+                flight == null ? 0L : flight.durationMillis(),
+                -1L);
         data.put(session);
         BlockPos origin = session.stageOrigin();
         player.stopRiding();

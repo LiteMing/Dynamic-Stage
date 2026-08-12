@@ -2,6 +2,7 @@ package vibe.liteming.dynamicstage.client.stage;
 
 import net.minecraft.core.BlockPos;
 import vibe.liteming.dynamicstage.client.backdrop.BackdropClientDownloader;
+import vibe.liteming.dynamicstage.client.flight.StageFlightController;
 import vibe.liteming.dynamicstage.network.StageSessionPacket;
 
 import javax.annotation.Nullable;
@@ -19,11 +20,14 @@ public final class ClientStageSession {
         if (!packet.active()) {
             active = null;
             BackdropClientDownloader.clear();
+            StageFlightController.clear();
             return;
         }
         Snapshot snapshot = new Snapshot(packet.stageId(), packet.backdropHash(),
-                packet.backdropBytes(), packet.stageOrigin());
+                packet.backdropBytes(), packet.stageOrigin(), packet.flightHash(),
+                packet.flightBytes(), packet.flightDurationMillis());
         active = snapshot;
+        StageFlightController.clear();
         BackdropClientDownloader.prepare(snapshot);
     }
 
@@ -31,6 +35,7 @@ public final class ClientStageSession {
         if (active != null) {
             active = null;
             BackdropClientDownloader.clear();
+            StageFlightController.clear();
         }
     }
 
@@ -39,6 +44,11 @@ public final class ClientStageSession {
         return active;
     }
 
-    public record Snapshot(String stageId, String backdropHash, long backdropBytes, BlockPos stageOrigin) {
+    public record Snapshot(String stageId, String backdropHash, long backdropBytes, BlockPos stageOrigin,
+                           String flightHash, int flightBytes, long flightDurationMillis) {
+
+        public boolean hasFlight() {
+            return !flightHash.isEmpty();
+        }
     }
 }

@@ -2,6 +2,7 @@ package vibe.liteming.dynamicstage.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -10,6 +11,7 @@ import vibe.liteming.dynamicstage.DynamicStage;
 import vibe.liteming.dynamicstage.client.backdrop.BackdropClientDownloader;
 import vibe.liteming.dynamicstage.client.backdrop.BackdropRenderer;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
+import vibe.liteming.dynamicstage.client.flight.StageFlightController;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -27,6 +29,12 @@ public final class ClientForgeEvents {
         BackdropRenderer.render(event);
     }
 
+    @SubscribeEvent
+    public static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        StageFlightController.clear();
+        ClientStageSession.clearLocal();
+    }
+
     /** Maintains the downloaded backdrop lifecycle across stage transitions. */
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
@@ -42,12 +50,14 @@ public final class ClientForgeEvents {
             return;
         }
         BackdropClientDownloader.tick();
+        StageFlightController.tick();
         boolean inStage = StageWorlds.isStageLevel(mc.level);
         if (inStage && !LOADED_FOR_LEVEL.getAndSet(true)) {
             if (ClientStageSession.active() == null) {
                 BackdropRenderer.clearBackdrop();
             }
         } else if (!inStage) {
+            StageFlightController.clear();
             if (LOADED_FOR_LEVEL.getAndSet(false)) {
                 BackdropRenderer.clearBackdrop();
             }

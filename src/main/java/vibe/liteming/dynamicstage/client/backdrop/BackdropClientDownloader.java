@@ -186,6 +186,10 @@ public final class BackdropClientDownloader {
                     ClientStageSession.Snapshot active = ClientStageSession.active();
                     if (request == LOAD_SEQUENCE.get() && snapshot.equals(active)) {
                         BackdropRenderer.setBlob(blob, snapshot.stageOrigin());
+                        if (snapshot.hasFlight()) {
+                            DynamicStageNetwork.backdropReady(snapshot.stageId(), snapshot.backdropHash(),
+                                    snapshot.flightHash());
+                        }
                     }
                 });
             } catch (IOException | RuntimeException e) {
