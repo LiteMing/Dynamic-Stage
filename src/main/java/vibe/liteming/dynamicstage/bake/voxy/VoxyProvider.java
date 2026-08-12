@@ -117,8 +117,9 @@ public class VoxyProvider implements LodProvider {
             }
 
             if (!columns.isEmpty()) {
-                columns.addAll(downsample(columns, 1));
-                columns.addAll(downsample(columns, 2));
+                List<LodColumn> levelOne = downsample(columns, 1);
+                columns.addAll(levelOne);
+                columns.addAll(downsample(levelOne, 2));
             }
             return columns.stream();
         } finally {

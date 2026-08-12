@@ -37,16 +37,22 @@ public final class ClientForgeEvents {
         }
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) {
-            LOADED_FOR_LEVEL.set(false);
+            if (LOADED_FOR_LEVEL.getAndSet(false)) {
+                BackdropRenderer.clearBackdrop();
+            }
             return;
         }
         boolean inStage = StageWorlds.isStageLevel(mc.level);
         if (inStage && !LOADED_FOR_LEVEL.getAndSet(true)) {
             if (StageSession.anchor != null && StageSession.dataFile != null) {
                 BackdropRenderer.loadDirect(StageSession.dataFile, StageSession.anchor, StageSession.source);
+            } else {
+                BackdropRenderer.clearBackdrop();
             }
         } else if (!inStage) {
-            LOADED_FOR_LEVEL.set(false);
+            if (LOADED_FOR_LEVEL.getAndSet(false)) {
+                BackdropRenderer.clearBackdrop();
+            }
         }
     }
 }

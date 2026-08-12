@@ -1,8 +1,11 @@
 package vibe.liteming.dynamicstage.bake.dh;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.EOFException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -31,16 +34,26 @@ public final class DHProbe {
         Class.forName("org.sqlite.JDBC");
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + Path.of(path).toAbsolutePath())) {
             for (int level = 6; level <= 8; level++) {
-                String sql = "SELECT PosX, PosZ, MinY, Data, Mapping FROM FullData WHERE DetailLevel = " + (level - 6);
+                String sql = "SELECT PosX, PosZ, MinY, Data, Mapping, CompressionMode, DataFormatVersion "
+                        + "FROM FullData WHERE DetailLevel = " + (level - 6);
+                AtomicLong sections = new AtomicLong();
                 AtomicLong columns = new AtomicLong();
                 AtomicLong segments = new AtomicLong();
                 AtomicLong mappingEntries = new AtomicLong();
+                AtomicLong unsupported = new AtomicLong();
                 try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
                     while (rs.next()) {
+                        int compressionMode = rs.getInt("CompressionMode");
+                        int dataFormatVersion = rs.getInt("DataFormatVersion");
+                        if (dataFormatVersion != 1) {
+                            unsupported.incrementAndGet();
+                            continue;
+                        }
                         byte[] data = rs.getBytes("Data");
                         byte[] mapping = rs.getBytes("Mapping");
-                        byte[] d = decompressXz(data);
-                        byte[] m = decompressXz(mapping);
+                        byte[] d = decompress(data, compressionMode);
+                        byte[] m = decompress(mapping, compressionMode);
+                        sections.incrementAndGet();
                         if (d != null) {
                             parseColumns(d, columns, segments);
                         }
@@ -50,7 +63,8 @@ public final class DHProbe {
                     }
                 }
                 System.out.println("detail=" + level + " (blockWidth " + (1 << level) + ") sections-scan ok"
-                        + " columnRuns=" + columns + " segments=" + segments + " mappingEntries=" + mappingEntries);
+                        + " sections=" + sections + " columnRuns=" + columns + " segments=" + segments
+                        + " mappingEntries=" + mappingEntries + " unsupportedVersions=" + unsupported);
             }
         }
     }
@@ -97,26 +111,30 @@ public final class DHProbe {
         return count;
     }
 
-    private static byte[] decompressXz(byte[] compressed) {
+    private static byte[] decompress(byte[] compressed, int compressionMode) {
         if (compressed == null) {
             return null;
         }
-        if (compressed.length < 6 || compressed[0] != (byte) 0xFD) {
+        if (compressionMode == 0) {
             return compressed;
         }
-        try {
-            var in = new org.tukaani.xz.XZInputStream(new ByteArrayInputStream(compressed));
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        try (InputStream in = switch (compressionMode) {
+            case 1 -> new net.jpountz.lz4.LZ4FrameInputStream(new ByteArrayInputStream(compressed));
+            case 3 -> new org.tukaani.xz.XZInputStream(new ByteArrayInputStream(compressed));
+            default -> throw new IOException("unsupported DH compression mode " + compressionMode);
+        }; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[8192];
             try {
                 int read;
                 while ((read = in.read(buffer)) != -1) {
                     out.write(buffer, 0, read);
                 }
-            } catch (IOException ignored) {
+            } catch (EOFException ignored) {
+                // Some DH XZ streams omit the end marker; partial output remains usable.
             }
             return out.toByteArray();
         } catch (IOException e) {
+            System.err.println("DH decompression failed: " + e.getMessage());
             return null;
         }
     }

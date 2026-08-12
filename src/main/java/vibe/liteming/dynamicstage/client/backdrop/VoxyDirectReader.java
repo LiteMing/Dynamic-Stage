@@ -50,15 +50,15 @@ public final class VoxyDirectReader {
             List<Voxel> out = new ArrayList<>();
             // Voxy native LoD: nearer sections use finer levels; higher levels
             // shrink as the budget is consumed.
-            readLevel(db, states, colorMapper, anchor, 0, L0_RADIUS, VOXEL_BUDGET, out);
+            readLevel(db, states, colorMapper, anchor, 0, 0, L0_RADIUS, VOXEL_BUDGET, out);
             long used = out.size();
             int r1 = (int) Math.round(L0_RADIUS + (L1_RADIUS - L0_RADIUS)
                     * Math.max(0.0D, 1.0D - used / (double) VOXEL_BUDGET));
-            readLevel(db, states, colorMapper, anchor, 1, r1, VOXEL_BUDGET - used, out);
+            readLevel(db, states, colorMapper, anchor, 1, L0_RADIUS, r1, VOXEL_BUDGET - used, out);
             used = out.size();
             int r2 = (int) Math.round(L1_RADIUS + (L2_RADIUS - L1_RADIUS)
                     * Math.max(0.0D, 1.0D - used / (double) VOXEL_BUDGET));
-            readLevel(db, states, colorMapper, anchor, 2, r2, VOXEL_BUDGET - used, out);
+            readLevel(db, states, colorMapper, anchor, 2, r1, r2, VOXEL_BUDGET - used, out);
             return out;
         } finally {
             db.close();
@@ -66,13 +66,15 @@ public final class VoxyDirectReader {
     }
 
     private static void readLevel(VoxyRocksDB db, Map<Integer, BlockState> states, MapColorMapper colorMapper,
-                                  BlockPos anchor, int level, int maxDist, long budget, List<Voxel> out) {
+                                  BlockPos anchor, int level, int minDist, int maxDist, long budget, List<Voxel> out) {
         if (budget <= 0) {
             return;
         }
+        long limit = Math.min(VOXEL_BUDGET, out.size() + budget);
         int size = VoxySectionKey.sectionSize(level);
+        int cellSize = 1 << level;
         db.iterateSections(level, key -> {
-            if (out.size() >= budget) {
+            if (out.size() >= limit) {
                 return;
             }
             int sx = VoxySectionKey.xOf(key);
@@ -82,7 +84,7 @@ public final class VoxyDirectReader {
             double dx = cx - anchor.getX();
             double dz = cz - anchor.getZ();
             double dist = Math.sqrt(dx * dx + dz * dz);
-            if (dist > maxDist) {
+            if (dist > maxDist || dist <= minDist) {
                 return;
             }
             byte[] compressed = db.getSection(key);
@@ -90,14 +92,15 @@ public final class VoxyDirectReader {
                 return;
             }
             VoxySectionParser.parseAll(compressed, (bx, by, bz, blockId) -> {
-                if (out.size() >= budget) {
+                if (out.size() >= limit) {
                     return;
                 }
                 BlockState state = states.get(blockId);
                 if (state == null || state.isAir()) {
                     return;
                 }
-                out.add(new Voxel((int) bx, (int) by, (int) bz, colorMapper.colorFor(state)));
+                out.add(new Voxel((int) bx, (int) by, (int) bz, colorMapper.colorFor(state),
+                        cellSize, cellSize));
             });
         });
     }

@@ -1,21 +1,10 @@
-buildscript {
-    repositories {
-        maven { url = 'https://maven.minecraftforge.net' }
-        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
-        mavenCentral()
-    }
-    dependencies {
-        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
-    }
-}
-
 plugins {
     id 'maven-publish'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
     id 'org.parchmentmc.librarian.forgegradle' version '1.+'
 }
 
-apply plugin: 'org.spongepowered.mixin'
+jarJar.enable()
 
 version = mod_version
 group = mod_group_id
@@ -29,8 +18,6 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 minecraft {
     mappings channel: mapping_channel, version: mapping_version
     copyIdeResources = true
-
-    accessTransformer = file('src/main/resources/META-INF/accesstransformer.cfg')
 
     runs {
         configureEach {
@@ -63,11 +50,6 @@ minecraft {
 
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
-mixin {
-    add sourceSets.main, "${mod_id}.refmap.json"
-    config "${mod_id}.mixins.json"
-}
-
 repositories {
     maven {
         url = 'https://maven.sighs.cc/repository/maven-releases/'
@@ -83,16 +65,31 @@ repositories {
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
-    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 
     // Voxy LOD import (VoxyFileProvider): RocksDB read + Zstd decompression.
     // Plain libraries, NOT mods: plain `implementation` (no fg.deobf).
-    implementation "org.rocksdb:rocksdbjni:${rocksdb_version}"
-    implementation "com.github.luben:zstd-jni:${zstd_version}"
+    implementation(jarJar("org.rocksdb:rocksdbjni:${rocksdb_version}")) {
+        transitive = false
+        jarJar.ranged(it, '[10.2.1,10.2.2)')
+    }
+    implementation(jarJar("com.github.luben:zstd-jni:${zstd_version}")) {
+        transitive = false
+        jarJar.ranged(it, '[1.5.6-8,1.5.6-9)')
+    }
 
     // Distant Horizons LOD import (DHFileReader): SQLite read + LZMA2 (XZ) decompression.
-    implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
-    implementation 'org.tukaani:xz:1.9'
+    implementation(jarJar('org.xerial:sqlite-jdbc:3.45.3.0')) {
+        transitive = false
+        jarJar.ranged(it, '[3.45.3.0,3.45.3.1)')
+    }
+    implementation(jarJar('org.lz4:lz4-java:1.8.0')) {
+        transitive = false
+        jarJar.ranged(it, '[1.8.0,1.8.1)')
+    }
+    implementation(jarJar('org.tukaani:xz:1.9')) {
+        transitive = false
+        jarJar.ranged(it, '[1.9,1.10)')
+    }
 
     // CMDCam (runtime, runClient testing only): live backdrop camera linkage.
     runtimeOnly fg.deobf('maven.modrinth:cmdcam:as7nPEt0')
@@ -174,13 +171,16 @@ tasks.named('jar', Jar).configure {
                 'Implementation-Title'    : project.name,
                 'Implementation-Version'  : project.jar.archiveVersion,
                 'Implementation-Vendor'   : mod_authors,
-                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
-                'MixinConfigs'            : "${mod_id}.mixins.json"
+                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
         ])
     }
 
     finalizedBy 'reobfJar'
 }
+
+reobf { jarJar {} }
+
+tasks.named('build').configure { dependsOn tasks.named('jarJar') }
 
 publishing {
     publications {
@@ -195,10 +195,7 @@ publishing {
     }
 }
 
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = 'UTF-8'
-    options.compilerArgs << "-AreobfSrgFile=${tasks.createMcpToSrg.output.get().asFile}" << "-AoutSrgFile=${buildDir}/tmp/mixin.refmap.srg" << "-AoutRefMapFile=${buildDir}/tmp/mixin/mixins.refmap.json"
-}
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
 
 // FG6 dev runs launch through cpw.mods.bootstraplauncher, which builds its own
 // classloader from -DlegacyClassPath.file (minecraftClasspath.txt). Plain
@@ -207,6 +204,7 @@ tasks.withType(JavaCompile).configureEach {
 tasks.withType(net.minecraftforge.gradle.common.util.runs.MinecraftRunTask).configureEach {
     minecraftArtifacts.from(configurations.runtimeClasspath.files.findAll {
         it.name.contains('rocksdbjni') || it.name.contains('zstd-jni')
-                || it.name.contains('sqlite-jdbc') || it.name.contains('xz')
+                || it.name.contains('sqlite-jdbc') || it.name.contains('lz4-java')
+                || it.name.contains('xz')
     })
 }

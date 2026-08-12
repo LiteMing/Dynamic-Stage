@@ -35,6 +35,7 @@ public final class CMDCamPoseBridge {
     @Nullable private static Method runPositionMethod;
     @Nullable private static Method calculatePointMethod;
     @Nullable private static Field stagesField;
+    @Nullable private static Field currentStageField;
 
     @Nullable private static Class<?> camPointClass;
     @Nullable private static Method pointGetX;
@@ -72,6 +73,8 @@ public final class CMDCamPoseBridge {
             runPositionMethod = scene.getField("run").getType().getMethod("position", float.class);
             stagesField = scene.getField("run").getType().getDeclaredField("stages");
             stagesField.setAccessible(true);
+            currentStageField = scene.getField("run").getType().getDeclaredField("currentStage");
+            currentStageField.setAccessible(true);
             camPointClass = Class.forName("team.creative.cmdcam.common.math.point.CamPoint");
             pointGetX = camPointClass.getMethod("getX");
             pointGetY = camPointClass.getMethod("getY");
@@ -125,24 +128,15 @@ public final class CMDCamPoseBridge {
             }
             float partial = partialTick();
             long time = (Long) runPositionMethod.invoke(run, partial);
-            // Walk stages to find the one covering `time`.
             List<?> stages = (List<?>) stagesField.get(run);
             if (stages == null || stages.isEmpty()) {
                 return null;
             }
-            long cursor = 0L;
-            Object stage = stages.get(0);
-            for (Object s : stages) {
-                long duration = durationOf(s);
-                int loops = loopsOf(s);
-                long span = duration * Math.max(1, loops);
-                if (time < cursor + span || span <= 0) {
-                    stage = s;
-                    break;
-                }
-                cursor += span;
-                stage = s;
+            int stageIndex = currentStageField.getInt(run);
+            if (stageIndex < 0 || stageIndex >= stages.size()) {
+                return null;
             }
+            Object stage = stages.get(stageIndex);
             if (calculatePointMethod == null) {
                 // resolve lazily per stage class
                 calculatePointMethod = stage.getClass().getMethod("calculatePoint", Level.class, long.class, float.class);
@@ -195,42 +189,12 @@ public final class CMDCamPoseBridge {
                 current.roll() - start.roll());
     }
 
-    private static long durationOf(Object stage) {
-        try {
-            Field f = stage.getClass().getField("duration");
-            return f.getLong(stage);
-        } catch (ReflectiveOperationException e) {
-            return 0L;
-        }
-    }
-
-    private static int loopsOf(Object stage) {
-        try {
-            Field f = stage.getClass().getField("loops");
-            return f.getInt(stage);
-        } catch (ReflectiveOperationException e) {
-            return 1;
-        }
-    }
-
-    /** Reads {@code Minecraft.timer.partialTick} via reflection. */
+    /** Uses the mapped client API instead of reflecting private timer fields. */
     private static float partialTick() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.isPaused()) {
             return 0.0F;
         }
-        try {
-            var timerField = Minecraft.class.getDeclaredField("timer");
-            timerField.setAccessible(true);
-            Object timer = timerField.get(mc);
-            if (timer == null) {
-                return 0.0F;
-            }
-            var partialField = timer.getClass().getDeclaredField("partialTick");
-            partialField.setAccessible(true);
-            return partialField.getFloat(timer);
-        } catch (ReflectiveOperationException | RuntimeException e) {
-            return 0.0F;
-        }
+        return mc.getFrameTime();
     }
 }

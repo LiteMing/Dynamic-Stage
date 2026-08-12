@@ -1,7 +1,13 @@
 .gradle/
 build/
 **/run/
+run-data/
 **/logs/
 *.iml
 .idea/
 out/
+src/generated/
+mcmodsrepo/
+/dynamicstage/
+.postman/
+postman/

@@ -16,7 +16,6 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -27,7 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.GZIPInputStream;
+import net.jpountz.lz4.LZ4FrameInputStream;
 
 /**
  * Reads a Distant Horizons {@code FullData} SQLite database directly into
@@ -36,15 +35,17 @@ import java.util.zip.GZIPInputStream;
  * Format (per distant-horizons-rust + DH 2.x schema):
  * <ul>
  *   <li>{@code FullData(DetailLevel, PosX, PosZ, MinY, Data, Mapping, ...)} —
- *       DetailLevel stored = actual − 6 (Chunk4+); PosX/Z are section CENTRE
- *       block coords; section covers {@code 2^level} blocks.</li>
- *   <li>{@code Data} — LZMA2 (XZ) compressed; decompressed = 64×64 columns,
+ *       DetailLevel stored = actual − 6 (Chunk4+); PosX/Z are section grid
+ *       coordinates; section covers {@code 2^level} blocks.</li>
+ *   <li>{@code Data} — compressed according to {@code CompressionMode};
+ *       decompressed = 64×64 columns,
  *       each {@code [u16 BE len] + len×8B DataPoint} where DataPoint =
  *       {@code meta(u32 BE) | id(u32 BE)}, meta = height(12) | minY(12) |
  *       skyLight(4) | blockLight(4). Each DataPoint is a run of blocks
  *       {@code [minY, minY+height)} with block id.</li>
- *   <li>{@code Mapping} — XZ; {@code [u32 BE count] + count× Java readUTF}
- *       strings {@code biome_DH-BSW_block_STATE_{key:value}...}.</li>
+ *   <li>{@code Mapping} — same compression mode; {@code [u32 BE count] +
+ *       count× Java readUTF} strings
+ *       {@code biome_DH-BSW_block_STATE_{key:value}...}.</li>
  * </ul>
  */
 public final class DHFileReader {
@@ -76,12 +77,14 @@ public final class DHFileReader {
             return List.of();
         }
         List<Voxel> out = new ArrayList<>();
-        Map<Integer, BlockState> states = new HashMap<>();
         MapColorMapper colorMapper = new MapColorMapper();
         // Detail levels: 6 (Chunk4, 64 blocks, 1 block/col) → 8 (Chunk16).
         for (int level = SECTION_MINIMUM_DETAIL_LEVEL; level <= 8 && out.size() < VOXEL_BUDGET; level++) {
             try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + sqlite.toAbsolutePath())) {
-                readLevel(conn, level, anchor, states, colorMapper, out);
+                int ringIndex = level - SECTION_MINIMUM_DETAIL_LEVEL;
+                int minDistance = ringIndex == 0 ? 0 : 96 << (ringIndex - 1);
+                int maxDistance = 96 << ringIndex;
+                readLevel(conn, level, minDistance, maxDistance, anchor, colorMapper, out);
             } catch (Exception e) {
                 LOGGER.warn("DH read level {} failed: {}", level, e.toString());
             }
@@ -89,36 +92,41 @@ public final class DHFileReader {
         return out;
     }
 
-    private static void readLevel(Connection conn, int level, BlockPos anchor,
-                                  Map<Integer, BlockState> states, MapColorMapper colorMapper,
-                                  List<Voxel> out) throws Exception {
+    private static void readLevel(Connection conn, int level, int minDistance, int maxDistance, BlockPos anchor,
+                                  MapColorMapper colorMapper, List<Voxel> out) throws Exception {
         int blockWidth = 1 << level;                    // blocks per section side
         int colSize = blockWidth / SECTION_COLUMNS;     // blocks per column cell
-        String sql = "SELECT PosX, PosZ, MinY, Data, Mapping FROM FullData WHERE DetailLevel = " + (level - SECTION_MINIMUM_DETAIL_LEVEL);
+        String sql = "SELECT PosX, PosZ, MinY, Data, Mapping, CompressionMode, DataFormatVersion FROM FullData WHERE DetailLevel = " + (level - SECTION_MINIMUM_DETAIL_LEVEL);
         try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next() && out.size() < VOXEL_BUDGET) {
-                int cx = rs.getInt("PosX");
-                int cz = rs.getInt("PosZ");
+                int sectionX = rs.getInt("PosX");
+                int sectionZ = rs.getInt("PosZ");
+                int minBlockX = sectionX * blockWidth;
+                int minBlockZ = sectionZ * blockWidth;
+                double centerX = minBlockX + blockWidth / 2.0D;
+                double centerZ = minBlockZ + blockWidth / 2.0D;
                 int minY = rs.getInt("MinY");
-                // Distance filter: section centre distance ≤ 2^level × ~2.5.
-                double dx = cx - anchor.getX();
-                double dz = cz - anchor.getZ();
-                if (Math.sqrt(dx * dx + dz * dz) > blockWidth * 2.5D) {
+                double dx = centerX - anchor.getX();
+                double dz = centerZ - anchor.getZ();
+                double distance = Math.sqrt(dx * dx + dz * dz);
+                if (distance > maxDistance || distance <= minDistance) {
                     continue;
                 }
                 byte[] data = rs.getBytes("Data");
                 byte[] mapping = rs.getBytes("Mapping");
+                int compressionMode = rs.getInt("CompressionMode");
+                int formatVersion = rs.getInt("DataFormatVersion");
+                if (formatVersion != 1) {
+                    LOGGER.debug("Skipping unsupported DH data format {} at {},{}", formatVersion, sectionX, sectionZ);
+                    continue;
+                }
                 if (data == null || mapping == null) {
                     continue;
                 }
-                List<String> entries = parseMapping(decompressXz(mapping));
+                List<String> entries = parseMapping(decompress(mapping, compressionMode));
                 Map<Integer, BlockState> localStates = resolveStates(entries);
-                if (!localStates.isEmpty()) {
-                    states.putAll(localStates);
-                }
-                int minBlockX = cx - blockWidth / 2;
-                int minBlockZ = cz - blockWidth / 2;
-                parseColumns(decompressXz(data), minBlockX, minBlockZ, minY, colSize, states, colorMapper, out);
+                parseColumns(decompress(data, compressionMode), minBlockX, minBlockZ, minY, colSize,
+                        localStates, colorMapper, out);
             }
         }
     }
@@ -177,19 +185,12 @@ public final class DHFileReader {
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(raw))) {
             int count = in.readInt();
             for (int i = 0; i < count && i < 65536; i++) {
-                out.add(readUTF(in));
+                out.add(in.readUTF());
             }
         } catch (IOException e) {
             // partial mapping is acceptable
         }
         return out;
-    }
-
-    private static String readUTF(DataInputStream in) throws IOException {
-        int len = in.readUnsignedShort();
-        byte[] bytes = new byte[len];
-        in.readFully(bytes);
-        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     private static Map<Integer, BlockState> resolveStates(List<String> entries) {
@@ -223,16 +224,23 @@ public final class DHFileReader {
      * marker; read what we can and keep the partial output.
      */
     @Nullable
-    private static byte[] decompressXz(byte[] compressed) {
+    private static byte[] decompress(byte[] compressed, int compressionMode) {
         if (compressed == null) {
             return null;
         }
-        // Uncompressed data (CompressionMode 0) is stored as-is.
-        if (compressed.length < 6 || compressed[0] != (byte) 0xFD) {
-            return compressed;
-        }
         try {
-            var in = new org.tukaani.xz.XZInputStream(new ByteArrayInputStream(compressed));
+            if (compressionMode == 0) {
+                return compressed;
+            }
+            java.io.InputStream in;
+            if (compressionMode == 1) {
+                in = new LZ4FrameInputStream(new ByteArrayInputStream(compressed));
+            } else if (compressionMode == 3) {
+                in = new org.tukaani.xz.XZInputStream(new ByteArrayInputStream(compressed));
+            } else {
+                LOGGER.warn("Unsupported DH compression mode {}", compressionMode);
+                return null;
+            }
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
             byte[] buffer = new byte[8192];
             try {
@@ -247,7 +255,7 @@ public final class DHFileReader {
             }
             return out.toByteArray();
         } catch (IOException e) {
-            LOGGER.warn("DH XZ decompress failed: {}", e.getMessage());
+            LOGGER.warn("DH decompress mode {} failed: {}", compressionMode, e.getMessage());
             return null;
         }
     }

@@ -22,6 +22,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Renders the Voxy backdrop DIRECTLY from raw section voxels — no bake step,
@@ -36,6 +37,7 @@ public final class BackdropRenderer {
 
     @Nullable
     private static volatile VoxelMesh activeMesh;
+    private static final AtomicLong LOAD_SEQUENCE = new AtomicLong();
 
     private BackdropRenderer() {
     }
@@ -49,15 +51,25 @@ public final class BackdropRenderer {
      *                 or {@code SOURCE_DH}
      */
     public static void loadDirect(java.nio.file.Path dataFile, BlockPos anchor, String source) {
+        long request = LOAD_SEQUENCE.incrementAndGet();
         CompletableFuture.runAsync(() -> {
-            List<Voxel> voxels = StageSession.SOURCE_DH.equals(source)
-                    ? DHFileReader.read(dataFile, anchor)
-                    : VoxyDirectReader.read(dataFile, anchor);
+            List<Voxel> voxels;
+            try {
+                voxels = StageSession.SOURCE_DH.equals(source)
+                        ? DHFileReader.read(dataFile, anchor)
+                        : VoxyDirectReader.read(dataFile, anchor);
+            } catch (Throwable ignored) {
+                voxels = List.of();
+            }
+            List<Voxel> loaded = voxels;
             Minecraft.getInstance().execute(() -> {
-                if (voxels.isEmpty()) {
+                if (request != LOAD_SEQUENCE.get() || !StageWorlds.isStageLevel(Minecraft.getInstance().level)) {
+                    return;
+                }
+                if (loaded.isEmpty()) {
                     clearBackdrop();
                 } else {
-                    setVoxels(voxels, anchor);
+                    setVoxels(loaded, anchor);
                 }
             });
         });
@@ -74,6 +86,7 @@ public final class BackdropRenderer {
     }
 
     public static void clearBackdrop() {
+        LOAD_SEQUENCE.incrementAndGet();
         VoxelMesh previous = activeMesh;
         activeMesh = null;
         if (previous != null) {
@@ -106,9 +119,9 @@ public final class BackdropRenderer {
             applyVirtualCamera(poseStack, event.getCamera(), delta, anchor);
         } else {
             poseStack.translate(
-                    -camera.x + anchor.getX(),
-                    -camera.y + anchor.getY(),
-                    -camera.z + anchor.getZ());
+                    -camera.x,
+                    -camera.y,
+                    -camera.z);
         }
 
         RenderSystem.enableBlend();

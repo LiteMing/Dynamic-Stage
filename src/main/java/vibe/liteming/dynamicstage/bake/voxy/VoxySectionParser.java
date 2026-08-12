@@ -54,7 +54,7 @@ public final class VoxySectionParser {
         if (lutSize < 0 || lutSize > 0xFFFF) {
             return;
         }
-        if (raw.length < 16 + VOLUME * 2L) {
+        if (raw.length < 16 + VOLUME * 2L + lutSize * 8L) {
             return;
         }
         int lutOffset = 16 + VOLUME * 2;
@@ -67,6 +67,9 @@ public final class VoxySectionParser {
         int x0 = VoxySectionKey.xOf(key);
         int y0 = VoxySectionKey.yOf(key);
         int z0 = VoxySectionKey.zOf(key);
+        int level = VoxySectionKey.levelOf(key);
+        int cellSize = 1 << level;
+        int sectionSize = VoxySectionKey.sectionSize(level);
 
         int[] surface = new int[32 * 32];
         java.util.Arrays.fill(surface, -1);
@@ -100,9 +103,9 @@ public final class VoxySectionParser {
             int voxelLow = lut[palIdx];
             int blockId = (voxelLow >> 27) & 0xFFFFF;
             consumer.accept(
-                    (long) x0 * VoxySectionKey.sectionSize(VoxySectionKey.levelOf(key)) + x,
-                    (long) y0 * VoxySectionKey.sectionSize(VoxySectionKey.levelOf(key)) + surface[col],
-                    (long) z0 * VoxySectionKey.sectionSize(VoxySectionKey.levelOf(key)) + z,
+                    (long) x0 * sectionSize + (long) x * cellSize,
+                    (long) y0 * sectionSize + (long) surface[col] * cellSize,
+                    (long) z0 * sectionSize + (long) z * cellSize,
                     blockId);
         }
     }
@@ -144,7 +147,7 @@ public final class VoxySectionParser {
         if (lutSize < 0 || lutSize > 0xFFFF) {
             return;
         }
-        if (raw.length < 16 + VOLUME * 2L) {
+        if (raw.length < 16 + VOLUME * 2L + lutSize * 8L) {
             return;
         }
         int lutOffset = 16 + VOLUME * 2;
@@ -157,7 +160,9 @@ public final class VoxySectionParser {
         int x0 = VoxySectionKey.xOf(key);
         int y0 = VoxySectionKey.yOf(key);
         int z0 = VoxySectionKey.zOf(key);
-        int size = VoxySectionKey.sectionSize(VoxySectionKey.levelOf(key));
+        int level = VoxySectionKey.levelOf(key);
+        int cellSize = 1 << level;
+        int sectionSize = VoxySectionKey.sectionSize(level);
 
         for (int i = 0; i < VOLUME; i++) {
             int palIdx = Short.toUnsignedInt(buf.getShort(16 + i * 2));
@@ -172,7 +177,11 @@ public final class VoxySectionParser {
             int x = i & 0x1F;
             int y = (i >> 5) & 0x1F;
             int z = (i >> 10) & 0x1F;
-            consumer.accept((long) x0 * size + x, (long) y0 * size + y, (long) z0 * size + z, blockId);
+            consumer.accept(
+                    (long) x0 * sectionSize + (long) x * cellSize,
+                    (long) y0 * sectionSize + (long) y * cellSize,
+                    (long) z0 * sectionSize + (long) z * cellSize,
+                    blockId);
         }
     }
 }
