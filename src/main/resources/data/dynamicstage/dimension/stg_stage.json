@@ -1,0 +1,11 @@
+{
+  "type": "dynamicstage:stg_stage",
+  "generator": {
+    "type": "minecraft:noise",
+    "settings": "dynamicstage:empty_stage",
+    "biome_source": {
+      "type": "minecraft:fixed",
+      "biome": "dynamicstage:stg_stage"
+    }
+  }
+}
