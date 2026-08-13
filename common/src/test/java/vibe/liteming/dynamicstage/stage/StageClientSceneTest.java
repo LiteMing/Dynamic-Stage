@@ -9,7 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class StageClientSceneTest {
     @Test
     void persistsAllClientSceneSettings() {
-        StageClientScene scene = new StageClientScene(false,
+        StageClientScene scene = new StageClientScene(false, false, 6.5F,
+                StageClientScene.Transition.BLUR, 40, 250L,
                 StageClientScene.TimeMode.CYCLE, 18_000L, 200L, 1_200L);
 
         assertEquals(scene, StageClientScene.load(scene.save()));
@@ -24,7 +25,8 @@ class StageClientSceneTest {
 
     @Test
     void rejectsInvalidCycles() {
-        assertThrows(IllegalArgumentException.class, () -> new StageClientScene(true,
+        assertThrows(IllegalArgumentException.class, () -> new StageClientScene(true, true, 0.0F,
+                StageClientScene.Transition.INSTANT, 0, 0L,
                 StageClientScene.TimeMode.CYCLE, 0L, 0L, 1L));
     }
 }

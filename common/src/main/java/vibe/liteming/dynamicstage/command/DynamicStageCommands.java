@@ -83,7 +83,14 @@ public final class DynamicStageCommands {
                 .then(Commands.literal("status").executes(ctx -> backdropStatus(ctx.getSource())))
                 .then(Commands.literal("follow")
                         .then(Commands.literal("on").executes(ctx -> followPlayer(ctx.getSource(), true)))
-                        .then(Commands.literal("off").executes(ctx -> followPlayer(ctx.getSource(), false)))));
+                        .then(Commands.literal("off").executes(ctx -> followPlayer(ctx.getSource(), false))))
+                .then(backdropVisibility("show", true))
+                .then(backdropVisibility("hide", false))
+                .then(Commands.literal("blur")
+                        .then(Commands.argument("radius", IntegerArgumentType.integer(
+                                        0, (int) StageClientScene.MAX_BLUR_RADIUS))
+                                .executes(ctx -> backdropBlur(ctx.getSource(),
+                                        IntegerArgumentType.getInteger(ctx, "radius"))))));
         LiteralArgumentBuilder<CommandSourceStack> time = Commands.literal("time");
         time.then(Commands.literal("status").executes(ctx -> timeStatus(ctx.getSource())));
         time.then(Commands.literal("follow").executes(ctx -> timeFollow(ctx.getSource())));
@@ -205,6 +212,48 @@ public final class DynamicStageCommands {
         return 1;
     }
 
+    private static LiteralArgumentBuilder<CommandSourceStack> backdropVisibility(String name, boolean visible) {
+        return Commands.literal(name)
+                .executes(ctx -> backdropVisibility(ctx.getSource(), visible,
+                        StageClientScene.Transition.INSTANT, 0))
+                .then(Commands.literal("fade")
+                        .then(Commands.argument("ticks", IntegerArgumentType.integer(
+                                        1, StageClientScene.MAX_TRANSITION_TICKS))
+                                .executes(ctx -> backdropVisibility(ctx.getSource(), visible,
+                                        StageClientScene.Transition.FADE,
+                                        IntegerArgumentType.getInteger(ctx, "ticks")))))
+                .then(Commands.literal("blur")
+                        .then(Commands.argument("ticks", IntegerArgumentType.integer(
+                                        1, StageClientScene.MAX_TRANSITION_TICKS))
+                                .executes(ctx -> backdropVisibility(ctx.getSource(), visible,
+                                        StageClientScene.Transition.BLUR,
+                                        IntegerArgumentType.getInteger(ctx, "ticks")))));
+    }
+
+    private static int backdropVisibility(CommandSourceStack source, boolean visible,
+                                            StageClientScene.Transition transition, int ticks) {
+        if (!(source.getEntity() instanceof ServerPlayer player)
+                || !StageSessionManager.setLodVisible(player, visible, transition, ticks)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Stage LOD " + (visible ? "shown" : "hidden")
+                + (transition == StageClientScene.Transition.INSTANT ? "."
+                : " with " + transition.name().toLowerCase(java.util.Locale.ROOT)
+                + " over " + ticks + " ticks.")), true);
+        return 1;
+    }
+
+    private static int backdropBlur(CommandSourceStack source, int radius) {
+        if (!(source.getEntity() instanceof ServerPlayer player)
+                || !StageSessionManager.setLodBlur(player, radius)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Stage LOD persistent blur radius: " + radius + '.'), true);
+        return 1;
+    }
+
     private static int backdropStatus(CommandSourceStack source) {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
             return 0;
@@ -215,8 +264,9 @@ public final class DynamicStageCommands {
             return 0;
         }
         StageClientScene scene = session.clientScene();
-        source.sendSuccess(() -> Component.literal("Stage backdrop: follow_player="
-                + scene.followPlayer() + '.'), false);
+        source.sendSuccess(() -> Component.literal("Stage backdrop: follow_player=" + scene.followPlayer()
+                + ", visible=" + scene.lodVisible() + ", blur=" + scene.lodBlurRadius()
+                + ", transition=" + scene.lodTransition().name().toLowerCase(java.util.Locale.ROOT) + '.'), false);
         return 1;
     }
 

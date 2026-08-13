@@ -154,6 +154,26 @@ public final class StageSessionManager {
                 session.clientScene().withFollowPlayer(followPlayer));
     }
 
+    public static boolean setLodVisible(ServerPlayer player, boolean visible,
+                                        StageClientScene.Transition transition, int transitionTicks) {
+        StageSession session = get(player).orElse(null);
+        if (session == null) {
+            return false;
+        }
+        if (session.clientScene().lodVisible() == visible) {
+            return true;
+        }
+        long gameTime = player.serverLevel().getGameTime();
+        return updateClientScene(player, session.clientScene().withLodVisible(
+                visible, transition, transitionTicks, gameTime));
+    }
+
+    public static boolean setLodBlur(ServerPlayer player, float blurRadius) {
+        StageSession session = get(player).orElse(null);
+        return session != null && updateClientScene(player,
+                session.clientScene().withLodBlurRadius(blurRadius));
+    }
+
     public static boolean setClientTime(ServerPlayer player, StageClientScene.TimeMode mode,
                                         long baseDayTime, long cycleTicks) {
         MinecraftServer server = player.getServer();

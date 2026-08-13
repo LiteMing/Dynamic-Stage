@@ -30,6 +30,7 @@ class StageClientTimeTest {
 
     private static StageClientScene scene(StageClientScene.TimeMode mode, long dayTime,
                                           long gameTime, long cycleTicks) {
-        return new StageClientScene(true, mode, dayTime, gameTime, cycleTicks);
+        return new StageClientScene(true, true, 0.0F, StageClientScene.Transition.INSTANT, 0, gameTime,
+                mode, dayTime, gameTime, cycleTicks);
     }
 }

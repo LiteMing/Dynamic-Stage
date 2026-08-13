@@ -6,17 +6,36 @@ import net.minecraft.nbt.Tag;
 /** Persisted instance settings evaluated entirely by each stage client. */
 public record StageClientScene(
         boolean followPlayer,
+        boolean lodVisible,
+        float lodBlurRadius,
+        Transition lodTransition,
+        int lodTransitionTicks,
+        long lodTransitionStartGameTime,
         TimeMode timeMode,
         long timeBaseDayTime,
         long timeBaseGameTime,
         long timeCycleTicks
 ) {
+    public static final float MAX_BLUR_RADIUS = 32.0F;
+    public static final int MAX_TRANSITION_TICKS = 20 * 60;
     public static final long MIN_TIME_CYCLE_TICKS = 20L;
     public static final long MAX_TIME_CYCLE_TICKS = 1_728_000L;
 
     public StageClientScene {
-        if (timeMode == null) {
-            throw new IllegalArgumentException("Stage client scene contains a null time mode");
+        if (lodTransition == null || timeMode == null) {
+            throw new IllegalArgumentException("Stage client scene contains a null mode");
+        }
+        if (!Float.isFinite(lodBlurRadius) || lodBlurRadius < 0.0F || lodBlurRadius > MAX_BLUR_RADIUS) {
+            throw new IllegalArgumentException("Invalid LOD blur radius: " + lodBlurRadius);
+        }
+        if (lodTransitionTicks < 0 || lodTransitionTicks > MAX_TRANSITION_TICKS) {
+            throw new IllegalArgumentException("Invalid LOD transition duration: " + lodTransitionTicks);
+        }
+        if (lodTransition == Transition.INSTANT && lodTransitionTicks != 0) {
+            throw new IllegalArgumentException("Instant LOD transition contains a duration");
+        }
+        if (lodTransitionStartGameTime < 0L) {
+            throw new IllegalArgumentException("Invalid LOD transition epoch: " + lodTransitionStartGameTime);
         }
         if (timeBaseGameTime < 0L) {
             throw new IllegalArgumentException("Invalid client time epoch: " + timeBaseGameTime);
@@ -31,25 +50,47 @@ public record StageClientScene(
     }
 
     public static StageClientScene defaults(long dayTime, long gameTime) {
-        return new StageClientScene(true, TimeMode.FOLLOW, dayTime, gameTime, 0L);
+        return new StageClientScene(true, true, 0.0F, Transition.INSTANT, 0, gameTime,
+                TimeMode.FOLLOW, dayTime, gameTime, 0L);
     }
 
     public StageClientScene withFollowPlayer(boolean follow) {
-        return copy(follow, timeMode, timeBaseDayTime, timeBaseGameTime, timeCycleTicks);
+        return copy(follow, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
+                lodTransitionStartGameTime, timeMode, timeBaseDayTime, timeBaseGameTime, timeCycleTicks);
+    }
+
+    public StageClientScene withLodVisible(boolean visible, Transition transition,
+                                           int transitionTicks, long startGameTime) {
+        return copy(followPlayer, visible, lodBlurRadius, transition, transitionTicks, startGameTime,
+                timeMode, timeBaseDayTime, timeBaseGameTime, timeCycleTicks);
+    }
+
+    public StageClientScene withLodBlurRadius(float blurRadius) {
+        return copy(followPlayer, lodVisible, blurRadius, lodTransition, lodTransitionTicks,
+                lodTransitionStartGameTime, timeMode, timeBaseDayTime, timeBaseGameTime, timeCycleTicks);
     }
 
     public StageClientScene withTime(TimeMode mode, long baseDayTime, long baseGameTime, long cycleTicks) {
-        return copy(followPlayer, mode, baseDayTime, baseGameTime, cycleTicks);
+        return copy(followPlayer, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
+                lodTransitionStartGameTime, mode, baseDayTime, baseGameTime, cycleTicks);
     }
 
-    private StageClientScene copy(boolean follow, TimeMode newTimeMode,
+    private StageClientScene copy(boolean follow, boolean visible, float blurRadius,
+                                  Transition transition, int transitionTicks, long transitionStart,
+                                  TimeMode newTimeMode,
                                   long baseDayTime, long baseGameTime, long cycleTicks) {
-        return new StageClientScene(follow, newTimeMode, baseDayTime, baseGameTime, cycleTicks);
+        return new StageClientScene(follow, visible, blurRadius, transition, transitionTicks, transitionStart,
+                newTimeMode, baseDayTime, baseGameTime, cycleTicks);
     }
 
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
         tag.putBoolean("FollowPlayer", followPlayer);
+        tag.putBoolean("LodVisible", lodVisible);
+        tag.putFloat("LodBlurRadius", lodBlurRadius);
+        tag.putString("LodTransition", lodTransition.name());
+        tag.putInt("LodTransitionTicks", lodTransitionTicks);
+        tag.putLong("LodTransitionStartGameTime", lodTransitionStartGameTime);
         tag.putString("TimeMode", timeMode.name());
         tag.putLong("TimeBaseDayTime", timeBaseDayTime);
         tag.putLong("TimeBaseGameTime", timeBaseGameTime);
@@ -63,6 +104,13 @@ public record StageClientScene(
         }
         return new StageClientScene(
                 tag.getBoolean("FollowPlayer"),
+                !tag.contains("LodVisible") || tag.getBoolean("LodVisible"),
+                tag.getFloat("LodBlurRadius"),
+                tag.contains("LodTransition", Tag.TAG_STRING)
+                        ? Transition.valueOf(tag.getString("LodTransition")) : Transition.INSTANT,
+                tag.getInt("LodTransitionTicks"),
+                tag.contains("LodTransitionStartGameTime")
+                        ? tag.getLong("LodTransitionStartGameTime") : tag.getLong("TimeBaseGameTime"),
                 TimeMode.valueOf(tag.getString("TimeMode")),
                 tag.getLong("TimeBaseDayTime"),
                 tag.getLong("TimeBaseGameTime"),
@@ -71,4 +119,6 @@ public record StageClientScene(
     }
 
     public enum TimeMode { FOLLOW, FIXED, CYCLE }
+
+    public enum Transition { INSTANT, FADE, BLUR }
 }

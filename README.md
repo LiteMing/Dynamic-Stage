@@ -54,6 +54,10 @@ Commands currently require permission level 2:
 /dstage anchor <source_x> <source_y> <source_z>
 /dstage backdrop status
 /dstage backdrop follow on|off
+/dstage backdrop show|hide
+/dstage backdrop show|hide fade <ticks>
+/dstage backdrop show|hide blur <ticks>
+/dstage backdrop blur <radius>
 /dstage time status
 /dstage time follow
 /dstage time fixed <day_time>
@@ -71,6 +75,8 @@ Commands currently require permission level 2:
 `start` creates an instance, validates the local package, and then teleports. Once the target level wrapper exists, the client rebinds DH to the external database before flight playback begins; a failed rebind returns the player safely. `join` joins an active instance if capacity remains. `anchor` updates the shared virtual DH source position for every active or preparing member. `exit` restores the player's original dimension, position, and rotation.
 
 Backdrop and time settings belong to the instance and are broadcast to all members. Player movement following is enabled by default. Turning it off pins the native LOD camera to the source anchor while preserving first/third-person camera offsets and CMDCam flight motion. Stage time is evaluated only by the client: `follow` advances from a synchronized Overworld epoch, `fixed` holds a vanilla day-time value in the `0..23999` range, and `cycle` maps one visual Minecraft day onto the configured number of client ticks. These modes do not change server-side stage time or send per-tick network updates.
+
+LOD visibility changes can be instant, fade, or blur transitions. Persistent blur is independent from transitions and uses a `0..32` pixel radius; `0` disables it. Dynamic Stage filters only the native backend's intermediate LOD color texture before DH or Voxy performs its original depth-aware composite, so the sky, stage blocks, entities, and UI are not blurred.
 
 ## CMDCam and music
 
