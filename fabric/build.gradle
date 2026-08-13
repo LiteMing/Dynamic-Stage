@@ -29,6 +29,13 @@ configurations {
     developmentFabric.extendsFrom common
 }
 
+def localVoxyDirectory = rootProject.file("../voxy-thirdparty-java17/build")
+def localVoxyDevJar = new File(localVoxyDirectory,
+        "devlibs/voxy-${rootProject.voxy_modrinth_version}-dev.jar")
+def localNamedSodium = fileTree(new File(localVoxyDirectory, "loom-cache/remapped_working")) {
+    include "*maven.modrinth-sodium-mc1.20.1-0.5.13-fabric.jar"
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
     mappings loom.officialMojangMappings()
@@ -41,8 +48,18 @@ dependencies {
     shadowCommon(project(path: ":common", configuration: "transformProductionFabric")) { transitive false }
 
     if (providers.gradleProperty("includeVoxy").orNull == "true") {
-        modRuntimeOnly "maven.modrinth:voxy:0.2.14-alpha"
-        modRuntimeOnly "maven.modrinth:sodium:mc1.20.1-0.5.13-fabric"
+        if (localVoxyDevJar.isFile()) {
+            // Voxy's dev jar is already in Loom's named namespace. Loading it
+            // directly avoids asking this older Loom version to remap it again.
+            runtimeOnly files(localVoxyDevJar)
+            runtimeOnly fileTree(new File(localVoxyDirectory, "processIncludeJars")) {
+                include "*.jar"
+            }
+            runtimeOnly localNamedSodium
+        } else {
+            modRuntimeOnly "maven.modrinth:voxy:${rootProject.voxy_modrinth_version}"
+            modRuntimeOnly "maven.modrinth:sodium:mc1.20.1-0.5.13-fabric"
+        }
     }
 }
 
