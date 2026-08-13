@@ -5,7 +5,9 @@
   "compatibilityLevel": "JAVA_17",
   "client": [
     "DhCameraMixin",
+    "DhNearClipMixin",
     "DhPlayerPositionMixin",
+    "DhViewMixin",
     "StageSkyMixin",
     "StageSkyEffectsMixin"
   ],

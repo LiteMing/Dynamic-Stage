@@ -18,7 +18,7 @@ public abstract class DhPlayerPositionMixin {
 
     @Inject(method = "getPlayerBlockPos", at = @At("HEAD"), cancellable = true, require = 1, remap = false)
     private void dynamicstage$virtualPlayerBlock(CallbackInfoReturnable<Object> callback) {
-        Vec3 position = DhVirtualCamera.position();
+        Vec3 position = DhVirtualCamera.lodSelectionPosition();
         if (position != null) {
             callback.setReturnValue(dynamicstage$new("com.seibel.distanthorizons.core.pos.blockPos.DhBlockPos",
                     Mth.floor(position.x), Mth.floor(position.y), Mth.floor(position.z)));
@@ -27,7 +27,7 @@ public abstract class DhPlayerPositionMixin {
 
     @Inject(method = "getPlayerChunkPos", at = @At("HEAD"), cancellable = true, require = 1, remap = false)
     private void dynamicstage$virtualPlayerChunk(CallbackInfoReturnable<Object> callback) {
-        Vec3 position = DhVirtualCamera.position();
+        Vec3 position = DhVirtualCamera.lodSelectionPosition();
         if (position != null) {
             callback.setReturnValue(dynamicstage$new("com.seibel.distanthorizons.core.pos.DhChunkPos",
                     Mth.floor(position.x) >> 4, Mth.floor(position.z) >> 4));

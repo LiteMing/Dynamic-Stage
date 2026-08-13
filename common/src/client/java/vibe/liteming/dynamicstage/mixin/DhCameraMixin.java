@@ -16,6 +16,7 @@ import java.lang.reflect.Constructor;
 public abstract class DhCameraMixin {
 
     private static volatile Constructor<?> dynamicstage$vec3dConstructor;
+    private static volatile Constructor<?> dynamicstage$vec3fConstructor;
 
     @Inject(method = "getCameraExactPosition", at = @At("HEAD"), cancellable = true, require = 1, remap = false)
     private void dynamicstage$virtualCamera(CallbackInfoReturnable<Object> callback) {
@@ -39,6 +40,32 @@ public abstract class DhCameraMixin {
             callback.setReturnValue(constructor.newInstance(position.x, position.y, position.z));
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Could not construct a DH virtual camera position", e);
+        }
+    }
+
+    @Inject(method = "getLookAtVector", at = @At("HEAD"), cancellable = true, require = 1, remap = false)
+    private void dynamicstage$virtualLookVector(CallbackInfoReturnable<Object> callback) {
+        Vec3 look = DhVirtualCamera.lookVector();
+        if (look == null) {
+            return;
+        }
+        try {
+            Constructor<?> constructor = dynamicstage$vec3fConstructor;
+            if (constructor == null) {
+                ClassLoader loader = getClass().getClassLoader();
+                Class<?> type;
+                try {
+                    type = Class.forName("com.seibel.distanthorizons.core.util.math.DhVec3f", true, loader);
+                } catch (ClassNotFoundException e) {
+                    type = Class.forName("com.seibel.distanthorizons.core.util.math.Vec3f", true, loader);
+                }
+                constructor = type.getConstructor(float.class, float.class, float.class);
+                dynamicstage$vec3fConstructor = constructor;
+            }
+            callback.setReturnValue(constructor.newInstance(
+                    (float) look.x, (float) look.y, (float) look.z));
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Could not construct a DH virtual look vector", e);
         }
     }
 }
