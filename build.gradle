@@ -1,146 +1,36 @@
 plugins {
-    id 'maven-publish'
-    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
-    id 'org.parchmentmc.librarian.forgegradle' version '1.+'
+    id "architectury-plugin" version "3.4-SNAPSHOT" apply false
+    id "dev.architectury.loom" version "1.7.435" apply false
+    id "com.github.johnrengelman.shadow" version "8.1.1" apply false
 }
 
-jarJar.enable()
+allprojects {
+    apply plugin: "java"
+    apply plugin: "maven-publish"
 
-version = mod_version
-group = mod_group_id
+    version = rootProject.mod_version
+    group = rootProject.mod_group_id
 
-base {
-    archivesName = mod_id
-}
-
-java.toolchain.languageVersion = JavaLanguageVersion.of(17)
-
-minecraft {
-    mappings channel: mapping_channel, version: mapping_version
-    copyIdeResources = true
-
-    runs {
-        configureEach {
-            workingDirectory project.file('run')
-            property 'forge.logging.markers', 'REGISTRIES'
-            property 'forge.logging.console.level', 'info'
-            args '--mixin', 'dynamicstage.mixins.json'
-
-            mods {
-                "${mod_id}" {
-                    source sourceSets.main
-                }
-            }
-        }
-
-        client {
-            property 'forge.enabledGameTestNamespaces', mod_id
-        }
-
-        server {
-            property 'forge.enabledGameTestNamespaces', mod_id
-            args '--nogui'
-        }
-
-        data {
-            workingDirectory project.file('run-data')
-            args '--mod', mod_id, '--all', '--output', file('src/generated/resources/'), '--existing', file('src/main/resources/')
-        }
-    }
-}
-
-sourceSets.main.resources { srcDir 'src/generated/resources' }
-
-repositories {
-    maven {
-        url = 'https://maven.sighs.cc/repository/maven-releases/'
-    }
-    maven {
-        name = 'Modrinth'
-        url = 'https://api.modrinth.com/maven'
-        content {
-            includeGroup 'maven.modrinth'
-        }
-    }
-}
-
-dependencies {
-    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
-
-    // CMDCam remains a soft dependency. Enable it explicitly for its separate
-    // runClient compatibility pass: -PincludeCmdCam=true
-    if (providers.gradleProperty('includeCmdCam').orNull == 'true') {
-        runtimeOnly fg.deobf('maven.modrinth:cmdcam:as7nPEt0')
-        runtimeOnly fg.deobf('maven.modrinth:creativecore:m9VEcxwz')
-    }
-
-    // DH is also opt-in for development runs so runServer stays client-mod free:
-    // -PincludeDh=true
-    if (providers.gradleProperty('includeDh').orNull == 'true') {
-        runtimeOnly fg.deobf('maven.modrinth:distanthorizons:FWGxbEM3')
-    }
-
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-}
-
-test {
-    useJUnitPlatform()
-}
-
-tasks.named('processResources', ProcessResources).configure {
-    var replaceProperties = [
-            minecraft_version      : minecraft_version,
-            minecraft_version_range: minecraft_version_range,
-            forge_version          : forge_version,
-            forge_version_range    : forge_version_range,
-            loader_version_range   : loader_version_range,
-            mod_id                 : mod_id,
-            mod_name               : mod_name,
-            mod_license            : mod_license,
-            mod_version            : mod_version,
-            mod_authors            : mod_authors,
-            mod_description        : mod_description,
-    ]
-    inputs.properties replaceProperties
-
-    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
-        expand replaceProperties + [project: project]
-    }
-}
-
-tasks.named('jar', Jar).configure {
-    manifest {
-        attributes([
-                'Specification-Title'     : mod_id,
-                'Specification-Vendor'    : mod_authors,
-                'Specification-Version'   : '1',
-                'Implementation-Title'    : project.name,
-                'Implementation-Version'  : project.jar.archiveVersion,
-                'Implementation-Vendor'   : mod_authors,
-                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
-                'MixinConfigs'             : 'dynamicstage.mixins.json'
-        ])
-    }
-
-    finalizedBy 'reobfJar'
-}
-
-reobf { jarJar {} }
-
-tasks.named('build').configure { dependsOn tasks.named('jarJar') }
-
-publishing {
-    publications {
-        register('mavenJava', MavenPublication) {
-            artifact jar
-        }
-    }
     repositories {
+        maven { url = "https://maven.architectury.dev/" }
+        maven { url = "https://maven.fabricmc.net/" }
+        maven { url = "https://maven.minecraftforge.net/" }
         maven {
-            url "file://${project.projectDir}/mcmodsrepo"
+            name = "Modrinth"
+            url = "https://api.modrinth.com/maven"
+            content { includeGroup "maven.modrinth" }
         }
+        mavenCentral()
+    }
+
+    java {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        withSourcesJar()
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = "UTF-8"
+        options.release = 17
     }
 }
-
-tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }

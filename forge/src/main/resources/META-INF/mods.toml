@@ -1,0 +1,38 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+
+[[mods]]
+modId="dynamicstage"
+version="${version}"
+displayName="Dynamic Stage"
+authors="Homecoming STG contributors"
+description='''Isolated stage instances rendered from client-side native LOD packages.'''
+
+[[dependencies.dynamicstage]]
+modId="forge"
+mandatory=true
+versionRange="[47,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.dynamicstage]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.20.1,1.20.2)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.dynamicstage]]
+modId="architectury"
+mandatory=true
+versionRange="[9.0.0,)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.dynamicstage]]
+modId="distanthorizons"
+mandatory=false
+versionRange="[3.2,3.3)"
+ordering="AFTER"
+side="CLIENT"

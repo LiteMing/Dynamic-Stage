@@ -1,0 +1,75 @@
+plugins {
+    id "dev.architectury.loom"
+    id "architectury-plugin"
+    id "com.github.johnrengelman.shadow"
+}
+
+architectury {
+    platformSetupLoomIde()
+    forge()
+}
+
+base { archivesName = "${rootProject.mod_id}-forge" }
+
+loom {
+    mods {
+        dynamicstage { sourceSet sourceSets.main }
+    }
+}
+
+sourceSets {
+    main {
+        java.srcDir "src/client/java"
+        resources.srcDir "src/client/resources"
+    }
+}
+
+configurations {
+    common
+    shadowCommon
+    compileClasspath.extendsFrom common
+    runtimeClasspath.extendsFrom common
+    developmentForge.extendsFrom common
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+    mappings loom.officialMojangMappings()
+
+    forge "net.minecraftforge:forge:${rootProject.forge_version}"
+    modApi "dev.architectury:architectury-forge:${rootProject.architectury_version}"
+
+    common(project(path: ":common", configuration: "namedElements")) { transitive false }
+    shadowCommon(project(path: ":common", configuration: "transformProductionForge")) { transitive false }
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("META-INF/mods.toml") { expand "version": project.version }
+}
+
+jar {
+    manifest {
+        attributes "MixinConfigs": "dynamicstage.mixins.json"
+    }
+}
+
+shadowJar {
+    exclude "fabric.mod.json"
+    configurations = [project.configurations.shadowCommon]
+    archiveClassifier = "dev-shadow"
+    manifest {
+        attributes "MixinConfigs": "dynamicstage.mixins.json"
+    }
+}
+
+remapJar {
+    input.set shadowJar.archiveFile
+    dependsOn shadowJar
+}
+
+sourcesJar {
+    def commonSources = project(":common").sourcesJar
+    dependsOn commonSources
+    from commonSources.archiveFile.map { zipTree(it) }
+}

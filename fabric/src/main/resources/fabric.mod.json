@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "dynamicstage",
+  "version": "${version}",
+  "name": "Dynamic Stage",
+  "description": "Isolated stage instances rendered from client-side native LOD packages.",
+  "authors": ["Homecoming STG contributors"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["vibe.liteming.dynamicstage.fabric.DynamicStageFabric"],
+    "client": ["vibe.liteming.dynamicstage.fabric.DynamicStageFabricClient"]
+  },
+  "mixins": [
+    {
+      "config": "dynamicstage.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=0.14.22",
+    "fabric-api": "*",
+    "architectury": ">=9.0.0",
+    "minecraft": "~1.20.1",
+    "java": ">=17"
+  }
+}

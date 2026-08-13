@@ -1,0 +1,38 @@
+plugins {
+    id "dev.architectury.loom"
+    id "architectury-plugin"
+}
+
+architectury {
+    common(rootProject.enabled_platforms.split(","))
+}
+
+base { archivesName = "${rootProject.mod_id}-common" }
+
+loom {
+    splitEnvironmentSourceSets()
+    mods {
+        dynamicstage {
+            sourceSet sourceSets.main
+            sourceSet sourceSets.client
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+    mappings loom.officialMojangMappings()
+
+    modImplementation "dev.architectury:architectury:${rootProject.architectury_version}"
+    compileOnly "net.fabricmc:fabric-loader:${rootProject.fabric_loader_version}"
+
+    testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+sourceSets.test {
+    compileClasspath += sourceSets.main.compileClasspath + sourceSets.client.compileClasspath + sourceSets.client.output
+    runtimeClasspath += sourceSets.main.compileClasspath + sourceSets.client.compileClasspath + sourceSets.client.output
+}
+
+test { useJUnitPlatform() }
