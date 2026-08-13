@@ -8,6 +8,8 @@ import vibe.liteming.dynamicstage.client.lod.DhBackdropRuntime;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageSessionPacket;
 import vibe.liteming.dynamicstage.world.StageWorlds;
+import vibe.liteming.dynamicstage.stage.StageBoundary;
+import vibe.liteming.dynamicstage.stage.StageBoundaryAccess;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
@@ -29,10 +31,11 @@ public final class ClientStageSession {
             return;
         }
         Snapshot snapshot = new Snapshot(packet.instanceId(), packet.stageId(), packet.lodPackId(),
-                packet.lodAnchor(), packet.stageOrigin(), packet.capacity(), packet.flightHash(),
+                packet.lodAnchor(), packet.stageOrigin(), packet.capacity(), packet.boundary(), packet.flightHash(),
                 packet.flightBytes(), packet.flightDurationMillis());
         Snapshot previous = active;
         active = snapshot;
+        StageBoundaryAccess.setClient(packet.instanceId(), packet.stageOrigin(), packet.boundary());
         if (previous != null && previous.instanceId().equals(snapshot.instanceId())
                 && previous.lodPackId().equals(snapshot.lodPackId())
                 && DhBackdropRuntime.isMounted(snapshot.instanceId())) {
@@ -43,6 +46,7 @@ public final class ClientStageSession {
         DhBackdropRuntime.Result result = DhBackdropRuntime.mount(snapshot);
         if (!result.ready()) {
             active = null;
+            StageBoundaryAccess.clearClient();
             readyAfterActivation = null;
             DynamicStageNetwork.clientReady(snapshot.instanceId(), false, result.error());
             return;
@@ -57,6 +61,7 @@ public final class ClientStageSession {
 
     public static void clearLocal() {
         active = null;
+        StageBoundaryAccess.clearClient();
         readyAfterActivation = null;
         activationAttempts = 0;
         StageFlightController.clear();
@@ -81,6 +86,7 @@ public final class ClientStageSession {
         readyAfterActivation = null;
         if (!result.ready()) {
             active = null;
+            StageBoundaryAccess.clearClient();
             StageFlightController.clear();
             DhBackdropRuntime.unmount();
             DynamicStageNetwork.clientReady(snapshot.instanceId(), false, result.error());
@@ -93,7 +99,8 @@ public final class ClientStageSession {
     }
 
     public record Snapshot(UUID instanceId, String stageId, ResourceLocation lodPackId, BlockPos lodAnchor,
-                           BlockPos stageOrigin, int capacity, String flightHash, int flightBytes,
+                           BlockPos stageOrigin, int capacity, StageBoundary boundary,
+                           String flightHash, int flightBytes,
                            long flightDurationMillis) {
 
         public boolean hasFlight() {

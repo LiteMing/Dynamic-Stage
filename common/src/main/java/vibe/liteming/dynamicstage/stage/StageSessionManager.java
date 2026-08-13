@@ -107,6 +107,47 @@ public final class StageSessionManager {
         return true;
     }
 
+    public static boolean setBoundary(ServerPlayer player, StageBoundary boundary) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        StageSession session = data.get(player.getUUID()).orElse(null);
+        if (session == null) {
+            return false;
+        }
+        data.updateInstanceBoundary(session.instanceId(), boundary);
+        PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
+                ? new PendingEntry(entry.session.withBoundary(boundary))
+                : entry);
+        for (StageSession member : data.members(session.instanceId())) {
+            ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
+            if (target == null) {
+                continue;
+            }
+            StageSession updated = member.withBoundary(boundary);
+            if (StageWorlds.isStageLevel(target.level())) {
+                Vec3 clamped = boundary.clampPlayer(updated.stageOrigin(), target.position(),
+                        target.getBbWidth(), target.getBbHeight());
+                if (!clamped.equals(target.position())) {
+                    target.teleportTo(target.serverLevel(), clamped.x, clamped.y, clamped.z,
+                            target.getYRot(), target.getXRot());
+                }
+            }
+            DynamicStageNetwork.sendSession(target, updated);
+        }
+        for (PendingEntry entry : PENDING.values()) {
+            if (entry.session.instanceId().equals(session.instanceId())) {
+                ServerPlayer target = server.getPlayerList().getPlayer(entry.session.playerId());
+                if (target != null) {
+                    DynamicStageNetwork.sendSession(target, entry.session);
+                }
+            }
+        }
+        return true;
+    }
+
     public static void onClientReady(ServerPlayer player, UUID instanceId, boolean ready, String error) {
         MinecraftServer server = player.getServer();
         if (server == null) {
@@ -279,6 +320,7 @@ public final class StageSessionManager {
                                                   ResourceLocation lodPackId, BlockPos anchor, int slot, int capacity,
                                                   StageFlightAssets.Asset flight, long flightStart) {
         return new StageSession(player.getUUID(), instanceId, stageId, lodPackId, anchor, slot, capacity,
+                StageBoundary.defaults(),
                 player.serverLevel().dimension(), player.position(), player.getYRot(), player.getXRot(),
                 flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
                 flight == null ? 0L : flight.durationMillis(), flight == null ? -1L : flightStart);
@@ -286,7 +328,8 @@ public final class StageSessionManager {
 
     private static StageSession createMembership(ServerPlayer player, StageSession instance) {
         return new StageSession(player.getUUID(), instance.instanceId(), instance.stageId(), instance.lodPackId(),
-                instance.lodAnchor(), instance.slot(), instance.capacity(), player.serverLevel().dimension(),
+                instance.lodAnchor(), instance.slot(), instance.capacity(), instance.boundary(),
+                player.serverLevel().dimension(),
                 player.position(), player.getYRot(), player.getXRot(), instance.flightHash(), instance.flightBytes(),
                 instance.flightDurationMillis(), instance.flightStartGameTime());
     }

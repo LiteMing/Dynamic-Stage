@@ -12,6 +12,7 @@
     "client": ["vibe.liteming.dynamicstage.fabric.DynamicStageFabricClient"]
   },
   "mixins": [
+    "dynamicstage.common.mixins.json",
     {
       "config": "dynamicstage.mixins.json",
       "environment": "client"

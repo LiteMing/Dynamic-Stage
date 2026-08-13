@@ -3,6 +3,7 @@ package vibe.liteming.dynamicstage.stage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
@@ -21,6 +22,7 @@ public record StageSession(
         BlockPos lodAnchor,
         int slot,
         int capacity,
+        StageBoundary boundary,
         ResourceKey<Level> returnDimension,
         Vec3 returnPosition,
         float returnYRot,
@@ -34,7 +36,7 @@ public record StageSession(
     public static final int MAX_CAPACITY = 64;
 
     public StageSession {
-        if (playerId == null || instanceId == null || lodPackId == null || lodAnchor == null
+        if (playerId == null || instanceId == null || lodPackId == null || lodAnchor == null || boundary == null
                 || returnDimension == null || returnPosition == null) {
             throw new IllegalArgumentException("Stage session contains null identity or position state");
         }
@@ -87,15 +89,19 @@ public record StageSession(
         if (!hasFlight() || startGameTime < 0L) {
             throw new IllegalArgumentException("Cannot start this stage flight");
         }
-        return copy(lodAnchor, startGameTime);
+        return copy(lodAnchor, boundary, startGameTime);
     }
 
     public StageSession withLodAnchor(BlockPos anchor) {
-        return copy(anchor, flightStartGameTime);
+        return copy(anchor, boundary, flightStartGameTime);
     }
 
-    private StageSession copy(BlockPos anchor, long flightStart) {
-        return new StageSession(playerId, instanceId, stageId, lodPackId, anchor, slot, capacity,
+    public StageSession withBoundary(StageBoundary newBoundary) {
+        return copy(lodAnchor, newBoundary, flightStartGameTime);
+    }
+
+    private StageSession copy(BlockPos anchor, StageBoundary newBoundary, long flightStart) {
+        return new StageSession(playerId, instanceId, stageId, lodPackId, anchor, slot, capacity, newBoundary,
                 returnDimension, returnPosition, returnYRot, returnXRot,
                 flightHash, flightBytes, flightDurationMillis, flightStart);
     }
@@ -109,6 +115,7 @@ public record StageSession(
         tag.putLong("LodAnchor", lodAnchor.asLong());
         tag.putInt("Slot", slot);
         tag.putInt("Capacity", capacity);
+        tag.put("Boundary", boundary.save());
         tag.putString("ReturnDimension", returnDimension.location().toString());
         tag.putDouble("ReturnX", returnPosition.x);
         tag.putDouble("ReturnY", returnPosition.y);
@@ -135,6 +142,9 @@ public record StageSession(
                 BlockPos.of(tag.getLong("LodAnchor")),
                 tag.getInt("Slot"),
                 tag.getInt("Capacity"),
+                tag.contains("Boundary", Tag.TAG_COMPOUND)
+                        ? StageBoundary.load(tag.getCompound("Boundary"))
+                        : StageBoundary.defaults(),
                 returnDimension,
                 new Vec3(tag.getDouble("ReturnX"), tag.getDouble("ReturnY"), tag.getDouble("ReturnZ")),
                 tag.getFloat("ReturnYRot"),

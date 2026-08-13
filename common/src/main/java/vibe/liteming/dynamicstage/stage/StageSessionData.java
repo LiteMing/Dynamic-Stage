@@ -83,6 +83,19 @@ public final class StageSessionData extends SavedData {
         }
     }
 
+    public void updateInstanceBoundary(UUID instanceId, StageBoundary boundary) {
+        boolean changed = false;
+        for (StageSession session : List.copyOf(sessions.values())) {
+            if (session.instanceId().equals(instanceId)) {
+                sessions.put(session.playerId(), session.withBoundary(boundary));
+                changed = true;
+            }
+        }
+        if (changed) {
+            setDirty();
+        }
+    }
+
     public void updateInstanceFlightStart(UUID instanceId, long startGameTime) {
         boolean changed = false;
         for (StageSession session : List.copyOf(sessions.values())) {

@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import vibe.liteming.dynamicstage.client.flight.StageFlightController;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.world.StageWorlds;
+import vibe.liteming.dynamicstage.stage.StageBoundaryAccess;
 
 public final class StageClientEvents {
     private StageClientEvents() {
@@ -18,6 +19,7 @@ public final class StageClientEvents {
         if (mc.player == null || mc.level == null) {
             return;
         }
+        StageBoundaryAccess.bindClientPlayer(mc.player.getUUID());
         if (StageWorlds.isStageLevel(mc.level)) {
             if (ClientStageSession.activateLodIfNeeded()) {
                 StageFlightController.tick();

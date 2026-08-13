@@ -4,24 +4,26 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import vibe.liteming.dynamicstage.stage.StageSession;
+import vibe.liteming.dynamicstage.stage.StageBoundary;
 
 import java.util.UUID;
 
 /** S2C stage membership and client-side native LOD binding. */
 public record StageSessionPacket(boolean active, UUID instanceId, String stageId, ResourceLocation lodPackId,
                                  BlockPos lodAnchor, BlockPos stageOrigin, int capacity,
+                                 StageBoundary boundary,
                                  String flightHash, int flightBytes, long flightDurationMillis) {
 
     public static StageSessionPacket active(StageSession session) {
         return new StageSessionPacket(true, session.instanceId(), session.stageId(), session.lodPackId(),
-                session.lodAnchor(), session.stageOrigin(), session.capacity(), session.flightHash(),
-                session.flightBytes(), session.flightDurationMillis());
+                session.lodAnchor(), session.stageOrigin(), session.capacity(), session.boundary(),
+                session.flightHash(), session.flightBytes(), session.flightDurationMillis());
     }
 
     public static StageSessionPacket clear() {
         return new StageSessionPacket(false, new UUID(0L, 0L), "",
                 new ResourceLocation("dynamicstage", "none"),
-                BlockPos.ZERO, BlockPos.ZERO, 1, "", 0, 0L);
+                BlockPos.ZERO, BlockPos.ZERO, 1, StageBoundary.defaults(), "", 0, 0L);
     }
 
     public static void encode(StageSessionPacket packet, FriendlyByteBuf buf) {
@@ -33,6 +35,10 @@ public record StageSessionPacket(boolean active, UUID instanceId, String stageId
             buf.writeBlockPos(packet.lodAnchor);
             buf.writeBlockPos(packet.stageOrigin);
             buf.writeVarInt(packet.capacity);
+            buf.writeVarInt(packet.boundary.width());
+            buf.writeVarInt(packet.boundary.depth());
+            buf.writeVarInt(packet.boundary.height());
+            buf.writeInt(packet.boundary.color());
             buf.writeUtf(packet.flightHash, 64);
             buf.writeVarInt(packet.flightBytes);
             buf.writeVarLong(packet.flightDurationMillis);
@@ -44,7 +50,9 @@ public record StageSessionPacket(boolean active, UUID instanceId, String stageId
             return clear();
         }
         return new StageSessionPacket(true, buf.readUUID(), buf.readUtf(128), buf.readResourceLocation(),
-                buf.readBlockPos(), buf.readBlockPos(), buf.readVarInt(), buf.readUtf(64),
+                buf.readBlockPos(), buf.readBlockPos(), buf.readVarInt(),
+                new StageBoundary(buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readInt()), buf.readUtf(64),
                 buf.readVarInt(), buf.readVarLong());
     }
+
 }
