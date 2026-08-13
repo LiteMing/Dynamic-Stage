@@ -82,19 +82,17 @@ Build and run tests:
 
 The output is `build/libs/dynamicstage-0.1.0-all.jar`; it does not embed DH, CMDCam, SQLite, RocksDB, or compression libraries.
 
-Run the DH compatibility client:
+Run the DH compatibility client (the default Forge client is also DH-only):
 
 ```powershell
-.\gradlew.bat :forge:runClient
+.\gradlew.bat :forge:runDhClient
 ```
 
-The Forge development client loads Distant Horizons 3.2, Embeddium, CMDCam,
-CreativeCore, Forgified Fabric API, Sinytra Connector, and Voxy by default.
-`prepareForgeRunMods` installs a pinned, named-runtime Connector/Voxy pair in
-`forge/run/mods`. For this development-only combination it upgrades Connector's
-embedded MixinExtras to 0.4.1 and disables Voxy's DH 2.4-only live-ingestion
-mixin. Dynamic Stage's DH and Voxy package backends remain independently
-selectable; only Voxy forwarding newly loaded chunks into DH is disabled.
+Forge development clients never load DH and Voxy together. `runDhClient` loads
+Distant Horizons 3.2, while `runVoxyClient` loads the pinned Connector/Voxy
+pair. Both profiles load CMDCam and CreativeCore; only Voxy additionally loads
+Embeddium. Switching to the DH profile removes only the Connector/Voxy files
+recorded as managed by Dynamic Stage in `forge/run/mods`.
 
 DH acceptance flow using the development layout:
 
@@ -113,11 +111,17 @@ DH acceptance flow using the development layout:
 
 The `dev:overworld` database must be a writable runtime copy. Close Minecraft before replacing it and include any matching SQLite `-wal`/`-shm` state only after a clean DH shutdown.
 
+Run the Voxy compatibility client separately:
+
+```powershell
+.\gradlew.bat :forge:runVoxyClient
+```
+
 For a Voxy package, set `backend` to `voxy`, provide `voxyVersion: "0.2.14"`
 and `worldId` in the manifest, and place the matching RocksDB data under
-`voxy/<worldId>/storage`. The same Forge client can then run `/dstage start`
-with that package ID to exercise Voxy through Connector without changing the
-run configuration.
+`voxy/<worldId>/storage`. The Voxy profile remaps Connector for the named Forge
+development runtime, upgrades its embedded MixinExtras, and disables Voxy's DH
+2.4-only live-ingestion mixin.
 
 Run the CMDCam compatibility client (CMDCam and CreativeCore are development runtime dependencies and are not bundled in the output jar):
 

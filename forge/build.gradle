@@ -11,12 +11,33 @@ architectury {
 
 base { archivesName = "${rootProject.mod_id}-forge" }
 
+def requestedRunTasks = gradle.startParameter.taskNames.collect { it.tokenize(":").last() }
+def forgeDhRun = requestedRunTasks.any { it == "runClient" || it == "runDhClient" }
+def forgeVoxyRun = requestedRunTasks.any { it == "runVoxyClient" }
+if (forgeDhRun && forgeVoxyRun) {
+    throw new GradleException("DH and Voxy development clients must be launched separately")
+}
+
 loom {
     mods {
         dynamicstage { sourceSet sourceSets.main }
     }
     forge {
         mixinConfig "dynamicstage.mixins.json"
+    }
+    runs {
+        dhClient {
+            inherit(getByName("client"))
+            name("Forge DH Client")
+            ideConfigGenerated(false)
+            client()
+        }
+        voxyClient {
+            inherit(getByName("client"))
+            name("Forge Voxy Client")
+            ideConfigGenerated(false)
+            client()
+        }
     }
 }
 
@@ -48,25 +69,31 @@ dependencies {
     common(project(path: ":common", configuration: "namedElements")) { transitive false }
     shadowCommon(project(path: ":common", configuration: "transformProductionForge")) { transitive false }
 
-    // Native Forge mods must pass through Loom's runtime remapper. Putting
-    // their production jars directly in run/mods leaves SRG calls in a named
-    // userdev runtime (for example ResourceKey#m_135782_).
-    modRuntimeOnly "maven.modrinth:distanthorizons:FWGxbEM3"
-    modRuntimeOnly("dev.su5ed.sinytra.fabric-api:fabric-api:0.92.6+1.11.14+1.20.1") {
-        // Connector supplies its own Fabric Loader bridge, and Forge already
-        // loads it. A second loader copy leaves dangling language-provider
-        // service entries at bootstrap. Keep FAPI's MixinExtras 0.4.1: its
-        // object-builder mixins require the newer injection signatures.
-        exclude group: "dev.su5ed.sinytra", module: "fabric-loader"
-        exclude group: "io.github.llamalad7", module: "mixinextras-forge"
+    // Resolve exactly one LOD renderer for an invoked development client.
+    // Native Forge mods must pass through Loom's runtime remapper rather than
+    // being copied directly into run/mods in an SRG production form.
+    if (forgeDhRun) {
+        modRuntimeOnly "maven.modrinth:distanthorizons:FWGxbEM3"
     }
-    modRuntimeOnly "maven.modrinth:embeddium:UTbfe5d1"
+    if (forgeVoxyRun) {
+        modRuntimeOnly("dev.su5ed.sinytra.fabric-api:fabric-api:0.92.6+1.11.14+1.20.1") {
+            // Connector supplies its own Fabric Loader bridge. Keep FAPI's
+            // MixinExtras 0.4.1 for its object-builder injection signatures.
+            exclude group: "dev.su5ed.sinytra", module: "fabric-loader"
+            exclude group: "io.github.llamalad7", module: "mixinextras-forge"
+        }
+    }
+    if (forgeVoxyRun) {
+        modRuntimeOnly "maven.modrinth:embeddium:UTbfe5d1"
+    }
 
     // CMDCam is part of the Forge development environment because stage-flight
     // authoring and import cannot be exercised without its client commands.
     // Runtime-only dependencies are not bundled into Dynamic Stage's release jar.
-    modRuntimeOnly "maven.modrinth:cmdcam:as7nPEt0"
-    modRuntimeOnly "maven.modrinth:creativecore:m9VEcxwz"
+    if (forgeDhRun || forgeVoxyRun) {
+        modRuntimeOnly "maven.modrinth:cmdcam:as7nPEt0"
+        modRuntimeOnly "maven.modrinth:creativecore:m9VEcxwz"
+    }
 
     connectorSource "org.sinytra:Connector:1.0.0-beta.49+1.20.1"
     connectorRemapper "net.fabricmc:tiny-remapper:0.10.3"
@@ -78,7 +105,7 @@ def forgeRunModsManifest = forgeRunModsDirectory.file(".dynamicstage-managed-mod
 def connectorVersion = "1.0.0-beta.49+1.20.1"
 def connectorNestedPath = "META-INF/jarjar/Connector-${connectorVersion}-mod.jar"
 def connectorRunJar = layout.buildDirectory.file("connector-runtime/Connector-${connectorVersion}-named.jar")
-def forgeRunModSpecs = [
+def forgeVoxyRunModSpecs = [
         [
                 name: "voxy-${rootProject.voxy_modrinth_version}.jar",
                 url: "https://cdn.modrinth.com/data/fxxUqruK/versions/7vLbNW73/voxy-0.2.14-alpha.jar",
@@ -246,14 +273,36 @@ tasks.register("prepareNamedConnector") {
     }
 }
 
-tasks.register("prepareForgeRunMods") {
+tasks.register("cleanManagedForgeRunMods") {
     group = "dynamic stage"
-    description = "Installs the pinned Connector/Voxy pair for forge:runClient."
+    description = "Removes only the development mods managed by Dynamic Stage."
+    outputs.upToDateWhen { false }
+
+    doLast {
+        File modsDirectory = forgeRunModsDirectory.asFile
+        File manifest = forgeRunModsManifest.asFile
+        if (!manifest.isFile()) {
+            return
+        }
+        manifest.readLines("UTF-8").findAll { !it.isBlank() }.each { name ->
+            File managedMod = new File(modsDirectory, name)
+            if (managedMod.parentFile.canonicalFile == modsDirectory.canonicalFile) {
+                managedMod.delete()
+            }
+        }
+        manifest.delete()
+    }
+}
+
+tasks.register("prepareForgeVoxyRunMods") {
+    group = "dynamic stage"
+    description = "Installs the pinned Connector/Voxy pair for forge:runVoxyClient."
+    dependsOn tasks.named("cleanManagedForgeRunMods")
     dependsOn tasks.named("prepareNamedConnector")
-    inputs.property("managedMods", forgeRunModSpecs)
+    inputs.property("managedMods", forgeVoxyRunModSpecs)
     inputs.file(connectorRunJar)
     outputs.file(forgeRunModsDirectory.file("Connector-${connectorVersion}-named.jar"))
-    outputs.files(forgeRunModSpecs.collect { forgeRunModsDirectory.file(it.name) })
+    outputs.files(forgeVoxyRunModSpecs.collect { forgeRunModsDirectory.file(it.name) })
     outputs.file(forgeRunModsManifest)
 
     doLast {
@@ -261,21 +310,12 @@ tasks.register("prepareForgeRunMods") {
         File manifest = forgeRunModsManifest.asFile
         modsDirectory.mkdirs()
 
-        if (manifest.isFile()) {
-            manifest.readLines("UTF-8").findAll { !it.isBlank() }.each { name ->
-                File managedMod = new File(modsDirectory, name)
-                if (managedMod.parentFile.canonicalFile == modsDirectory.canonicalFile) {
-                    managedMod.delete()
-                }
-            }
-        }
-
         String connectorName = "Connector-${connectorVersion}-named.jar"
         java.nio.file.Files.copy(connectorRunJar.get().asFile.toPath(),
                 new File(modsDirectory, connectorName).toPath(),
                 java.nio.file.StandardCopyOption.REPLACE_EXISTING)
 
-        List<String> installed = [connectorName] + forgeRunModSpecs.collect { spec ->
+        List<String> installed = [connectorName] + forgeVoxyRunModSpecs.collect { spec ->
             File target = new File(modsDirectory, spec.name)
             if (!target.isFile() || !spec.sha1.contains(sha1Of(target))) {
                 File partial = new File(modsDirectory, ".${spec.name}.part")
@@ -347,8 +387,11 @@ tasks.register("prepareForgeRunMods") {
     }
 }
 
-tasks.named("runClient").configure {
-    dependsOn tasks.named("prepareForgeRunMods")
+tasks.matching { it.name == "runClient" || it.name == "runDhClient" }.configureEach {
+    dependsOn tasks.named("cleanManagedForgeRunMods")
+}
+tasks.matching { it.name == "runVoxyClient" }.configureEach {
+    dependsOn tasks.named("prepareForgeVoxyRunMods")
 }
 
 processResources {
