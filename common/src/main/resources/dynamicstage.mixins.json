@@ -16,6 +16,7 @@
     "StageSkyMixin",
     "StageSkyEffectsMixin",
     "VoxyCameraMixin",
+    "VoxyCompositeMixin",
     "VoxyNearClipMixin",
     "VoxyStorageMixin",
     "VoxyWorldIdentifierMixin"
