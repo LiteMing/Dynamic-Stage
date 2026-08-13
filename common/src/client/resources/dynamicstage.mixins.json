@@ -5,7 +5,9 @@
   "compatibilityLevel": "JAVA_17",
   "client": [
     "DhCameraMixin",
-    "DhPlayerPositionMixin"
+    "DhPlayerPositionMixin",
+    "StageSkyMixin",
+    "StageSkyEffectsMixin"
   ],
   "injectors": {
     "defaultRequire": 0
