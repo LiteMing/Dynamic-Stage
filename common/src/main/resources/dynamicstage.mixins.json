@@ -8,6 +8,7 @@
   ],
   "client": [
     "DhCameraMixin",
+    "DhCompositeMixin",
     "DhNearClipMixin",
     "DhPlayerPositionMixin",
     "DhViewMixin",
