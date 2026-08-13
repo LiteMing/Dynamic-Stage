@@ -51,6 +51,23 @@ class StageLodCameraTest {
         assertTrue(expected.equals(actual, 0.0001F));
     }
 
+    @Test
+    void flightTransformsDoNotMutateSharedRenderMatrices() {
+        StageFlightPose pose = new StageFlightPose(Vec3.ZERO, 35.0F, -20.0F,
+                12.0F, 70.0F, 48.0F);
+        Matrix4f modelView = cameraRotation(10.0F, 5.0F, 0.0F);
+        Matrix4f projection = new Matrix4f().perspective(
+                (float) Math.toRadians(70.0D), 16.0F / 9.0F, 0.05F, 1000.0F);
+        Matrix4f originalModelView = new Matrix4f(modelView);
+        Matrix4f originalProjection = new Matrix4f(projection);
+
+        StageLodCamera.modelView(modelView, 10.0F, 5.0F, pose);
+        StageLodCamera.projection(projection, pose);
+
+        assertTrue(originalModelView.equals(modelView, 0.0F));
+        assertTrue(originalProjection.equals(projection, 0.0F));
+    }
+
     private static Matrix4f cameraRotation(float yaw, float pitch, float roll) {
         return new Matrix4f()
                 .rotateZ((float) Math.toRadians(roll))

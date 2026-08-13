@@ -10,7 +10,7 @@ import vibe.liteming.dynamicstage.network.StageFlightPacket;
 import vibe.liteming.dynamicstage.util.ContentHash;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
-/** Samples a server-authorized CMDCam path without taking control of the player camera. */
+/** Samples a server-authorized CMDCam path for client-only stage backdrops. */
 public final class StageFlightController {
     private static final Logger LOGGER = LoggerFactory.getLogger(StageFlightController.class);
 

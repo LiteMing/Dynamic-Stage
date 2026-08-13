@@ -60,13 +60,13 @@ Commands currently require permission level 2:
 /dstage sky overworld|end|off
 ```
 
-`/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky rendering inside the stage.
+`/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Flight XYZ remains LOD-only because a sky is rendered at infinite distance.
 
 `start` creates an instance, validates the local package, and then teleports. Once the target level wrapper exists, the client rebinds DH to the external database before flight playback begins; a failed rebind returns the player safely. `join` joins an active instance if capacity remains. `anchor` updates the shared virtual DH source position for every active or preparing member. `exit` restores the player's original dimension, position, and rotation.
 
 ## CMDCam and music
 
-A validated CMDCam scene can be attached to a stage. `/dstage flight import` first reads CMDCam's live server SavedData, so a freshly saved scene is immediately available for tab completion without `/save-all`. It checks the command's current dimension and then the Overworld. The `.dat` files are used only as a fallback. Dynamic Stage sends the small scene JSON and a server game-time epoch, then samples it locally without starting CMDCam playback. The player keeps normal movement and camera control while XYZ, yaw, pitch, roll, and zoom animate only the mounted LOD background. Every attribute is relative to the first path point, so playback starts without a jump. `loop -1` repeats forever; finite loops retain CMDCam's final normal pass.
+A validated CMDCam scene can be attached to a stage. `/dstage flight import` first reads CMDCam's live server SavedData, so a freshly saved scene is immediately available for tab completion without `/save-all`. It checks the command's current dimension and then the Overworld. The `.dat` files are used only as a fallback. Dynamic Stage sends the small scene JSON and a server game-time epoch, then samples it locally without starting CMDCam playback. The player keeps normal movement and camera control while XYZ animates the mounted LOD background and yaw, pitch, roll, and zoom animate both the LOD and selected sky. Every attribute is relative to the first path point, so playback starts without a jump. `loop -1` repeats forever; finite loops retain CMDCam's final normal pass.
 
 CMDCam and CreativeCore are included in the Forge development runtime for authoring and importing paths, but clients playing an already imported path do not need either mod. For a local compatibility test, author at least two visibly different points with `/cam add`; include changes to yaw, pitch, roll, and zoom as well as position. Set `/cam loops -1` for a continuously moving backdrop and save it with `/cam save <scene>`. Both `default` and `outside` modes are accepted, and Dynamic Stage ignores `smooth_start`. Type `/dstage flight import test ` and select the scene from tab completion, then import it before starting that same stage ID.
 
@@ -102,7 +102,7 @@ DH acceptance flow using the development layout:
 4. Stand at the source location represented by the database and note X Y Z.
 5. Run /dstage start test dev:overworld <X> <Y> <Z> 1.
 6. Verify the stage has the normal sky and DH background, then move a short distance; the LOD must move 1:1 with the source-world camera mapping.
-7. Import and attach a CMDCam flight, then verify the player can still move and turn normally while only the LOD follows its XYZ/yaw/pitch/roll/zoom path.
+7. Import and attach a CMDCam flight, then verify the player can still move and turn normally while the LOD follows XYZ/yaw/pitch/roll/zoom and the sky follows yaw/pitch/roll/zoom.
 8. Run /dstage anchor <newX> <newY> <newZ> and verify the backdrop jumps to the new source anchor.
 9. Run /dstage sky off and /dstage sky overworld to verify client sky selection.
 10. Run /dstage exit and verify the original dimension, position, DH database and interaction state are restored.
