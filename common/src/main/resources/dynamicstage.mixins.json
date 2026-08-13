@@ -11,6 +11,7 @@
     "DhNearClipMixin",
     "DhPlayerPositionMixin",
     "DhViewMixin",
+    "StageClientTimeMixin",
     "StageLevelRendererMixin",
     "StageSkyMixin",
     "StageSkyEffectsMixin",

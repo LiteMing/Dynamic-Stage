@@ -148,6 +148,55 @@ public final class StageSessionManager {
         return true;
     }
 
+    public static boolean setFollowPlayer(ServerPlayer player, boolean followPlayer) {
+        StageSession session = get(player).orElse(null);
+        return session != null && updateClientScene(player,
+                session.clientScene().withFollowPlayer(followPlayer));
+    }
+
+    public static boolean setClientTime(ServerPlayer player, StageClientScene.TimeMode mode,
+                                        long baseDayTime, long cycleTicks) {
+        MinecraftServer server = player.getServer();
+        StageSession session = get(player).orElse(null);
+        if (server == null || session == null) {
+            return false;
+        }
+        long gameTime = player.serverLevel().getGameTime();
+        StageClientScene scene = session.clientScene().withTime(mode, baseDayTime, gameTime,
+                mode == StageClientScene.TimeMode.CYCLE ? cycleTicks : 0L);
+        return updateClientScene(player, scene);
+    }
+
+    private static boolean updateClientScene(ServerPlayer player, StageClientScene scene) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        StageSession session = data.get(player.getUUID()).orElse(null);
+        if (session == null) {
+            return false;
+        }
+        data.updateInstanceClientScene(session.instanceId(), scene);
+        PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
+                ? new PendingEntry(entry.session.withClientScene(scene)) : entry);
+        for (StageSession member : data.members(session.instanceId())) {
+            ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
+            if (target != null) {
+                DynamicStageNetwork.sendSession(target, member);
+            }
+        }
+        for (PendingEntry entry : PENDING.values()) {
+            if (entry.session.instanceId().equals(session.instanceId())) {
+                ServerPlayer target = server.getPlayerList().getPlayer(entry.session.playerId());
+                if (target != null) {
+                    DynamicStageNetwork.sendSession(target, entry.session);
+                }
+            }
+        }
+        return true;
+    }
+
     public static void onClientReady(ServerPlayer player, UUID instanceId, boolean ready, String error) {
         MinecraftServer server = player.getServer();
         if (server == null) {
@@ -322,7 +371,8 @@ public final class StageSessionManager {
                                                   ResourceLocation lodPackId, BlockPos anchor, int slot, int capacity,
                                                   StageFlightAssets.Asset flight, long flightStart) {
         return new StageSession(player.getUUID(), instanceId, stageId, lodPackId, anchor, slot, capacity,
-                StageBoundary.defaults(),
+                StageBoundary.defaults(), StageClientScene.defaults(
+                        player.getServer().overworld().getDayTime(), player.getServer().overworld().getGameTime()),
                 player.serverLevel().dimension(), player.position(), player.getYRot(), player.getXRot(),
                 flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
                 flight == null ? 0L : flight.durationMillis(), flight == null ? -1L : flightStart);
@@ -330,7 +380,7 @@ public final class StageSessionManager {
 
     private static StageSession createMembership(ServerPlayer player, StageSession instance) {
         return new StageSession(player.getUUID(), instance.instanceId(), instance.stageId(), instance.lodPackId(),
-                instance.lodAnchor(), instance.slot(), instance.capacity(), instance.boundary(),
+                instance.lodAnchor(), instance.slot(), instance.capacity(), instance.boundary(), instance.clientScene(),
                 player.serverLevel().dimension(),
                 player.position(), player.getYRot(), player.getXRot(), instance.flightHash(), instance.flightBytes(),
                 instance.flightDurationMillis(), instance.flightStartGameTime());

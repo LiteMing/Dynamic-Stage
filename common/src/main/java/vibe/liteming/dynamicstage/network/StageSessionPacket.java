@@ -5,6 +5,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import vibe.liteming.dynamicstage.stage.StageSession;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
+import vibe.liteming.dynamicstage.stage.StageClientScene;
 
 import java.util.UUID;
 
@@ -12,18 +13,21 @@ import java.util.UUID;
 public record StageSessionPacket(boolean active, UUID instanceId, String stageId, ResourceLocation lodPackId,
                                  BlockPos lodAnchor, BlockPos stageOrigin, int capacity,
                                  StageBoundary boundary,
+                                 StageClientScene clientScene,
                                  String flightHash, int flightBytes, long flightDurationMillis) {
 
     public static StageSessionPacket active(StageSession session) {
         return new StageSessionPacket(true, session.instanceId(), session.stageId(), session.lodPackId(),
                 session.lodAnchor(), session.stageOrigin(), session.capacity(), session.boundary(),
+                session.clientScene(),
                 session.flightHash(), session.flightBytes(), session.flightDurationMillis());
     }
 
     public static StageSessionPacket clear() {
         return new StageSessionPacket(false, new UUID(0L, 0L), "",
                 new ResourceLocation("dynamicstage", "none"),
-                BlockPos.ZERO, BlockPos.ZERO, 1, StageBoundary.defaults(), "", 0, 0L);
+                BlockPos.ZERO, BlockPos.ZERO, 1, StageBoundary.defaults(), StageClientScene.defaults(0L, 0L),
+                "", 0, 0L);
     }
 
     public static void encode(StageSessionPacket packet, FriendlyByteBuf buf) {
@@ -39,6 +43,7 @@ public record StageSessionPacket(boolean active, UUID instanceId, String stageId
             buf.writeVarInt(packet.boundary.depth());
             buf.writeVarInt(packet.boundary.height());
             buf.writeInt(packet.boundary.color());
+            encodeClientScene(packet.clientScene, buf);
             buf.writeUtf(packet.flightHash, 64);
             buf.writeVarInt(packet.flightBytes);
             buf.writeVarLong(packet.flightDurationMillis);
@@ -49,10 +54,29 @@ public record StageSessionPacket(boolean active, UUID instanceId, String stageId
         if (!buf.readBoolean()) {
             return clear();
         }
-        return new StageSessionPacket(true, buf.readUUID(), buf.readUtf(128), buf.readResourceLocation(),
-                buf.readBlockPos(), buf.readBlockPos(), buf.readVarInt(),
-                new StageBoundary(buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readInt()), buf.readUtf(64),
-                buf.readVarInt(), buf.readVarLong());
+        UUID instanceId = buf.readUUID();
+        String stageId = buf.readUtf(128);
+        ResourceLocation lodPackId = buf.readResourceLocation();
+        BlockPos lodAnchor = buf.readBlockPos();
+        BlockPos stageOrigin = buf.readBlockPos();
+        int capacity = buf.readVarInt();
+        StageBoundary boundary = new StageBoundary(buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readInt());
+        StageClientScene scene = decodeClientScene(buf);
+        return new StageSessionPacket(true, instanceId, stageId, lodPackId, lodAnchor, stageOrigin, capacity,
+                boundary, scene, buf.readUtf(64), buf.readVarInt(), buf.readVarLong());
+    }
+
+    private static void encodeClientScene(StageClientScene scene, FriendlyByteBuf buf) {
+        buf.writeBoolean(scene.followPlayer());
+        buf.writeEnum(scene.timeMode());
+        buf.writeLong(scene.timeBaseDayTime());
+        buf.writeLong(scene.timeBaseGameTime());
+        buf.writeVarLong(scene.timeCycleTicks());
+    }
+
+    private static StageClientScene decodeClientScene(FriendlyByteBuf buf) {
+        return new StageClientScene(buf.readBoolean(), buf.readEnum(StageClientScene.TimeMode.class),
+                buf.readLong(), buf.readLong(), buf.readVarLong());
     }
 
 }

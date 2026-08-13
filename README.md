@@ -52,6 +52,12 @@ Commands currently require permission level 2:
 /dstage start <stage> <lod_pack> <source_x> <source_y> <source_z> [capacity]
 /dstage join <instance_uuid>
 /dstage anchor <source_x> <source_y> <source_z>
+/dstage backdrop status
+/dstage backdrop follow on|off
+/dstage time status
+/dstage time follow
+/dstage time fixed <day_time>
+/dstage time cycle <period_ticks> [start_day_time]
 /dstage exit
 /dstage flight import <stage> <cmdcam_scene>
 /dstage flight importjson <stage> <name> [slot]
@@ -63,6 +69,8 @@ Commands currently require permission level 2:
 `/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Flight XYZ remains LOD-only because a sky is rendered at infinite distance.
 
 `start` creates an instance, validates the local package, and then teleports. Once the target level wrapper exists, the client rebinds DH to the external database before flight playback begins; a failed rebind returns the player safely. `join` joins an active instance if capacity remains. `anchor` updates the shared virtual DH source position for every active or preparing member. `exit` restores the player's original dimension, position, and rotation.
+
+Backdrop and time settings belong to the instance and are broadcast to all members. Player movement following is enabled by default. Turning it off pins the native LOD camera to the source anchor while preserving first/third-person camera offsets and CMDCam flight motion. Stage time is evaluated only by the client: `follow` advances from a synchronized Overworld epoch, `fixed` holds a vanilla day-time value in the `0..23999` range, and `cycle` maps one visual Minecraft day onto the configured number of client ticks. These modes do not change server-side stage time or send per-tick network updates.
 
 ## CMDCam and music
 

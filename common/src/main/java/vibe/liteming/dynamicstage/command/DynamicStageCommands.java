@@ -22,6 +22,7 @@ import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageSkyPacket;
 import vibe.liteming.dynamicstage.stage.StageSession;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
+import vibe.liteming.dynamicstage.stage.StageClientScene;
 import vibe.liteming.dynamicstage.stage.StageSessionManager;
 
 import java.io.IOException;
@@ -78,6 +79,30 @@ public final class DynamicStageCommands {
                 Commands.argument("x", IntegerArgumentType.integer());
         anchorX.then(anchorY);
         root.then(Commands.literal("anchor").then(anchorX));
+        root.then(Commands.literal("backdrop")
+                .then(Commands.literal("status").executes(ctx -> backdropStatus(ctx.getSource())))
+                .then(Commands.literal("follow")
+                        .then(Commands.literal("on").executes(ctx -> followPlayer(ctx.getSource(), true)))
+                        .then(Commands.literal("off").executes(ctx -> followPlayer(ctx.getSource(), false)))));
+        LiteralArgumentBuilder<CommandSourceStack> time = Commands.literal("time");
+        time.then(Commands.literal("status").executes(ctx -> timeStatus(ctx.getSource())));
+        time.then(Commands.literal("follow").executes(ctx -> timeFollow(ctx.getSource())));
+        time.then(Commands.literal("fixed")
+                .then(Commands.argument("day_time", IntegerArgumentType.integer(0, 23_999))
+                        .executes(ctx -> timeFixed(ctx.getSource(),
+                                IntegerArgumentType.getInteger(ctx, "day_time")))));
+        RequiredArgumentBuilder<CommandSourceStack, Integer> cyclePeriod =
+                Commands.argument("period_ticks", IntegerArgumentType.integer(
+                        (int) StageClientScene.MIN_TIME_CYCLE_TICKS,
+                        (int) StageClientScene.MAX_TIME_CYCLE_TICKS));
+        cyclePeriod.executes(ctx -> timeCycle(ctx.getSource(),
+                IntegerArgumentType.getInteger(ctx, "period_ticks"), null));
+        cyclePeriod.then(Commands.argument("start_day_time", IntegerArgumentType.integer(0, 23_999))
+                .executes(ctx -> timeCycle(ctx.getSource(),
+                        IntegerArgumentType.getInteger(ctx, "period_ticks"),
+                        IntegerArgumentType.getInteger(ctx, "start_day_time"))));
+        time.then(Commands.literal("cycle").then(cyclePeriod));
+        root.then(time);
         root.then(Commands.literal("exit").executes(ctx -> exit(ctx.getSource())));
         root.then(Commands.literal("sky")
                 .then(Commands.literal("overworld").executes(ctx -> sky(ctx.getSource(),
@@ -166,6 +191,88 @@ public final class DynamicStageCommands {
             return 0;
         }
         source.sendSuccess(() -> Component.literal("Updated the instance LOD anchor."), true);
+        return 1;
+    }
+
+    private static int followPlayer(CommandSourceStack source, boolean follow) {
+        if (!(source.getEntity() instanceof ServerPlayer player)
+                || !StageSessionManager.setFollowPlayer(player, follow)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("LOD player movement follow: "
+                + (follow ? "on" : "off") + '.'), true);
+        return 1;
+    }
+
+    private static int backdropStatus(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        StageSession session = StageSessionManager.get(player).orElse(null);
+        if (session == null) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        StageClientScene scene = session.clientScene();
+        source.sendSuccess(() -> Component.literal("Stage backdrop: follow_player="
+                + scene.followPlayer() + '.'), false);
+        return 1;
+    }
+
+    private static int timeStatus(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        StageSession session = StageSessionManager.get(player).orElse(null);
+        if (session == null) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        StageClientScene scene = session.clientScene();
+        source.sendSuccess(() -> Component.literal("Stage client time: "
+                + scene.timeMode().name().toLowerCase(java.util.Locale.ROOT)
+                + ", base=" + scene.timeBaseDayTime()
+                + (scene.timeMode() == StageClientScene.TimeMode.CYCLE
+                ? ", period=" + scene.timeCycleTicks() + " ticks." : ".")), false);
+        return 1;
+    }
+
+    private static int timeFollow(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        long dayTime = source.getServer().overworld().getDayTime();
+        if (!StageSessionManager.setClientTime(player, StageClientScene.TimeMode.FOLLOW, dayTime, 0L)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Stage client time follows the Overworld."), true);
+        return 1;
+    }
+
+    private static int timeFixed(CommandSourceStack source, int dayTime) {
+        if (!(source.getEntity() instanceof ServerPlayer player)
+                || !StageSessionManager.setClientTime(player, StageClientScene.TimeMode.FIXED, dayTime, 0L)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Stage client time fixed at " + dayTime + '.'), true);
+        return 1;
+    }
+
+    private static int timeCycle(CommandSourceStack source, int periodTicks, Integer startDayTime) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        long start = startDayTime == null
+                ? Math.floorMod(source.getServer().overworld().getDayTime(), 24_000L) : startDayTime;
+        if (!StageSessionManager.setClientTime(player, StageClientScene.TimeMode.CYCLE, start, periodTicks)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Stage client day cycle: " + periodTicks
+                + " ticks, starting at " + start + '.'), true);
         return 1;
     }
 

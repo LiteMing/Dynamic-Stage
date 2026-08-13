@@ -96,6 +96,19 @@ public final class StageSessionData extends SavedData {
         }
     }
 
+    public void updateInstanceClientScene(UUID instanceId, StageClientScene scene) {
+        boolean changed = false;
+        for (StageSession session : List.copyOf(sessions.values())) {
+            if (session.instanceId().equals(instanceId)) {
+                sessions.put(session.playerId(), session.withClientScene(scene));
+                changed = true;
+            }
+        }
+        if (changed) {
+            setDirty();
+        }
+    }
+
     public void updateInstanceFlightStart(UUID instanceId, long startGameTime) {
         boolean changed = false;
         for (StageSession session : List.copyOf(sessions.values())) {

@@ -14,10 +14,11 @@ public final class StageCoordinateMapper {
     @Nullable
     public static Vec3 cameraPosition(ClientStageSession.Snapshot snapshot) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.level == null) {
+        if (minecraft.level == null || minecraft.player == null) {
             return null;
         }
-        return map(snapshot, minecraft.gameRenderer.getMainCamera().getPosition());
+        return mapCamera(snapshot.lodAnchor(), snapshot.stageOrigin(), minecraft.player.position(),
+                minecraft.gameRenderer.getMainCamera().getPosition(), snapshot.clientScene().followPlayer());
     }
 
     @Nullable
@@ -26,7 +27,8 @@ public final class StageCoordinateMapper {
         if (minecraft.player == null) {
             return null;
         }
-        return map(snapshot, minecraft.player.position());
+        return snapshot.clientScene().followPlayer()
+                ? map(snapshot, minecraft.player.position()) : anchor(snapshot.lodAnchor());
     }
 
     private static Vec3 map(ClientStageSession.Snapshot snapshot, Vec3 stagePosition) {
@@ -34,12 +36,22 @@ public final class StageCoordinateMapper {
     }
 
     static Vec3 map(BlockPos lodAnchor, BlockPos stageOriginBlock, Vec3 stagePosition) {
-        Vec3 sourceOrigin = blockCenter(lodAnchor);
+        Vec3 sourceOrigin = anchor(lodAnchor);
         Vec3 stageOrigin = blockCenter(stageOriginBlock);
         return sourceOrigin.add(stagePosition.subtract(stageOrigin));
     }
 
+    static Vec3 mapCamera(BlockPos lodAnchor, BlockPos stageOriginBlock, Vec3 playerPosition,
+                          Vec3 cameraPosition, boolean followPlayer) {
+        return followPlayer ? map(lodAnchor, stageOriginBlock, cameraPosition)
+                : anchor(lodAnchor).add(cameraPosition.subtract(playerPosition));
+    }
+
     private static Vec3 blockCenter(BlockPos position) {
         return new Vec3(position.getX() + 0.5D, position.getY(), position.getZ() + 0.5D);
+    }
+
+    private static Vec3 anchor(BlockPos position) {
+        return blockCenter(position);
     }
 }

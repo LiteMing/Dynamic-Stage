@@ -23,6 +23,7 @@ public record StageSession(
         int slot,
         int capacity,
         StageBoundary boundary,
+        StageClientScene clientScene,
         ResourceKey<Level> returnDimension,
         Vec3 returnPosition,
         float returnYRot,
@@ -37,6 +38,7 @@ public record StageSession(
 
     public StageSession {
         if (playerId == null || instanceId == null || lodPackId == null || lodAnchor == null || boundary == null
+                || clientScene == null
                 || returnDimension == null || returnPosition == null) {
             throw new IllegalArgumentException("Stage session contains null identity or position state");
         }
@@ -100,8 +102,15 @@ public record StageSession(
         return copy(lodAnchor, newBoundary, flightStartGameTime);
     }
 
+    public StageSession withClientScene(StageClientScene scene) {
+        return new StageSession(playerId, instanceId, stageId, lodPackId, lodAnchor, slot, capacity, boundary, scene,
+                returnDimension, returnPosition, returnYRot, returnXRot,
+                flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+    }
+
     private StageSession copy(BlockPos anchor, StageBoundary newBoundary, long flightStart) {
         return new StageSession(playerId, instanceId, stageId, lodPackId, anchor, slot, capacity, newBoundary,
+                clientScene,
                 returnDimension, returnPosition, returnYRot, returnXRot,
                 flightHash, flightBytes, flightDurationMillis, flightStart);
     }
@@ -116,6 +125,7 @@ public record StageSession(
         tag.putInt("Slot", slot);
         tag.putInt("Capacity", capacity);
         tag.put("Boundary", boundary.save());
+        tag.put("ClientScene", clientScene.save());
         tag.putString("ReturnDimension", returnDimension.location().toString());
         tag.putDouble("ReturnX", returnPosition.x);
         tag.putDouble("ReturnY", returnPosition.y);
@@ -145,6 +155,9 @@ public record StageSession(
                 tag.contains("Boundary", Tag.TAG_COMPOUND)
                         ? StageBoundary.load(tag.getCompound("Boundary"))
                         : StageBoundary.defaults(),
+                tag.contains("ClientScene", Tag.TAG_COMPOUND)
+                        ? StageClientScene.load(tag.getCompound("ClientScene"))
+                        : StageClientScene.defaults(0L, 0L),
                 returnDimension,
                 new Vec3(tag.getDouble("ReturnX"), tag.getDouble("ReturnY"), tag.getDouble("ReturnZ")),
                 tag.getFloat("ReturnYRot"),

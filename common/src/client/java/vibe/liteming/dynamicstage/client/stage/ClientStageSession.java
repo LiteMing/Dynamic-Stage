@@ -9,6 +9,7 @@ import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageSessionPacket;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
+import vibe.liteming.dynamicstage.stage.StageClientScene;
 import vibe.liteming.dynamicstage.stage.StageBoundaryAccess;
 
 import org.jetbrains.annotations.Nullable;
@@ -32,7 +33,7 @@ public final class ClientStageSession {
         }
         Snapshot snapshot = new Snapshot(packet.instanceId(), packet.stageId(), packet.lodPackId(),
                 packet.lodAnchor(), packet.stageOrigin(), packet.capacity(), packet.boundary(), packet.flightHash(),
-                packet.flightBytes(), packet.flightDurationMillis());
+                packet.flightBytes(), packet.flightDurationMillis(), packet.clientScene());
         Snapshot previous = active;
         active = snapshot;
         StageBoundaryAccess.setClient(packet.instanceId(), packet.stageOrigin(), packet.boundary());
@@ -102,7 +103,7 @@ public final class ClientStageSession {
     public record Snapshot(UUID instanceId, String stageId, ResourceLocation lodPackId, BlockPos lodAnchor,
                            BlockPos stageOrigin, int capacity, StageBoundary boundary,
                            String flightHash, int flightBytes,
-                           long flightDurationMillis) {
+                           long flightDurationMillis, StageClientScene clientScene) {
 
         public boolean hasFlight() {
             return !flightHash.isEmpty();
