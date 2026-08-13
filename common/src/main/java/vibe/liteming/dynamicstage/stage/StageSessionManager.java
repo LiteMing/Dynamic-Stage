@@ -198,9 +198,11 @@ public final class StageSessionManager {
         }
         player.stopRiding();
         player.fallDistance = 0.0F;
+        // Release the client-side LOD package before the respawn packet makes
+        // the new level renderer open Voxy's normal world storage.
+        DynamicStageNetwork.clearSession(player);
         player.teleportTo(returnLevel, session.returnPosition().x, session.returnPosition().y,
                 session.returnPosition().z, session.returnYRot(), session.returnXRot());
-        DynamicStageNetwork.clearSession(player);
         return true;
     }
 

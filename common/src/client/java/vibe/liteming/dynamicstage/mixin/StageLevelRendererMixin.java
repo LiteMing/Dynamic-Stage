@@ -13,7 +13,7 @@ import vibe.liteming.dynamicstage.world.StageWorlds;
 public abstract class StageLevelRendererMixin {
     @Inject(method = "setLevel", at = @At("HEAD"))
     private void dynamicstage$releaseVoxyStageStorage(ClientLevel level, CallbackInfo callback) {
-        if (level == null || !StageWorlds.isStageLevel(level)) {
+        if (level != null && !StageWorlds.isStageLevel(level)) {
             VoxyBackdropRuntime.leaveStageLevel();
         }
     }
