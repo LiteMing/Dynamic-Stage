@@ -14,6 +14,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.storage.LevelResource;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
+import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageSession;
 import vibe.liteming.dynamicstage.stage.StageSessionManager;
 
@@ -27,7 +28,13 @@ public final class DynamicStageCommands {
     }
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("dynamicstage");
+        dispatcher.register(buildRoot("dstage"));
+        // Keep the long name as a compatibility alias for existing scripts.
+        dispatcher.register(buildRoot("dynamicstage"));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildRoot(String name) {
+        LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(name);
         root.requires(source -> source.hasPermission(2));
         root.then(Commands.literal("start")
                         .then(Commands.argument("stage", StringArgumentType.string())
@@ -65,6 +72,24 @@ public final class DynamicStageCommands {
         anchorX.then(anchorY);
         root.then(Commands.literal("anchor").then(anchorX));
         root.then(Commands.literal("exit").executes(ctx -> exit(ctx.getSource())));
+        LiteralArgumentBuilder<CommandSourceStack> boundary = Commands.literal("boundary");
+        boundary.then(Commands.literal("status").executes(ctx -> boundaryStatus(ctx.getSource())));
+        boundary.then(Commands.literal("size")
+                .then(Commands.argument("width", IntegerArgumentType.integer(
+                                StageBoundary.MIN_HORIZONTAL_SIZE, StageBoundary.MAX_HORIZONTAL_SIZE))
+                        .then(Commands.argument("depth", IntegerArgumentType.integer(
+                                        StageBoundary.MIN_HORIZONTAL_SIZE, StageBoundary.MAX_HORIZONTAL_SIZE))
+                                .then(Commands.argument("height", IntegerArgumentType.integer(
+                                                StageBoundary.MIN_HEIGHT, StageBoundary.MAX_HEIGHT))
+                                        .executes(ctx -> boundarySize(ctx.getSource(),
+                                                IntegerArgumentType.getInteger(ctx, "width"),
+                                                IntegerArgumentType.getInteger(ctx, "depth"),
+                                                IntegerArgumentType.getInteger(ctx, "height")))))));
+        boundary.then(Commands.literal("color")
+                .then(Commands.argument("rgb", StringArgumentType.word())
+                        .executes(ctx -> boundaryColor(ctx.getSource(),
+                                StringArgumentType.getString(ctx, "rgb")))));
+        root.then(boundary);
         LiteralArgumentBuilder<CommandSourceStack> flight = Commands.literal("flight");
         RequiredArgumentBuilder<CommandSourceStack, String> flightName =
                 Commands.argument("name", StringArgumentType.word());
@@ -81,7 +106,7 @@ public final class DynamicStageCommands {
         flight.then(Commands.literal("status").then(Commands.argument("stage", StringArgumentType.string())
                 .executes(ctx -> flightStatus(ctx.getSource(), StringArgumentType.getString(ctx, "stage")))));
         root.then(flight);
-        dispatcher.register(root);
+        return root;
     }
 
     private static int start(CommandSourceStack source, String stage, ResourceLocation pack,
@@ -129,6 +154,67 @@ public final class DynamicStageCommands {
             source.sendFailure(Component.literal("No active or preparing stage session."));
             return 0;
         }
+        return 1;
+    }
+
+    private static int boundaryStatus(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        StageSession session = StageSessionManager.get(player).orElse(null);
+        if (session == null) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        StageBoundary boundary = session.boundary();
+        source.sendSuccess(() -> Component.literal("Stage boundary: " + boundary.width() + " x "
+                + boundary.depth() + " x " + boundary.height() + ", color #"
+                + String.format(java.util.Locale.ROOT, "%06X", boundary.color()) + '.'), false);
+        return 1;
+    }
+
+    private static int boundarySize(CommandSourceStack source, int width, int depth, int height) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        StageSession session = StageSessionManager.get(player).orElse(null);
+        if (session == null || !StageSessionManager.setBoundary(player,
+                new StageBoundary(width, depth, height, session.boundary().color()))) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Stage boundary resized to " + width + " x "
+                + depth + " x " + height + '.'), true);
+        return 1;
+    }
+
+    private static int boundaryColor(CommandSourceStack source, String value) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        StageSession session = StageSessionManager.get(player).orElse(null);
+        if (session == null) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        String digits = value.startsWith("#") ? value.substring(1)
+                : value.startsWith("0x") || value.startsWith("0X") ? value.substring(2) : value;
+        final int color;
+        try {
+            if (digits.length() != 6) {
+                throw new NumberFormatException();
+            }
+            color = Integer.parseInt(digits, 16);
+        } catch (NumberFormatException e) {
+            source.sendFailure(Component.literal("Boundary color must be a six-digit RGB value, for example FF4858."));
+            return 0;
+        }
+        if (!StageSessionManager.setBoundary(player, session.boundary().withColor(color))) {
+            source.sendFailure(Component.literal("Could not update the stage boundary."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Stage boundary color set to #"
+                + String.format(java.util.Locale.ROOT, "%06X", color) + '.'), true);
         return 1;
     }
 
