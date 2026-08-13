@@ -14,7 +14,7 @@ There is no server-side LOD bake, LOD file transfer, or Dynamic Stage LOD render
 - The client must mount and validate its LOD package before the server teleports it.
 - The persistent player marker `DynamicStageInstance` contains the active instance UUID for KubeJS or other orchestration.
 
-The current implementation is Forge-only and Distant Horizons-first. Architectury/Fabric and Voxy have not yet been implemented in this repository.
+The implementation uses Architectury. Forge/Distant Horizons and Fabric/Voxy development paths are available; DH remains the primary compatibility target.
 
 ## Client LOD packages
 
@@ -49,20 +49,26 @@ DH 3.2 still requires the database file and its directory to be writable when op
 Commands currently require permission level 2:
 
 ```text
-/dynamicstage start <stage> <lod_pack> <source_x> <source_y> <source_z> [capacity]
-/dynamicstage join <instance_uuid>
-/dynamicstage anchor <source_x> <source_y> <source_z>
-/dynamicstage exit
-/dynamicstage flight import <stage> <name> [slot]
-/dynamicstage flight status <stage>
-/dynamicstage flight clear <stage>
+/dstage start <stage> <lod_pack> <source_x> <source_y> <source_z> [capacity]
+/dstage join <instance_uuid>
+/dstage anchor <source_x> <source_y> <source_z>
+/dstage exit
+/dstage flight import <stage> <cmdcam_scene>
+/dstage flight importjson <stage> <name> [slot]
+/dstage flight status <stage>
+/dstage flight clear <stage>
+/dstage sky overworld|end|off
 ```
+
+`/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky rendering inside the stage.
 
 `start` creates an instance, validates the local package, and then teleports. Once the target level wrapper exists, the client rebinds DH to the external database before flight playback begins; a failed rebind returns the player safely. `join` joins an active instance if capacity remains. `anchor` updates the shared virtual DH source position for every active or preparing member. `exit` restores the player's original dimension, position, and rotation.
 
 ## CMDCam and music
 
-A validated CMDCam scene can be attached to a stage. Dynamic Stage sends the small scene JSON and a server game-time epoch; CMDCam runs the camera locally. Dynamic Stage supplies DH with `LOD anchor + CMDCam position delta`, while DH continues to render the LOD. Camera orientation and roll remain owned by the Minecraft/CMDCam camera pipeline.
+A validated CMDCam scene can be attached to a stage. `/dstage flight import` first reads CMDCam's live server SavedData, so a freshly saved scene is immediately available for tab completion without `/save-all`. It checks the command's current dimension and then the Overworld. The `.dat` files are used only as a fallback. Dynamic Stage sends the small scene JSON and a server game-time epoch, then samples it locally without starting CMDCam playback. The player keeps normal movement and camera control while XYZ, yaw, pitch, roll, and zoom animate only the mounted LOD background. Every attribute is relative to the first path point, so playback starts without a jump. `loop -1` repeats forever; finite loops retain CMDCam's final normal pass.
+
+CMDCam and CreativeCore are included in the Forge development runtime for authoring and importing paths, but clients playing an already imported path do not need either mod. For a local compatibility test, author at least two visibly different points with `/cam add`; include changes to yaw, pitch, roll, and zoom as well as position. Set `/cam loops -1` for a continuously moving backdrop and save it with `/cam save <scene>`. Both `default` and `outside` modes are accepted, and Dynamic Stage ignores `smooth_start`. Type `/dstage flight import test ` and select the scene from tab completion, then import it before starting that same stage ID.
 
 Music remains the responsibility of `mob-battle-music`. KubeJS can combine its marker/state with `DynamicStageInstance` rather than requiring a second music protocol in Dynamic Stage.
 
@@ -79,15 +85,46 @@ The output is `build/libs/dynamicstage-0.1.0-all.jar`; it does not embed DH, CMD
 Run the DH compatibility client:
 
 ```powershell
-.\gradlew.bat -PincludeDh=true runClient
+.\gradlew.bat :forge:runClient
 ```
 
-Run the separate CMDCam compatibility pass:
+The Forge development client loads Distant Horizons 3.2, Embeddium, CMDCam,
+CreativeCore, Forgified Fabric API, Sinytra Connector, and Voxy by default.
+`prepareForgeRunMods` installs a pinned, named-runtime Connector/Voxy pair in
+`forge/run/mods`. For this development-only combination it upgrades Connector's
+embedded MixinExtras to 0.4.1 and disables Voxy's DH 2.4-only live-ingestion
+mixin. Dynamic Stage's DH and Voxy package backends remain independently
+selectable; only Voxy forwarding newly loaded chunks into DH is disabled.
+
+DH acceptance flow using the development layout:
+
+```text
+1. Put a DH 3.2 database at forge/run/dynamicstage/lodpacks/dev/overworld/dh/DistantHorizons.sqlite.
+2. Put the matching manifest.json at forge/run/dynamicstage/lodpacks/dev/overworld/manifest.json.
+3. Start with the command above and open/create a world.
+4. Stand at the source location represented by the database and note X Y Z.
+5. Run /dstage start test dev:overworld <X> <Y> <Z> 1.
+6. Verify the stage has the normal sky and DH background, then move a short distance; the LOD must move 1:1 with the source-world camera mapping.
+7. Import and attach a CMDCam flight, then verify the player can still move and turn normally while only the LOD follows its XYZ/yaw/pitch/roll/zoom path.
+8. Run /dstage anchor <newX> <newY> <newZ> and verify the backdrop jumps to the new source anchor.
+9. Run /dstage sky off and /dstage sky overworld to verify client sky selection.
+10. Run /dstage exit and verify the original dimension, position, DH database and interaction state are restored.
+```
+
+The `dev:overworld` database must be a writable runtime copy. Close Minecraft before replacing it and include any matching SQLite `-wal`/`-shm` state only after a clean DH shutdown.
+
+For a Voxy package, set `backend` to `voxy`, provide `voxyVersion: "0.2.14"`
+and `worldId` in the manifest, and place the matching RocksDB data under
+`voxy/<worldId>/storage`. The same Forge client can then run `/dstage start`
+with that package ID to exercise Voxy through Connector without changing the
+run configuration.
+
+Run the CMDCam compatibility client (CMDCam and CreativeCore are development runtime dependencies and are not bundled in the output jar):
 
 ```powershell
-.\gradlew.bat -PincludeDh=true -PincludeCmdCam=true runClient
+.\gradlew.bat :forge:runClient
 ```
 
-DH 3.2.0-b has been verified on Forge 1.20.1 with a real external database: both Dynamic Stage mixins apply, DH opens the selected package, anchor updates succeed, two package paths can be selected in one connection, and exit restores DH state without a level-change error. Multiplayer timing, visual screenshot comparison, and CMDCam XYZ/yaw/pitch/roll still require acceptance tests.
+DH 3.2.0-b has been verified on Forge 1.20.1 with a real external database: both Dynamic Stage mixins apply, DH opens the selected package, anchor updates succeed, two package paths can be selected in one connection, and exit restores DH state without a level-change error. Multiplayer timing and visual comparison of CMDCam XYZ/yaw/pitch/roll/zoom still require acceptance tests.
 
 See [docs/REPOSITORY_REVIEW.md](docs/REPOSITORY_REVIEW.md) for the current architecture review and remaining work.
