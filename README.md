@@ -91,8 +91,7 @@ Run the DH compatibility client (the default Forge client is also DH-only):
 Forge development clients never load DH and Voxy together. `runDhClient` loads
 Distant Horizons 3.2, while `runVoxyClient` loads the pinned Connector/Voxy
 pair. Both profiles load CMDCam and CreativeCore; only Voxy additionally loads
-Embeddium. Switching to the DH profile removes only the Connector/Voxy files
-recorded as managed by Dynamic Stage in `forge/run/mods`.
+Embeddium.
 
 DH acceptance flow using the development layout:
 
@@ -119,9 +118,12 @@ Run the Voxy compatibility client separately:
 
 For a Voxy package, set `backend` to `voxy`, provide `voxyVersion: "0.2.14"`
 and `worldId` in the manifest, and place the matching RocksDB data under
-`voxy/<worldId>/storage`. The Voxy profile remaps Connector for the named Forge
-development runtime, upgrades its embedded MixinExtras, and disables Voxy's DH
-2.4-only live-ingestion mixin.
+`voxy/<worldId>/storage`. The Voxy profile follows Connector's official
+development setup: Connector is loaded from ModLauncher's library classpath,
+Forgified Fabric API is remapped for Forge, and the original intermediary Voxy
+jar is transformed by Connector. None of these dependencies are copied into
+`forge/run/mods`. The run first uses the matching output from the adjacent
+`voxy-thirdparty-java17` checkout, then falls back to the Modrinth Maven artifact.
 
 Run the CMDCam compatibility client (CMDCam and CreativeCore are development runtime dependencies and are not bundled in the output jar):
 

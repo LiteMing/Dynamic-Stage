@@ -13,7 +13,15 @@ base { archivesName = "${rootProject.mod_id}-forge" }
 
 def requestedRunTasks = gradle.startParameter.taskNames.collect { it.tokenize(":").last() }
 def forgeDhRun = requestedRunTasks.any { it == "runClient" || it == "runDhClient" }
-def forgeVoxyRun = requestedRunTasks.any { it == "runVoxyClient" }
+def forgeVoxyRun = requestedRunTasks.any {
+    it == "runVoxyClient" || it == "prepareNamedConnector"
+}
+def localVoxyJar = rootProject.file(
+        "../voxy-thirdparty-java17/build/libs/voxy-${rootProject.voxy_modrinth_version}.jar")
+def connectorVersion = rootProject.connector_modrinth_version
+def connectorNestedPath = "META-INF/jarjar/Connector-${connectorVersion}-mod.jar"
+def connectorRunJar = layout.buildDirectory.file(
+        "connector-runtime/Connector-${connectorVersion}-named.jar")
 if (forgeDhRun && forgeVoxyRun) {
     throw new GradleException("DH and Voxy development clients must be launched separately")
 }
@@ -21,9 +29,6 @@ if (forgeDhRun && forgeVoxyRun) {
 loom {
     mods {
         dynamicstage { sourceSet sourceSets.main }
-    }
-    forge {
-        mixinConfig "dynamicstage.mixins.json"
     }
     runs {
         dhClient {
@@ -51,9 +56,17 @@ sourceSets {
 configurations {
     common
     shadowCommon
-    connectorRemapper
-    connectorSource
-    mixinExtrasSource
+    connectorFabricMods {
+        canBeConsumed = false
+        transitive = false
+    }
+    connectorSource {
+        canBeConsumed = false
+        transitive = false
+    }
+    connectorRemapper {
+        canBeConsumed = false
+    }
     compileClasspath.extendsFrom common
     runtimeClasspath.extendsFrom common
     developmentForge.extendsFrom common
@@ -70,20 +83,25 @@ dependencies {
     shadowCommon(project(path: ":common", configuration: "transformProductionForge")) { transitive false }
 
     // Resolve exactly one LOD renderer for an invoked development client.
-    // Native Forge mods must pass through Loom's runtime remapper rather than
-    // being copied directly into run/mods in an SRG production form.
     if (forgeDhRun) {
         modRuntimeOnly "maven.modrinth:distanthorizons:FWGxbEM3"
     }
     if (forgeVoxyRun) {
+        // Connector is an early ModLauncher service. Voxy must remain in its
+        // original intermediary mappings so Connector can transform it.
+        forgeRuntimeLibrary files(connectorRunJar)
         modRuntimeOnly("dev.su5ed.sinytra.fabric-api:fabric-api:0.92.6+1.11.14+1.20.1") {
-            // Connector supplies its own Fabric Loader bridge. Keep FAPI's
-            // MixinExtras 0.4.1 for its object-builder injection signatures.
+            // Connector supplies the Fabric Loader bridge. Loom also strips
+            // nested JarJar metadata while remapping MixinExtras.
             exclude group: "dev.su5ed.sinytra", module: "fabric-loader"
             exclude group: "io.github.llamalad7", module: "mixinextras-forge"
         }
-    }
-    if (forgeVoxyRun) {
+        runtimeOnly "io.github.llamalad7:mixinextras-forge:0.4.1"
+        connectorFabricMods localVoxyJar.isFile()
+                ? files(localVoxyJar)
+                : "maven.modrinth:voxy:${rootProject.voxy_modrinth_version}"
+        connectorSource "org.sinytra:Connector:${connectorVersion}"
+        connectorRemapper "net.fabricmc:tiny-remapper:0.10.3"
         modRuntimeOnly "maven.modrinth:embeddium:UTbfe5d1"
     }
 
@@ -94,304 +112,100 @@ dependencies {
         modRuntimeOnly "maven.modrinth:cmdcam:as7nPEt0"
         modRuntimeOnly "maven.modrinth:creativecore:m9VEcxwz"
     }
-
-    connectorSource "org.sinytra:Connector:1.0.0-beta.49+1.20.1"
-    connectorRemapper "net.fabricmc:tiny-remapper:0.10.3"
-    mixinExtrasSource "io.github.llamalad7:mixinextras-forge:0.4.1"
 }
 
-def forgeRunModsDirectory = layout.projectDirectory.dir("run/mods")
-def forgeRunModsManifest = forgeRunModsDirectory.file(".dynamicstage-managed-mods")
-def connectorVersion = "1.0.0-beta.49+1.20.1"
-def connectorNestedPath = "META-INF/jarjar/Connector-${connectorVersion}-mod.jar"
-def connectorRunJar = layout.buildDirectory.file("connector-runtime/Connector-${connectorVersion}-named.jar")
-def forgeVoxyRunModSpecs = [
-        [
-                name: "voxy-${rootProject.voxy_modrinth_version}.jar",
-                url: "https://cdn.modrinth.com/data/fxxUqruK/versions/7vLbNW73/voxy-0.2.14-alpha.jar",
-                sha1: ["848f0a18c74cfe0db2905bf9d5dfb1f68850ba85",
-                       "59e6c2c88977168e68beb3a0d0135d37fc8ed265"],
-                candidates: [layout.projectDirectory.file(
-                        "run/mods-voxy-test/voxy-0.2.14-alpha.jar").asFile,
-                             rootProject.file("../voxy-thirdparty-java17/build/libs/voxy-0.2.14-alpha.jar")]
-        ]
-]
+if (forgeVoxyRun) {
+    def prepareNamedConnector = tasks.register("prepareNamedConnector") {
+        group = "dynamic stage"
+        description = "Remaps Connector and its embedded Forge mod for Loom's named runtime."
+        inputs.files(configurations.connectorSource)
+        inputs.property("minecraftVersion", rootProject.minecraft_version)
+        inputs.property("forgeVersion", rootProject.forge_version)
+        outputs.file(connectorRunJar)
 
-def sha1Of = { File file ->
-    java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-1")
-    file.withInputStream { input ->
-        byte[] buffer = new byte[8192]
-        for (int read = input.read(buffer); read >= 0; read = input.read(buffer)) {
-            if (read > 0) {
-                digest.update(buffer, 0, read)
+        doLast {
+            File mappings = loom.mappingConfiguration.tinyMappingsWithSrg.toFile()
+            File srgMinecraft = new File(gradle.gradleUserHomeDir,
+                    "caches/fabric-loom/${rootProject.minecraft_version}/forge/" +
+                            "${rootProject.forge_version}/minecraft-merged-srg-at-patched.jar")
+            if (!mappings.isFile() || !srgMinecraft.isFile()) {
+                throw new GradleException("Loom has not prepared the SRG-to-named runtime inputs")
             }
-        }
-    }
-    digest.digest().encodeHex().toString()
-}
 
-tasks.register("prepareNamedConnector") {
-    group = "dynamic stage"
-    description = "Remaps Connector and its nested Forge mod for Loom's named development runtime."
-    inputs.files(configurations.connectorSource)
-    inputs.files(configurations.mixinExtrasSource)
-    inputs.property("minecraftVersion", rootProject.minecraft_version)
-    inputs.property("forgeVersion", rootProject.forge_version)
-    inputs.property("developmentPatchVersion", 2)
-    outputs.file(connectorRunJar)
+            File source = configurations.connectorSource.singleFile
+            File output = connectorRunJar.get().asFile
+            File workDirectory = layout.buildDirectory.dir("tmp/prepareNamedConnector").get().asFile
+            File remappedOuter = new File(workDirectory, "connector-outer.jar")
+            File nestedSource = new File(workDirectory, "connector-mod-srg.jar")
+            File nestedRemapped = new File(workDirectory, "connector-mod-named.jar")
+            workDirectory.mkdirs()
+            [remappedOuter, nestedSource, nestedRemapped, output].each { it.delete() }
 
-    doLast {
-        File launchConfig = layout.projectDirectory.file(".gradle/loom-cache/launch.cfg").asFile
-        if (!launchConfig.isFile()) {
-            throw new GradleException("Missing Loom launch config: ${launchConfig}")
-        }
-        String mappingsPrefix = "architectury.naming.mappingsPath="
-        String mappingsLine = launchConfig.readLines("UTF-8")
-                .collect { it.trim() }
-                .find { it.startsWith(mappingsPrefix) }
-        if (mappingsLine == null) {
-            throw new GradleException("Loom launch config does not declare named runtime mappings")
-        }
-        File mappings = new File(mappingsLine.substring(mappingsPrefix.length()))
-        if (!mappings.isFile()) {
-            throw new GradleException("Missing Loom runtime mappings: ${mappings}")
-        }
-        File srgMinecraft = new File(gradle.gradleUserHomeDir,
-                "caches/fabric-loom/${rootProject.minecraft_version}/forge/" +
-                        "${rootProject.forge_version}/" +
-                        "minecraft-merged-srg-at-patched.jar")
-        if (!srgMinecraft.isFile()) {
-            throw new GradleException("Missing Loom SRG Minecraft runtime: ${srgMinecraft}")
-        }
-
-        File source = configurations.connectorSource.singleFile
-        File output = connectorRunJar.get().asFile
-        File workDirectory = layout.buildDirectory.dir("tmp/prepareNamedConnector").get().asFile
-        File remappedOuter = new File(workDirectory, "connector-outer.jar")
-        File nestedSource = new File(workDirectory, "connector-mod-srg.jar")
-        File nestedRemapped = new File(workDirectory, "connector-mod-named.jar")
-        File nestedPatched = new File(workDirectory, "connector-mod-named-patched.jar")
-        workDirectory.mkdirs()
-        [remappedOuter, nestedSource, nestedRemapped, nestedPatched, output].each { it.delete() }
-
-        def remap = { File input, File remapped ->
-            javaexec {
-                classpath = configurations.connectorRemapper
-                mainClass = "net.fabricmc.tinyremapper.Main"
-                args input.absolutePath, remapped.absolutePath, mappings.absolutePath,
-                        "srg", "named", srgMinecraft.absolutePath,
-                        "--mixin", "--ignoreConflicts", "--fixPackageAccess"
-            }
-        }
-        remap(source, remappedOuter)
-
-        java.util.zip.ZipFile sourceZip = new java.util.zip.ZipFile(source)
-        try {
-            java.util.zip.ZipEntry nestedEntry = sourceZip.getEntry(connectorNestedPath)
-            if (nestedEntry == null) {
-                throw new GradleException("Connector does not contain ${connectorNestedPath}")
-            }
-            nestedSource.withOutputStream { outputStream ->
-                sourceZip.getInputStream(nestedEntry).withCloseable { input ->
-                    input.transferTo(outputStream)
+            def remap = { File input, File remapped ->
+                javaexec {
+                    classpath = configurations.connectorRemapper
+                    mainClass = "net.fabricmc.tinyremapper.Main"
+                    args input.absolutePath, remapped.absolutePath, mappings.absolutePath,
+                            "srg", "named", srgMinecraft.absolutePath,
+                            "--mixin", "--ignoreConflicts", "--fixPackageAccess"
                 }
             }
-        } finally {
-            sourceZip.close()
-        }
-        remap(nestedSource, nestedRemapped)
+            remap(source, remappedOuter)
 
-        // Connector beta.49 embeds MixinExtras 0.3.x, but current Forgified
-        // Fabric API mixins require 0.4.1. Upgrade the nested platform jar in
-        // place; its own JarJar metadata supplies the matching common classes.
-        String oldMixinExtrasPath = "META-INF/jarjar/mixinextras-forge-0.3.2.jar"
-        String newMixinExtrasPath = "META-INF/jarjar/mixinextras-forge-0.4.1.jar"
-        String obsoleteMixinExtrasCommon = "META-INF/jarjar/mixinextras-common-0.3.6.jar"
-        File mixinExtras = configurations.mixinExtrasSource.singleFile
-        java.util.zip.ZipFile nestedZip = new java.util.zip.ZipFile(nestedRemapped)
-        java.util.zip.ZipOutputStream patchedZip = new java.util.zip.ZipOutputStream(
-                new java.io.BufferedOutputStream(new java.io.FileOutputStream(nestedPatched)))
-        try {
-            nestedZip.entries().each { entry ->
-                if (entry.name == obsoleteMixinExtrasCommon) {
-                    return
+            new java.util.zip.ZipFile(source).withCloseable { sourceZip ->
+                java.util.zip.ZipEntry nestedEntry = sourceZip.getEntry(connectorNestedPath)
+                if (nestedEntry == null) {
+                    throw new GradleException("Connector does not contain ${connectorNestedPath}")
                 }
-                String outputName = entry.name == oldMixinExtrasPath ? newMixinExtrasPath : entry.name
-                java.util.zip.ZipEntry replacement = new java.util.zip.ZipEntry(outputName)
-                replacement.time = entry.time
-                patchedZip.putNextEntry(replacement)
-                if (entry.name == oldMixinExtrasPath) {
-                    mixinExtras.withInputStream { it.transferTo(patchedZip) }
-                } else if (entry.name == "META-INF/jarjar/metadata.json") {
-                    String json = nestedZip.getInputStream(entry).withCloseable {
-                        new String(it.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
-                    }
-                    Map metadata = new groovy.json.JsonSlurper().parseText(json) as Map
-                    (metadata.jars as List).each { dependency ->
-                        Map identifier = dependency.identifier as Map
-                        if (identifier.group == "io.github.llamalad7" &&
-                                identifier.artifact == "mixinextras-forge") {
-                            Map version = dependency.version as Map
-                            version.range = "[0.4.1,)"
-                            version.artifactVersion = "0.4.1"
-                            dependency.path = newMixinExtrasPath
-                        }
-                    }
-                    String patchedJson = groovy.json.JsonOutput.prettyPrint(
-                            groovy.json.JsonOutput.toJson(metadata)) + System.lineSeparator()
-                    patchedZip.write(patchedJson.getBytes(java.nio.charset.StandardCharsets.UTF_8))
-                } else if (!entry.directory) {
-                    nestedZip.getInputStream(entry).withCloseable { it.transferTo(patchedZip) }
-                }
-                patchedZip.closeEntry()
-            }
-        } finally {
-            patchedZip.close()
-            nestedZip.close()
-        }
-
-        output.parentFile.mkdirs()
-        java.util.zip.ZipFile outerZip = new java.util.zip.ZipFile(remappedOuter)
-        java.util.zip.ZipOutputStream outputZip = new java.util.zip.ZipOutputStream(
-                new java.io.BufferedOutputStream(new java.io.FileOutputStream(output)))
-        try {
-            outerZip.entries().each { entry ->
-                java.util.zip.ZipEntry replacement = new java.util.zip.ZipEntry(entry.name)
-                replacement.time = entry.time
-                outputZip.putNextEntry(replacement)
-                if (entry.name == connectorNestedPath) {
-                    nestedPatched.withInputStream { it.transferTo(outputZip) }
-                } else if (!entry.directory) {
-                    outerZip.getInputStream(entry).withCloseable { it.transferTo(outputZip) }
-                }
-                outputZip.closeEntry()
-            }
-        } finally {
-            outputZip.close()
-            outerZip.close()
-        }
-    }
-}
-
-tasks.register("cleanManagedForgeRunMods") {
-    group = "dynamic stage"
-    description = "Removes only the development mods managed by Dynamic Stage."
-    outputs.upToDateWhen { false }
-
-    doLast {
-        File modsDirectory = forgeRunModsDirectory.asFile
-        File manifest = forgeRunModsManifest.asFile
-        if (!manifest.isFile()) {
-            return
-        }
-        manifest.readLines("UTF-8").findAll { !it.isBlank() }.each { name ->
-            File managedMod = new File(modsDirectory, name)
-            if (managedMod.parentFile.canonicalFile == modsDirectory.canonicalFile) {
-                managedMod.delete()
-            }
-        }
-        manifest.delete()
-    }
-}
-
-tasks.register("prepareForgeVoxyRunMods") {
-    group = "dynamic stage"
-    description = "Installs the pinned Connector/Voxy pair for forge:runVoxyClient."
-    dependsOn tasks.named("cleanManagedForgeRunMods")
-    dependsOn tasks.named("prepareNamedConnector")
-    inputs.property("managedMods", forgeVoxyRunModSpecs)
-    inputs.file(connectorRunJar)
-    outputs.file(forgeRunModsDirectory.file("Connector-${connectorVersion}-named.jar"))
-    outputs.files(forgeVoxyRunModSpecs.collect { forgeRunModsDirectory.file(it.name) })
-    outputs.file(forgeRunModsManifest)
-
-    doLast {
-        File modsDirectory = forgeRunModsDirectory.asFile
-        File manifest = forgeRunModsManifest.asFile
-        modsDirectory.mkdirs()
-
-        String connectorName = "Connector-${connectorVersion}-named.jar"
-        java.nio.file.Files.copy(connectorRunJar.get().asFile.toPath(),
-                new File(modsDirectory, connectorName).toPath(),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-
-        List<String> installed = [connectorName] + forgeVoxyRunModSpecs.collect { spec ->
-            File target = new File(modsDirectory, spec.name)
-            if (!target.isFile() || !spec.sha1.contains(sha1Of(target))) {
-                File partial = new File(modsDirectory, ".${spec.name}.part")
-                partial.delete()
-                File localCandidate = spec.candidates.find { candidate ->
-                    candidate.isFile() && spec.sha1.contains(sha1Of(candidate))
-                }
-                if (localCandidate != null) {
-                    logger.lifecycle("Installing ${spec.name} from local cache")
-                    java.nio.file.Files.copy(localCandidate.toPath(), partial.toPath(),
-                            java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                } else {
-                    logger.lifecycle("Downloading ${spec.name}")
-                    try {
-                        URLConnection connection = URI.create(spec.url).toURL().openConnection()
-                        connection.connectTimeout = 15_000
-                        connection.readTimeout = 120_000
-                        partial.withOutputStream { output ->
-                            connection.getInputStream().withCloseable { input -> input.transferTo(output) }
-                        }
-                    } catch (IOException exception) {
-                        throw new GradleException("Could not download ${spec.name}", exception)
+                nestedSource.withOutputStream { destination ->
+                    sourceZip.getInputStream(nestedEntry).withCloseable {
+                        it.transferTo(destination)
                     }
                 }
-                String actualHash = sha1Of(partial)
-                if (!spec.sha1.contains(actualHash)) {
-                    partial.delete()
-                    throw new GradleException("SHA-1 mismatch for ${spec.name}: ${actualHash}")
-                }
-                java.nio.file.Files.move(partial.toPath(), target.toPath(),
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             }
-            if (spec.name.startsWith("voxy-")) {
-                File patched = new File(modsDirectory, ".${spec.name}.patched")
-                patched.delete()
-                java.util.zip.ZipFile sourceZip = new java.util.zip.ZipFile(target)
-                java.util.zip.ZipOutputStream outputZip = new java.util.zip.ZipOutputStream(
-                        new java.io.BufferedOutputStream(new java.io.FileOutputStream(patched)))
-                try {
-                    sourceZip.entries().each { entry ->
+            remap(nestedSource, nestedRemapped)
+
+            output.parentFile.mkdirs()
+            new java.util.zip.ZipFile(remappedOuter).withCloseable { outerZip ->
+                new java.util.zip.ZipOutputStream(new java.io.BufferedOutputStream(
+                        new java.io.FileOutputStream(output))).withCloseable { outputZip ->
+                    outerZip.entries().each { entry ->
                         java.util.zip.ZipEntry replacement = new java.util.zip.ZipEntry(entry.name)
                         replacement.time = entry.time
                         outputZip.putNextEntry(replacement)
-                        if (entry.name == "common.voxy.mixins.json") {
-                            String json = sourceZip.getInputStream(entry).withCloseable {
-                                new String(it.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
-                            }
-                            Map mixinConfig = new groovy.json.JsonSlurper().parseText(json) as Map
-                            mixinConfig.mixins = (mixinConfig.mixins as List)
-                                    .findAll { it != "distanthorizons.MixinSharedApi" }
-                            String patchedJson = groovy.json.JsonOutput.prettyPrint(
-                                    groovy.json.JsonOutput.toJson(mixinConfig)) + System.lineSeparator()
-                            outputZip.write(patchedJson.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                        if (entry.name == connectorNestedPath) {
+                            nestedRemapped.withInputStream { it.transferTo(outputZip) }
                         } else if (!entry.directory) {
-                            sourceZip.getInputStream(entry).withCloseable { it.transferTo(outputZip) }
+                            outerZip.getInputStream(entry).withCloseable {
+                                it.transferTo(outputZip)
+                            }
                         }
                         outputZip.closeEntry()
                     }
-                } finally {
-                    outputZip.close()
-                    sourceZip.close()
                 }
-                java.nio.file.Files.move(patched.toPath(), target.toPath(),
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             }
-            spec.name
         }
-        manifest.setText(installed.join(System.lineSeparator()) + System.lineSeparator(), "UTF-8")
     }
-}
 
-tasks.matching { it.name == "runClient" || it.name == "runDhClient" }.configureEach {
-    dependsOn tasks.named("cleanManagedForgeRunMods")
-}
-tasks.matching { it.name == "runVoxyClient" }.configureEach {
-    dependsOn tasks.named("prepareForgeVoxyRunMods")
+    tasks.matching {
+        it.name == "generateDLIConfig" || it.name == "runVoxyClient"
+    }.configureEach {
+        dependsOn prepareNamedConnector
+    }
+
+    // Connector needs an unpatched SRG Minecraft jar to transform Fabric mods.
+    // Loom creates the ForgeGradle-equivalent clean artifact in its cache.
+    def cleanSrgMinecraft = new File(gradle.gradleUserHomeDir,
+            "caches/fabric-loom/${rootProject.minecraft_version}/forge/" +
+                    "${rootProject.forge_version}/minecraft-merged-srg.jar")
+    loom.runs.named("voxyClient") {
+        property "connector.clean.path", cleanSrgMinecraft.absolutePath
+        // Loom claims ordinary runtime classpath entries before Connector can
+        // discover them, so pass the original Fabric jar through its explicit
+        // development-mod location instead.
+        property "connector.additionalModLocations",
+                configurations.connectorFabricMods.singleFile.absolutePath
+    }
 }
 
 processResources {
