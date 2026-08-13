@@ -70,7 +70,9 @@ Commands currently require permission level 2:
 /dstage sky overworld|end|off
 ```
 
-`/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Flight XYZ remains LOD-only because a sky is rendered at infinite distance.
+`/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky and cloud rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Vanilla clouds additionally use the same virtual source position as the LOD backdrop, including the anchor, player-follow mode, and flight XYZ; the infinite-distance sky dome ignores translation.
+
+Stage flights do not replace Minecraft's main camera or a shader pack's shadow camera. Stage blocks, entities, particles, and shadow-map movement therefore remain attached to the player; only the mounted LOD viewport and the local vanilla sky/cloud passes receive the flight transform. Iris/Oculus shader packs that retain those vanilla passes can render them through their normal pipeline. A pack that disables vanilla sky or clouds and draws its own procedural replacement requires a pack-specific integration before that replacement can follow stage flights. Client stage time is intentionally visible to the rendering pipeline, so shader packs may move their sun, ambient lighting, and time-derived shadows when `/dstage time` changes.
 
 `start` creates an instance, validates the local package, and then teleports. Once the target level wrapper exists, the client rebinds DH to the external database before flight playback begins; a failed rebind returns the player safely. `join` joins an active instance if capacity remains. `anchor` updates the shared virtual DH source position for every active or preparing member. `exit` restores the player's original dimension, position, and rotation.
 
@@ -116,7 +118,7 @@ DH acceptance flow using the development layout:
 4. Stand at the source location represented by the database and note X Y Z.
 5. Run /dstage start test dev:overworld <X> <Y> <Z> 1.
 6. Verify the stage has the normal sky and DH background, then move a short distance; the LOD must move 1:1 with the source-world camera mapping.
-7. Import and attach a CMDCam flight, then verify the player can still move and turn normally while the LOD follows XYZ/yaw/pitch/roll/zoom and the sky follows yaw/pitch/roll/zoom.
+7. Import and attach a CMDCam flight, then verify the player can still move and turn normally while the LOD and clouds follow XYZ/yaw/pitch/roll/zoom and the infinite-distance sky follows yaw/pitch/roll/zoom.
 8. Run /dstage anchor <newX> <newY> <newZ> and verify the backdrop jumps to the new source anchor.
 9. Run /dstage sky off and /dstage sky overworld to verify client sky selection.
 10. Run /dstage exit and verify the original dimension, position, DH database and interaction state are restored.
