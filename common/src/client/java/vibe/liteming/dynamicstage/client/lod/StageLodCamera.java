@@ -10,7 +10,7 @@ import vibe.liteming.dynamicstage.client.flight.StageFlightPose;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
-/** Shared virtual camera used by native LOD backends. */
+/** Shared virtual camera used by every native LOD backend. */
 public final class StageLodCamera {
     private StageLodCamera() {
     }
@@ -20,7 +20,7 @@ public final class StageLodCamera {
         Minecraft minecraft = Minecraft.getInstance();
         ClientStageSession.Snapshot session = ClientStageSession.active();
         if (minecraft.level == null || !StageWorlds.isStageLevel(minecraft.level)
-                || session == null || !DhBackdropRuntime.isMounted(session.instanceId())) {
+                || session == null || !StageBackdropRuntime.isMounted(session.instanceId())) {
             return null;
         }
         float partialTick = minecraft.getFrameTime();

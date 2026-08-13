@@ -15,6 +15,9 @@ public final class DhVirtualCamera {
 
     @Nullable
     public static Vec3 position() {
+        if (!StageBackdropRuntime.isDhMounted()) {
+            return null;
+        }
         StageLodCamera.Snapshot snapshot = StageLodCamera.snapshot();
         return snapshot == null ? null : snapshot.position();
     }
@@ -51,7 +54,8 @@ public final class DhVirtualCamera {
             return null;
         }
         ClientStageSession.Snapshot snapshot = ClientStageSession.active();
-        if (snapshot == null || !DhBackdropRuntime.isMounted(snapshot.instanceId())) {
+        if (snapshot == null || !StageBackdropRuntime.isDhMounted()
+                || !StageBackdropRuntime.isMounted(snapshot.instanceId())) {
             return null;
         }
         return snapshot;

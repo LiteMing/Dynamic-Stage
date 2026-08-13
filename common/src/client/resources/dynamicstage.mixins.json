@@ -8,8 +8,13 @@
     "DhNearClipMixin",
     "DhPlayerPositionMixin",
     "DhViewMixin",
+    "StageLevelRendererMixin",
     "StageSkyMixin",
-    "StageSkyEffectsMixin"
+    "StageSkyEffectsMixin",
+    "VoxyCameraMixin",
+    "VoxyNearClipMixin",
+    "VoxyStorageMixin",
+    "VoxyWorldIdentifierMixin"
   ],
   "injectors": {
     "defaultRequire": 0

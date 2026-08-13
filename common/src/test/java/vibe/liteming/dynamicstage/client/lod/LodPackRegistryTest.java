@@ -11,6 +11,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LodPackRegistryTest {
 
@@ -54,6 +55,38 @@ class LodPackRegistryTest {
         assertThrows(IOException.class, () -> LodPackRegistry.loadDh(temporaryDirectory, id));
     }
 
+    @Test
+    void acceptsAnExternalVoxyWorldDirectory() throws IOException {
+        ResourceLocation id = new ResourceLocation("stages", "voxy_city");
+        String worldId = "0123456789abcdef0123456789abcdef";
+        Path directory = temporaryDirectory.resolve(id.getNamespace()).resolve(id.getPath());
+        Path storage = Files.createDirectories(directory.resolve("voxy").resolve(worldId).resolve("storage"));
+        Files.writeString(directory.resolve("manifest.json"), voxyManifest(worldId));
+        Files.writeString(storage.resolve("CURRENT"), "MANIFEST-000001\n");
+        Files.write(storage.resolve("MANIFEST-000001"), new byte[]{1});
+
+        LodPackRegistry.Pack loaded = LodPackRegistry.load(temporaryDirectory, id);
+
+        assertTrue(loaded instanceof LodPackRegistry.VoxyPack);
+        LodPackRegistry.VoxyPack pack = (LodPackRegistry.VoxyPack) loaded;
+        assertEquals(worldId, pack.worldId());
+        assertEquals(storage.toAbsolutePath().normalize(), pack.storageDirectory());
+    }
+
+    @Test
+    void rejectsInvalidOrMissingVoxyStorage() throws IOException {
+        ResourceLocation id = new ResourceLocation("stages", "bad_voxy");
+        Path directory = temporaryDirectory.resolve(id.getNamespace()).resolve(id.getPath());
+        Files.createDirectories(directory.resolve("voxy"));
+        Files.writeString(directory.resolve("manifest.json"), voxyManifest("not-a-world-id"));
+        assertThrows(IOException.class, () -> LodPackRegistry.load(temporaryDirectory, id));
+
+        String worldId = "fedcba9876543210fedcba9876543210";
+        Files.writeString(directory.resolve("manifest.json"), voxyManifest(worldId));
+        Files.createDirectories(directory.resolve("voxy").resolve(worldId).resolve("storage"));
+        assertThrows(IOException.class, () -> LodPackRegistry.load(temporaryDirectory, id));
+    }
+
     private Path createPack(ResourceLocation id) throws IOException {
         Path directory = temporaryDirectory.resolve(id.getNamespace()).resolve(id.getPath());
         Path dh = Files.createDirectories(directory.resolve("dh"));
@@ -76,5 +109,19 @@ class LodPackRegistryTest {
                   "height": 384
                 }
                 """;
+    }
+
+    private static String voxyManifest(String worldId) {
+        return """
+                {
+                  "formatVersion": 1,
+                  "backend": "voxy",
+                  "minecraftVersion": "1.20.1",
+                  "voxyVersion": "0.2.14",
+                  "worldId": "%s",
+                  "minY": -64,
+                  "height": 384
+                }
+                """.formatted(worldId);
     }
 }

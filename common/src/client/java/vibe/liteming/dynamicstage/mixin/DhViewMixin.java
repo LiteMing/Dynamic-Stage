@@ -6,7 +6,7 @@ import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-import vibe.liteming.dynamicstage.client.lod.DhBackdropRuntime;
+import vibe.liteming.dynamicstage.client.lod.StageBackdropRuntime;
 import vibe.liteming.dynamicstage.client.lod.StageLodCamera;
 
 import java.lang.reflect.Field;
@@ -26,7 +26,7 @@ public abstract class DhViewMixin {
             require = 0, remap = false)
     private void dynamicstage$flightView(CallbackInfo callback) {
         StageLodCamera.Snapshot camera = StageLodCamera.snapshot();
-        if (camera == null || camera.flight() == null) {
+        if (!StageBackdropRuntime.isDhMounted() || camera == null || camera.flight() == null) {
             return;
         }
         try {

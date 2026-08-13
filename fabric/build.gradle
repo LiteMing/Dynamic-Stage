@@ -39,6 +39,11 @@ dependencies {
 
     common(project(path: ":common", configuration: "namedElements")) { transitive false }
     shadowCommon(project(path: ":common", configuration: "transformProductionFabric")) { transitive false }
+
+    if (providers.gradleProperty("includeVoxy").orNull == "true") {
+        modRuntimeOnly "maven.modrinth:voxy:0.2.14-alpha"
+        modRuntimeOnly "maven.modrinth:sodium:mc1.20.1-0.5.13-fabric"
+    }
 }
 
 processResources {

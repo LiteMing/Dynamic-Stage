@@ -4,7 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 import vibe.liteming.dynamicstage.client.flight.StageFlightController;
-import vibe.liteming.dynamicstage.client.lod.DhBackdropRuntime;
+import vibe.liteming.dynamicstage.client.lod.StageBackdropRuntime;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageSessionPacket;
 import vibe.liteming.dynamicstage.world.StageWorlds;
@@ -38,16 +38,17 @@ public final class ClientStageSession {
         StageBoundaryAccess.setClient(packet.instanceId(), packet.stageOrigin(), packet.boundary());
         if (previous != null && previous.instanceId().equals(snapshot.instanceId())
                 && previous.lodPackId().equals(snapshot.lodPackId())
-                && DhBackdropRuntime.isMounted(snapshot.instanceId())) {
+                && StageBackdropRuntime.isMounted(snapshot.instanceId())) {
             return;
         }
         StageFlightController.clear();
         activationAttempts = 0;
-        DhBackdropRuntime.Result result = DhBackdropRuntime.mount(snapshot);
+        StageBackdropRuntime.Result result = StageBackdropRuntime.mount(snapshot);
         if (!result.ready()) {
             active = null;
             StageBoundaryAccess.clearClient();
             readyAfterActivation = null;
+            StageBackdropRuntime.unmount();
             DynamicStageNetwork.clientReady(snapshot.instanceId(), false, result.error());
             return;
         }
@@ -65,7 +66,7 @@ public final class ClientStageSession {
         readyAfterActivation = null;
         activationAttempts = 0;
         StageFlightController.clear();
-        DhBackdropRuntime.unmount();
+        StageBackdropRuntime.unmount();
     }
 
     @Nullable
@@ -75,10 +76,10 @@ public final class ClientStageSession {
 
     public static boolean activateLodIfNeeded() {
         Snapshot snapshot = active;
-        if (snapshot == null || !DhBackdropRuntime.needsStageActivation(snapshot.instanceId())) {
+        if (snapshot == null || !StageBackdropRuntime.needsStageActivation(snapshot.instanceId())) {
             return snapshot != null;
         }
-        DhBackdropRuntime.Result result = DhBackdropRuntime.activateStage(snapshot.instanceId());
+        StageBackdropRuntime.Result result = StageBackdropRuntime.activateStage(snapshot.instanceId());
         if (!result.ready() && ++activationAttempts < MAX_ACTIVATION_ATTEMPTS) {
             return false;
         }
@@ -88,7 +89,7 @@ public final class ClientStageSession {
             active = null;
             StageBoundaryAccess.clearClient();
             StageFlightController.clear();
-            DhBackdropRuntime.unmount();
+            StageBackdropRuntime.unmount();
             DynamicStageNetwork.clientReady(snapshot.instanceId(), false, result.error());
             return false;
         } else if (snapshot.instanceId().equals(deferredReady)) {
