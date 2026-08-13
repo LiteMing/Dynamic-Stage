@@ -51,6 +51,7 @@ public final class DhBackdropRuntime {
                 return Result.failure("Distant Horizons is not installed");
             }
             verifyDhVersion();
+            verifyCoordinateMixins();
             LodPackRegistry.DhPack pack = LodPackRegistry.loadDh(snapshot.lodPackId());
             registerSaveOverride();
             if (previous != null && previous.pack.id().equals(pack.id())) {
@@ -187,6 +188,19 @@ public final class DhBackdropRuntime {
                 && !version.startsWith(LodPackRegistry.DH_VERSION + '.')) {
             throw new IllegalStateException("LOD pack requires Distant Horizons "
                     + LodPackRegistry.DH_VERSION + ".x, found " + version);
+        }
+    }
+
+    private static void verifyCoordinateMixins() throws ReflectiveOperationException {
+        Object renderWrapper = Class.forName(
+                "com.seibel.distanthorizons.common.wrappers.minecraft.MinecraftRenderWrapper_forge")
+                .getField("INSTANCE").get(null);
+        Object clientWrapper = Class.forName(
+                "com.seibel.distanthorizons.common.wrappers.minecraft.MinecraftClientWrapper_forge")
+                .getField("INSTANCE").get(null);
+        if (!(renderWrapper instanceof DhMixinMarkers.Camera)
+                || !(clientWrapper instanceof DhMixinMarkers.PlayerPosition)) {
+            throw new IllegalStateException("Dynamic Stage's DH coordinate mixins are not active");
         }
     }
 

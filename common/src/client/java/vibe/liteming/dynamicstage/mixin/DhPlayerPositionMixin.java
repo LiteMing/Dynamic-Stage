@@ -8,13 +8,14 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import vibe.liteming.dynamicstage.client.lod.DhVirtualCamera;
+import vibe.liteming.dynamicstage.client.lod.DhMixinMarkers;
 
 import java.lang.reflect.Constructor;
 
 @Pseudo
 @Mixin(targets = "com.seibel.distanthorizons.common.wrappers.minecraft.MinecraftClientWrapper_forge",
         remap = false)
-public abstract class DhPlayerPositionMixin {
+public abstract class DhPlayerPositionMixin implements DhMixinMarkers.PlayerPosition {
 
     @Inject(method = "getPlayerBlockPos", at = @At("HEAD"), cancellable = true, require = 1, remap = false)
     private void dynamicstage$virtualPlayerBlock(CallbackInfoReturnable<Object> callback) {

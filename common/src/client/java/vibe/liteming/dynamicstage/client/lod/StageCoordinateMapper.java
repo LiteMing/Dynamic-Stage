@@ -30,8 +30,12 @@ public final class StageCoordinateMapper {
     }
 
     private static Vec3 map(ClientStageSession.Snapshot snapshot, Vec3 stagePosition) {
-        Vec3 sourceOrigin = blockCenter(snapshot.lodAnchor());
-        Vec3 stageOrigin = blockCenter(snapshot.stageOrigin());
+        return map(snapshot.lodAnchor(), snapshot.stageOrigin(), stagePosition);
+    }
+
+    static Vec3 map(BlockPos lodAnchor, BlockPos stageOriginBlock, Vec3 stagePosition) {
+        Vec3 sourceOrigin = blockCenter(lodAnchor);
+        Vec3 stageOrigin = blockCenter(stageOriginBlock);
         return sourceOrigin.add(stagePosition.subtract(stageOrigin));
     }
 

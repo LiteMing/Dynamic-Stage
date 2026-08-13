@@ -7,13 +7,14 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import vibe.liteming.dynamicstage.client.lod.DhVirtualCamera;
+import vibe.liteming.dynamicstage.client.lod.DhMixinMarkers;
 
 import java.lang.reflect.Constructor;
 
 @Pseudo
 @Mixin(targets = "com.seibel.distanthorizons.common.wrappers.minecraft.MinecraftRenderWrapper_forge",
         remap = false)
-public abstract class DhCameraMixin {
+public abstract class DhCameraMixin implements DhMixinMarkers.Camera {
 
     private static volatile Constructor<?> dynamicstage$vec3dConstructor;
     private static volatile Constructor<?> dynamicstage$vec3fConstructor;

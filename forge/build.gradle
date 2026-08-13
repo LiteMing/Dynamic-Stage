@@ -15,6 +15,9 @@ loom {
     mods {
         dynamicstage { sourceSet sourceSets.main }
     }
+    forge {
+        mixinConfig "dynamicstage.mixins.json"
+    }
 }
 
 sourceSets {
@@ -355,7 +358,7 @@ processResources {
 
 jar {
     manifest {
-        attributes "MixinConfigs": "dynamicstage.common.mixins.json,dynamicstage.mixins.json"
+        attributes "MixinConfigs": "dynamicstage.mixins.json"
     }
 }
 
@@ -364,7 +367,7 @@ shadowJar {
     configurations = [project.configurations.shadowCommon]
     archiveClassifier = "dev-shadow"
     manifest {
-        attributes "MixinConfigs": "dynamicstage.common.mixins.json,dynamicstage.mixins.json"
+        attributes "MixinConfigs": "dynamicstage.mixins.json"
     }
 }
 
