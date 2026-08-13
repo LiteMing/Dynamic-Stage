@@ -15,6 +15,7 @@ public final class DynamicStageNetwork {
     public static final net.minecraft.resources.ResourceLocation SESSION = DynamicStage.id("session");
     public static final net.minecraft.resources.ResourceLocation CLIENT_READY = DynamicStage.id("client_ready");
     public static final net.minecraft.resources.ResourceLocation FLIGHT = DynamicStage.id("flight");
+    public static final net.minecraft.resources.ResourceLocation SKY = DynamicStage.id("sky");
     private static boolean serverRegistered;
 
     private DynamicStageNetwork() {
@@ -52,6 +53,12 @@ public final class DynamicStageNetwork {
 
     public static void sendFlight(ServerPlayer player, StageFlightPacket packet) {
         send(player, packet);
+    }
+
+    public static void sendSky(ServerPlayer player, StageSkyPacket.Mode mode) {
+        FriendlyByteBuf buf = buffer();
+        StageSkyPacket.encode(new StageSkyPacket(mode), buf);
+        NetworkManager.sendToPlayer(player, SKY, buf);
     }
 
     private static void send(ServerPlayer player, Object packet) {
