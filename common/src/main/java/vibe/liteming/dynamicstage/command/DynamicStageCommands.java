@@ -5,8 +5,12 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
+import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.suggestion.Suggestions;
+import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.ResourceLocationArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -14,13 +18,14 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.storage.LevelResource;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
-import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageSession;
+import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageSessionManager;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 public final class DynamicStageCommands {
 
@@ -91,15 +96,23 @@ public final class DynamicStageCommands {
                                 StringArgumentType.getString(ctx, "rgb")))));
         root.then(boundary);
         LiteralArgumentBuilder<CommandSourceStack> flight = Commands.literal("flight");
+        RequiredArgumentBuilder<CommandSourceStack, String> flightScene =
+                Commands.argument("scene", StringArgumentType.greedyString())
+                        .suggests(DynamicStageCommands::suggestCMDCamScenes);
+        flightScene.executes(ctx -> importCMDCamFlight(ctx.getSource(),
+                StringArgumentType.getString(ctx, "stage"), StringArgumentType.getString(ctx, "scene")));
+        flight.then(Commands.literal("import")
+                .then(Commands.argument("stage", StringArgumentType.string()).then(flightScene)));
         RequiredArgumentBuilder<CommandSourceStack, String> flightName =
                 Commands.argument("name", StringArgumentType.word());
-        flightName.executes(ctx -> importFlight(ctx.getSource(), StringArgumentType.getString(ctx, "stage"),
+        flightName.suggests(DynamicStageCommands::suggestFlightImports);
+        flightName.executes(ctx -> importJsonFlight(ctx.getSource(), StringArgumentType.getString(ctx, "stage"),
                 StringArgumentType.getString(ctx, "name"), 1));
         flightName.then(Commands.argument("slot", IntegerArgumentType.integer(1, 10))
-                .executes(ctx -> importFlight(ctx.getSource(), StringArgumentType.getString(ctx, "stage"),
+                .executes(ctx -> importJsonFlight(ctx.getSource(), StringArgumentType.getString(ctx, "stage"),
                         StringArgumentType.getString(ctx, "name"),
                         IntegerArgumentType.getInteger(ctx, "slot"))));
-        flight.then(Commands.literal("import")
+        flight.then(Commands.literal("importjson")
                 .then(Commands.argument("stage", StringArgumentType.string()).then(flightName)));
         flight.then(Commands.literal("clear").then(Commands.argument("stage", StringArgumentType.string())
                 .executes(ctx -> clearFlight(ctx.getSource(), StringArgumentType.getString(ctx, "stage")))));
@@ -218,7 +231,21 @@ public final class DynamicStageCommands {
         return 1;
     }
 
-    private static int importFlight(CommandSourceStack source, String stage, String name, int slot) {
+    private static int importCMDCamFlight(CommandSourceStack source, String stage, String scene) {
+        Path worldRoot = source.getServer().getWorldPath(LevelResource.ROOT);
+        try {
+            StageFlightAssets.Asset asset = StageFlightAssets.importFromCMDCam(source.getLevel(),
+                    worldRoot, stage, scene);
+            source.sendSuccess(() -> Component.literal("Imported CMDCam scene '" + scene + "' for '" + stage
+                    + "': " + asset.pointCount() + " points, " + asset.durationMillis() + " ms."), true);
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not import CMDCam scene: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int importJsonFlight(CommandSourceStack source, String stage, String name, int slot) {
         Path worldRoot = source.getServer().getWorldPath(LevelResource.ROOT);
         try {
             StageFlightAssets.Asset asset = StageFlightAssets.importFromInbox(worldRoot, stage, name, slot);
@@ -228,6 +255,34 @@ public final class DynamicStageCommands {
         } catch (IOException | RuntimeException e) {
             source.sendFailure(Component.literal("Could not import stage flight: " + e.getMessage()));
             return 0;
+        }
+    }
+
+    private static CompletableFuture<Suggestions> suggestCMDCamScenes(CommandContext<CommandSourceStack> context,
+                                                                       SuggestionsBuilder builder) {
+        Path worldRoot = context.getSource().getServer().getWorldPath(LevelResource.ROOT);
+        return SharedSuggestionProvider.suggest(StageFlightAssets.listCMDCamScenes(
+                context.getSource().getLevel(), worldRoot), builder);
+    }
+
+    private static CompletableFuture<Suggestions> suggestFlightImports(CommandContext<CommandSourceStack> context,
+                                                                        SuggestionsBuilder builder) {
+        Path worldRoot = context.getSource().getServer().getWorldPath(LevelResource.ROOT);
+        Path inbox = StageFlightAssets.inboxDirectory(worldRoot);
+        if (!java.nio.file.Files.isDirectory(inbox)) {
+            return builder.buildFuture();
+        }
+        try (var files = java.nio.file.Files.list(inbox)) {
+            return SharedSuggestionProvider.suggest(files
+                    .filter(path -> java.nio.file.Files.isRegularFile(path))
+                    .map(path -> path.getFileName().toString())
+                    .filter(name -> name.endsWith(".json"))
+                    .map(name -> name.substring(0, name.length() - ".json".length()))
+                    .filter(name -> name.matches("[A-Za-z0-9_-]{1,64}"))
+                    .sorted()
+                    .toList(), builder);
+        } catch (IOException e) {
+            return builder.buildFuture();
         }
     }
 

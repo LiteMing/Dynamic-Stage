@@ -1,5 +1,8 @@
 package vibe.liteming.dynamicstage.flight;
 
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtIo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -8,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -43,5 +47,52 @@ class StageFlightAssetsTest {
         assertNull(StageFlightAssets.findConfigured(worldRoot, "stage"));
         org.junit.jupiter.api.Assertions.assertThrows(java.io.IOException.class,
                 () -> StageFlightAssets.importFromInbox(worldRoot, "stage", "../flight", 1));
+    }
+
+    @Test
+    void importsAndListsCMDCamSavedDataScenes() throws Exception {
+        CompoundTag scenes = new CompoundTag();
+        scenes.put("boss intro", cmdcamScene());
+        CompoundTag root = new CompoundTag();
+        root.put("data", scenes);
+        root.putInt("DataVersion", 3465);
+        Files.createDirectories(worldRoot.resolve("data"));
+        try (var output = Files.newOutputStream(StageFlightAssets.cmdcamFile(worldRoot))) {
+            NbtIo.writeCompressed(root, output);
+        }
+
+        assertEquals(java.util.List.of("boss intro"), StageFlightAssets.listCMDCamScenes(worldRoot));
+        StageFlightAssets.Asset asset = StageFlightAssets.importFromCMDCam(worldRoot, "boss", "boss intro");
+        assertEquals(2, asset.pointCount());
+        assertEquals(3000L, asset.durationMillis());
+        assertTrue(StageFlightAssets.findConfigured(worldRoot, "boss") != null);
+    }
+
+    private static CompoundTag cmdcamScene() {
+        CompoundTag scene = new CompoundTag();
+        scene.putLong("duration", 3000L);
+        scene.putInt("loop", 0);
+        scene.putString("mode", "outside");
+        scene.putString("inter", "linear");
+        scene.putBoolean("smooth_start", false);
+        scene.putInt("pitch_mode", 0);
+        scene.putBoolean("d_timing", false);
+        ListTag points = new ListTag();
+        points.add(cmdcamPoint(8.5D, 66.0D, -96.5D, 0.0D));
+        points.add(cmdcamPoint(16.5D, 70.0D, -88.5D, 90.0D));
+        scene.put("points", points);
+        return scene;
+    }
+
+    private static CompoundTag cmdcamPoint(double x, double y, double z, double yaw) {
+        CompoundTag point = new CompoundTag();
+        point.putDouble("x", x);
+        point.putDouble("y", y);
+        point.putDouble("z", z);
+        point.putDouble("rotationYaw", yaw);
+        point.putDouble("rotationPitch", 0.0D);
+        point.putDouble("roll", 0.0D);
+        point.putDouble("zoom", 70.0D);
+        return point;
     }
 }

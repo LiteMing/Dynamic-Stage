@@ -26,6 +26,7 @@ public final class StageFlightCodec {
     public static final int MAX_POINTS = 4096;
     public static final long MIN_DURATION_MILLIS = 100L;
     public static final long MAX_DURATION_MILLIS = 60L * 60L * 1000L;
+    public static final int MAX_LOOPS = 1_000_000;
 
     private static final int MAX_JSON_DEPTH = 32;
     private static final int MAX_JSON_NODES = 100_000;
@@ -72,11 +73,13 @@ public final class StageFlightCodec {
             throw new IOException("CMDCam duration must be between " + MIN_DURATION_MILLIS
                     + " and " + MAX_DURATION_MILLIS + " milliseconds");
         }
-        if (requiredInt(scene, "loop") != 0) {
-            throw new IOException("Stage flights must not loop");
+        int loop = requiredInt(scene, "loop");
+        if (loop < -1 || loop > MAX_LOOPS) {
+            throw new IOException("CMDCam loop must be -1 (endless) or between 0 and " + MAX_LOOPS);
         }
-        if (!"outside".equals(requiredString(scene, "mode"))) {
-            throw new IOException("Stage flights require CMDCam outside mode");
+        String mode = requiredString(scene, "mode");
+        if (!"default".equals(mode) && !"outside".equals(mode)) {
+            throw new IOException("Unsupported CMDCam mode: " + mode);
         }
         String interpolation = requiredString(scene, "inter");
         if (!INTERPOLATIONS.contains(interpolation)) {
@@ -85,9 +88,10 @@ public final class StageFlightCodec {
         if (scene.has("look_target") || scene.has("pos_target")) {
             throw new IOException("Stage flights cannot use entity or position follow targets");
         }
-        if (optionalBoolean(scene, "smooth_start", false)) {
-            throw new IOException("Stage flights cannot use smooth start");
-        }
+        optionalBoolean(scene, "smooth_start", false);
+        // A stage path animates only the LOD camera, so CMDCam's player-relative
+        // lead-in is neither useful nor deterministic here.
+        scene.addProperty("smooth_start", false);
         int pitchMode = optionalInt(scene, "pitch_mode", 0);
         if (pitchMode < 0 || pitchMode > 2) {
             throw new IOException("Invalid CMDCam pitch mode");

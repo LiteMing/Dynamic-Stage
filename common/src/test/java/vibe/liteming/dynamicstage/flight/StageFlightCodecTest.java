@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class StageFlightCodecTest {
@@ -26,11 +27,24 @@ class StageFlightCodecTest {
     }
 
     @Test
-    void rejectsPlayerMovingAndNonDeterministicFeatures() {
+    void acceptsLodOnlyModesLoopsAndIgnoresSmoothStart() throws Exception {
+        byte[] export = ("[" + scene(1000, "default", -1, 2)
+                .replace("\"smooth_start\":false", "\"smooth_start\":true") + "]")
+                .getBytes(StandardCharsets.UTF_8);
+
+        StageFlightCodec.Scene selected = StageFlightCodec.select(export, 1);
+        com.google.gson.JsonObject canonical = com.google.gson.JsonParser.parseString(
+                new String(selected.json(), StandardCharsets.UTF_8)).getAsJsonObject();
+
+        assertEquals(-1, canonical.get("loop").getAsInt());
+        assertEquals("default", canonical.get("mode").getAsString());
+        assertFalse(canonical.get("smooth_start").getAsBoolean());
+    }
+
+    @Test
+    void rejectsTargetsAndInvalidLoops() {
         assertThrows(IOException.class, () -> StageFlightCodec.select(
-                ("[" + scene(1000, "default", 0, 2) + "]").getBytes(StandardCharsets.UTF_8), 1));
-        assertThrows(IOException.class, () -> StageFlightCodec.select(
-                ("[" + scene(1000, "outside", -1, 2) + "]").getBytes(StandardCharsets.UTF_8), 1));
+                ("[" + scene(1000, "outside", -2, 2) + "]").getBytes(StandardCharsets.UTF_8), 1));
         assertThrows(IOException.class, () -> StageFlightCodec.select(
                 ("[" + scene(1000, "outside", 0, 1) + "]").getBytes(StandardCharsets.UTF_8), 1));
         assertThrows(IOException.class, () -> StageFlightCodec.select(

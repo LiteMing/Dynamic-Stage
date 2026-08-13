@@ -1,7 +1,12 @@
 package vibe.liteming.dynamicstage.flight;
 
+import com.google.gson.Gson;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.storage.LevelResource;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.Level;
 import vibe.liteming.dynamicstage.util.ContentHash;
 
 import org.jetbrains.annotations.Nullable;
@@ -16,6 +21,8 @@ import java.nio.file.LinkOption;
 public final class StageFlightAssets {
 
     private static final String ACTIVE_REF = "active.ref";
+    private static final String CMDCAM_SAVED_DATA = "cmdcam_Scenes.dat";
+    private static final Gson GSON = new Gson();
 
     private StageFlightAssets() {
     }
@@ -38,6 +45,105 @@ public final class StageFlightAssets {
             throw new IOException("Flight import exceeds the supported size");
         }
         StageFlightCodec.Scene scene = StageFlightCodec.select(readBounded(source), sceneSlot);
+        return store(worldRoot, stageId, scene);
+    }
+
+    public static Asset importFromCMDCam(Path worldRoot, String stageId, String sceneName) throws IOException {
+        validateStageId(stageId);
+        byte[] sceneJson = GSON.toJson(CMDCamSavedData.readScene(cmdcamFile(worldRoot), sceneName))
+                .getBytes(StandardCharsets.UTF_8);
+        return store(worldRoot, stageId, StageFlightCodec.readSingle(sceneJson));
+    }
+
+    public static Asset importFromCMDCam(ServerLevel sourceLevel, Path worldRoot,
+                                         String stageId, String sceneName) throws IOException {
+        validateStageId(stageId);
+        com.google.gson.JsonObject live = CMDCamSavedData.readLiveScene(sourceLevel, sceneName);
+        if (live == null && !sourceLevel.dimension().equals(Level.OVERWORLD)) {
+            live = CMDCamSavedData.readLiveScene(sourceLevel.getServer().overworld(), sceneName);
+        }
+        if (live == null) {
+            return importFromCMDCam(worldRoot, sourceLevel.dimension(), stageId, sceneName);
+        }
+        byte[] sceneJson = GSON.toJson(live).getBytes(StandardCharsets.UTF_8);
+        return store(worldRoot, stageId, StageFlightCodec.readSingle(sceneJson));
+    }
+
+    public static Asset importFromCMDCam(Path worldRoot, ResourceKey<Level> dimension,
+                                         String stageId, String sceneName) throws IOException {
+        validateStageId(stageId);
+        JsonObjectHolder scene = readCMDCamScene(worldRoot, dimension, sceneName);
+        byte[] sceneJson = GSON.toJson(scene.value())
+                .getBytes(StandardCharsets.UTF_8);
+        return store(worldRoot, stageId, StageFlightCodec.readSingle(sceneJson));
+    }
+
+    public static java.util.List<String> listCMDCamScenes(Path worldRoot) {
+        try {
+            return CMDCamSavedData.listScenes(cmdcamFile(worldRoot));
+        } catch (IOException | RuntimeException e) {
+            return java.util.List.of();
+        }
+    }
+
+    public static java.util.List<String> listCMDCamScenes(ServerLevel sourceLevel, Path worldRoot) {
+        java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+        names.addAll(CMDCamSavedData.listLiveScenes(sourceLevel));
+        if (!sourceLevel.dimension().equals(Level.OVERWORLD)) {
+            names.addAll(CMDCamSavedData.listLiveScenes(sourceLevel.getServer().overworld()));
+        }
+        names.addAll(listCMDCamScenes(worldRoot, sourceLevel.dimension()));
+        return names.stream().sorted().toList();
+    }
+
+    public static java.util.List<String> listCMDCamScenes(Path worldRoot, ResourceKey<Level> dimension) {
+        java.util.LinkedHashSet<String> names = new java.util.LinkedHashSet<>();
+        try { names.addAll(CMDCamSavedData.listScenes(cmdcamFile(worldRoot, dimension))); }
+        catch (IOException | RuntimeException ignored) { }
+        if (!isOverworld(dimension)) {
+            try { names.addAll(CMDCamSavedData.listScenes(cmdcamFile(worldRoot))); }
+            catch (IOException | RuntimeException ignored) { }
+        }
+        return names.stream().sorted().toList();
+    }
+
+    private static JsonObjectHolder readCMDCamScene(Path worldRoot, ResourceKey<Level> dimension,
+                                                     String sceneName) throws IOException {
+        Path primary = cmdcamFile(worldRoot, dimension);
+        try {
+            return new JsonObjectHolder(CMDCamSavedData.readScene(primary, sceneName));
+        } catch (IOException primaryError) {
+            if (isOverworld(dimension)) {
+                throw primaryError;
+            }
+            Path fallback = cmdcamFile(worldRoot);
+            try {
+                return new JsonObjectHolder(CMDCamSavedData.readScene(fallback, sceneName));
+            } catch (IOException fallbackError) {
+                throw new IOException(primaryError.getMessage() + "; fallback checked " + fallback, fallbackError);
+            }
+        }
+    }
+
+    public static Path cmdcamFile(Path worldRoot) {
+        return worldRoot.resolve("data").resolve(CMDCAM_SAVED_DATA).toAbsolutePath().normalize();
+    }
+
+    public static Path cmdcamFile(Path worldRoot, ResourceKey<Level> dimension) {
+        if (isOverworld(dimension)) {
+            return cmdcamFile(worldRoot);
+        }
+        ResourceLocation id = dimension.location();
+        Path dimensionRoot = worldRoot.resolve("dimensions").resolve(id.getNamespace()).resolve(id.getPath());
+        return dimensionRoot.resolve("data").resolve(CMDCAM_SAVED_DATA).toAbsolutePath().normalize();
+    }
+
+    private static boolean isOverworld(ResourceKey<Level> dimension) {
+        ResourceLocation id = dimension.location();
+        return "minecraft".equals(id.getNamespace()) && "overworld".equals(id.getPath());
+    }
+
+    private static Asset store(Path worldRoot, String stageId, StageFlightCodec.Scene scene) throws IOException {
         byte[] canonical = scene.json();
         String hash = ContentHash.sha256Hex(canonical);
         Path directory = stageDirectory(worldRoot, stageId);
@@ -158,4 +264,6 @@ public final class StageFlightAssets {
             return sceneJson.clone();
         }
     }
+
+    private record JsonObjectHolder(com.google.gson.JsonObject value) { }
 }
