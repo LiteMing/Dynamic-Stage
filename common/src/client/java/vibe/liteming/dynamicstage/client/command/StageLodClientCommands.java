@@ -48,6 +48,7 @@ public final class StageLodClientCommands {
 
         lod.then(LiteralArgumentBuilder.<S>literal("import")
                 .then(importMode("link", LodPackImporter.Mode.LINK))
+                .then(importMode("link-relative", LodPackImporter.Mode.LINK_RELATIVE))
                 .then(importMode("copy", LodPackImporter.Mode.COPY)));
         root.then(lod);
         return root;
@@ -84,13 +85,26 @@ public final class StageLodClientCommands {
             message(Component.literal("Invalid LOD source path: " + e.getMessage()));
             return 0;
         }
+        if (mode == LodPackImporter.Mode.LINK_RELATIVE) {
+            Path gameDirectory = Minecraft.getInstance().gameDirectory.toPath().toAbsolutePath().normalize();
+            if (!source.startsWith(gameDirectory)) {
+                message(Component.literal("A relative LOD link must point inside the current game instance: "
+                        + gameDirectory));
+                return 0;
+            }
+        }
         if (!ACTIVE_IMPORTS.add(id)) {
             message(Component.literal("LOD package import is already running: " + id));
             return 0;
         }
 
         Path packageRoot = LodPackRegistry.rootDirectory();
-        message(Component.literal((mode == LodPackImporter.Mode.LINK ? "Linking" : "Copying")
+        String action = switch (mode) {
+            case LINK -> "Linking";
+            case LINK_RELATIVE -> "Creating portable relative link to";
+            case COPY -> "Copying";
+        };
+        message(Component.literal(action
                 + " native LOD cache from " + source + ". Keep the source game instance closed."));
         CompletableFuture.supplyAsync(() -> {
             try {
@@ -105,8 +119,10 @@ public final class StageLodClientCommands {
                     message(Component.literal("Could not import LOD package " + id + ": " + rootMessage(error)));
                     return;
                 }
-                if (result.mode() == LodPackImporter.Mode.LINK) {
-                    message(Component.literal("Linked " + result.backend().displayName() + " LOD package "
+                if (result.mode() != LodPackImporter.Mode.COPY) {
+                    String linked = result.mode() == LodPackImporter.Mode.LINK_RELATIVE
+                            ? "Relatively linked " : "Linked ";
+                    message(Component.literal(linked + result.backend().displayName() + " LOD package "
                             + id + " to " + result.source() + '.'));
                 } else {
                     double mebibytes = result.byteCount() / (1024.0D * 1024.0D);

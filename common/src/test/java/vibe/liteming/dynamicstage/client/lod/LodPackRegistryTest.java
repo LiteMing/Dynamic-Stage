@@ -106,6 +106,51 @@ class LodPackRegistryTest {
     }
 
     @Test
+    void relativeLinkSurvivesRelocatingTheGameDirectory() throws IOException {
+        ResourceLocation id = new ResourceLocation("stages", "portable_dh");
+        Path gameDirectory = temporaryDirectory.resolve("original-instance");
+        Path packageRoot = gameDirectory.resolve("dynamicstage/lodpacks");
+        Path source = gameDirectory.resolve("dynamicstage/lodsources/forest/DistantHorizons.sqlite");
+        createDhDatabase(source);
+
+        LodPackImporter.importPack(packageRoot, id, source, LodPackImporter.Mode.LINK_RELATIVE);
+
+        Path manifest = packageRoot.resolve("stages/portable_dh/manifest.json");
+        String json = Files.readString(manifest);
+        assertTrue(json.contains("../../../lodsources/forest/DistantHorizons.sqlite"));
+        assertFalse(json.contains(source.toString()));
+
+        Path relocatedGameDirectory = temporaryDirectory.resolve("relocated-instance");
+        Files.move(gameDirectory, relocatedGameDirectory);
+        Path relocatedPackageRoot = relocatedGameDirectory.resolve("dynamicstage/lodpacks");
+        Path relocatedSource = relocatedGameDirectory
+                .resolve("dynamicstage/lodsources/forest/DistantHorizons.sqlite");
+        assertEquals(relocatedSource.toAbsolutePath().normalize(),
+                LodPackRegistry.loadDh(relocatedPackageRoot, id).database());
+    }
+
+    @Test
+    void relativeVoxyLinkSurvivesRelocatingTheGameDirectory() throws IOException {
+        ResourceLocation id = new ResourceLocation("stages", "portable_voxy");
+        String worldId = "0123456789abcdef0123456789abcdef";
+        Path gameDirectory = temporaryDirectory.resolve("original-voxy-instance");
+        Path packageRoot = gameDirectory.resolve("dynamicstage/lodpacks");
+        Path source = createVoxySource(gameDirectory
+                .resolve("dynamicstage/lodsources/city").resolve(worldId).resolve("storage"));
+
+        LodPackImporter.importPack(packageRoot, id, source, LodPackImporter.Mode.LINK_RELATIVE);
+
+        Path relocatedGameDirectory = temporaryDirectory.resolve("relocated-voxy-instance");
+        Files.move(gameDirectory, relocatedGameDirectory);
+        Path relocatedPackageRoot = relocatedGameDirectory.resolve("dynamicstage/lodpacks");
+        Path relocatedSource = relocatedGameDirectory.resolve("dynamicstage/lodsources/city")
+                .resolve(worldId).resolve("storage");
+        LodPackRegistry.VoxyPack loaded = (LodPackRegistry.VoxyPack) LodPackRegistry.load(
+                relocatedPackageRoot, id);
+        assertEquals(relocatedSource.toAbsolutePath().normalize(), loaded.storageDirectory());
+    }
+
+    @Test
     void copiesAnExternalDhDatabaseWhenRequested() throws IOException {
         ResourceLocation id = new ResourceLocation("stages", "copied_dh");
         Path source = createExternalDhSource("copied-world");
@@ -160,6 +205,10 @@ class LodPackRegistryTest {
     private Path createExternalVoxySource(String worldId) throws IOException {
         Path storage = temporaryDirectory.resolve("other-game/saves/voxy-world/voxy")
                 .resolve(worldId).resolve("storage");
+        return createVoxySource(storage);
+    }
+
+    private static Path createVoxySource(Path storage) throws IOException {
         Files.createDirectories(storage);
         Files.writeString(storage.resolve("CURRENT"), "MANIFEST-000001\n");
         Files.write(storage.resolve("MANIFEST-000001"), new byte[]{1});

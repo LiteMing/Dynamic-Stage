@@ -47,6 +47,7 @@ client-only command:
 
 ```text
 /dstage lod import link <pack_id> <source_path>
+/dstage lod import link-relative <pack_id> <source_path>
 /dstage lod import copy <pack_id> <source_path>
 /dstage lod root
 ```
@@ -61,14 +62,21 @@ An existing package ID is never overwritten; use a new ID or remove the old
 client-local package deliberately before importing it again.
 
 `link` writes only a small manifest containing the local absolute source path;
-the native cache is mounted in place and consumes no second copy. `copy`
-creates an isolated writable cache copy and is the recommended mode when the
-source was produced by another Minecraft, DH, or Voxy version. Both commands
-require the source game instance to be closed. A link still needs a writable
-source because DH/Voxy may create locks or perform schema migration; DS only
-disables stage-time generation and network retrieval, it cannot turn the
-backend's file format into a true read-only connection. Source paths remain
-client-local and are never sent to the server.
+the native cache is mounted in place and consumes no second copy.
+`link-relative` instead records a portable path relative to the package's
+`manifest.json`. Its source must be inside the current game instance. For a
+distributed modpack, keep both trees under that instance, for example
+`dynamicstage/lodpacks` and `dynamicstage/lodsources`, and ship them together.
+The relative path uses portable `/` separators and survives a different
+launcher instance directory, user name, drive letter, or operating system.
+`copy` creates an isolated, self-contained writable cache
+inside the package and remains the recommended mode when the source was
+produced by another Minecraft, DH, or Voxy version. All modes require the
+source game instance to be closed. A link still needs a writable source because
+DH/Voxy may create locks or perform schema migration; DS only disables
+stage-time generation and network retrieval, it cannot turn the backend's file
+format into a true read-only connection. Source paths remain client-local and
+are never sent to the server.
 
 DH 3.2 still requires the database file and its directory to be writable when opening it, and may apply its own schema migrations. "Read-only" here means DS asks DH to stop LOD updates, generation, and network retrieval while the stage is active; it is not a SQLite read-only connection. Distribute a writable package produced by the same supported DH version and keep an immutable source copy outside the live instance when exact byte preservation matters.
 
@@ -97,6 +105,7 @@ Commands currently require permission level 2:
 /dstage flight clear <stage>
 /dstage sky overworld|end|off
 /dstage lod import link <pack_id> <source_path>
+/dstage lod import link-relative <pack_id> <source_path>
 /dstage lod import copy <pack_id> <source_path>
 /dstage lod root
 ```

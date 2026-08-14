@@ -78,14 +78,26 @@ public final class LodPackImporter {
                     importVoxy(candidate, stagingPackage, stats);
                 }
             }
-            writeManifest(stagingPackage, candidate, mode);
+            writeManifest(stagingPackage, stagingPackage, candidate, mode);
             LodPackRegistry.load(stagingRoot, id);
+
+            if (mode == Mode.LINK_RELATIVE) {
+                writeManifest(stagingPackage, destination, candidate, mode);
+            }
 
             createSafeDirectories(root, destination.getParent());
             try {
                 Files.move(stagingPackage, destination, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException e) {
                 Files.move(stagingPackage, destination);
+            }
+            if (mode == Mode.LINK_RELATIVE) {
+                try {
+                    LodPackRegistry.load(root, id);
+                } catch (IOException | RuntimeException e) {
+                    deleteTree(destination);
+                    throw e;
+                }
             }
             return new ImportResult(id, candidate.backend, mode, candidate.path, destination,
                     stats.files, stats.bytes);
@@ -208,7 +220,8 @@ public final class LodPackImporter {
         stats.bytes += Files.size(destination);
     }
 
-    private static void writeManifest(Path directory, Candidate candidate, Mode mode) throws IOException {
+    private static void writeManifest(Path directory, Path relativeBase, Candidate candidate, Mode mode)
+            throws IOException {
         JsonObject manifest = new JsonObject();
         manifest.addProperty("formatVersion", LodPackRegistry.FORMAT_VERSION);
         manifest.addProperty("backend", candidate.backend.manifestName);
@@ -221,6 +234,15 @@ public final class LodPackImporter {
         }
         if (mode == Mode.LINK) {
             manifest.addProperty("sourcePath", candidate.path.toString());
+        } else if (mode == Mode.LINK_RELATIVE) {
+            try {
+                String relative = relativeBase.toAbsolutePath().normalize().relativize(candidate.path)
+                        .toString().replace('\\', '/');
+                manifest.addProperty("sourcePath", relative);
+            } catch (IllegalArgumentException e) {
+                throw new IOException("A relative LOD link requires the package and cache to use the same "
+                        + "filesystem root", e);
+            }
         }
         manifest.addProperty("minY", LodPackRegistry.STAGE_MIN_Y);
         manifest.addProperty("height", LodPackRegistry.STAGE_HEIGHT);
@@ -309,6 +331,7 @@ public final class LodPackImporter {
 
     public enum Mode {
         LINK,
+        LINK_RELATIVE,
         COPY
     }
 
