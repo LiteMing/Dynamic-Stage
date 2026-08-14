@@ -1,9 +1,11 @@
 package vibe.liteming.dynamicstage.platform.forge;
 
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.fml.loading.FMLPaths;
 import vibe.liteming.dynamicstage.stage.StageSessionManager;
 
 import java.util.UUID;
+import java.nio.file.Path;
 
 public final class StagePlatformImpl {
     private StagePlatformImpl() {
@@ -15,5 +17,9 @@ public final class StagePlatformImpl {
 
     public static void clearInstanceMarker(ServerPlayer player) {
         player.getPersistentData().remove(StageSessionManager.INSTANCE_NBT);
+    }
+
+    public static Path configDirectory() {
+        return FMLPaths.CONFIGDIR.get();
     }
 }

@@ -14,6 +14,8 @@ import vibe.liteming.dynamicstage.flight.StageFlightAssets;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageFlightPacket;
 import vibe.liteming.dynamicstage.platform.StagePlatform;
+import vibe.liteming.dynamicstage.template.StageTemplate;
+import vibe.liteming.dynamicstage.template.StageTemplateStore;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
 import java.util.HashSet;
@@ -51,6 +53,77 @@ public final class StageSessionManager {
         return prepare(player, session);
     }
 
+    public static boolean createAndEnterTemplate(ServerPlayer player, StageTemplate template) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return false;
+        }
+        final StageFlightAssets.Asset flight;
+        try {
+            flight = StageTemplateStore.installFlight(server, template);
+        } catch (java.io.IOException e) {
+            player.sendSystemMessage(Component.literal("Could not install the template flight: " + e.getMessage()));
+            return false;
+        }
+        if (template.instanceMode() == StageTemplate.InstanceMode.SHARED) {
+            StageSession exemplar = StageSessionData.get(server).all().stream()
+                    .filter(template::matches).findFirst().orElseGet(() -> PENDING.values().stream()
+                            .map(PendingEntry::session).filter(template::matches).findFirst().orElse(null));
+            if (exemplar != null) {
+                return joinExisting(player, exemplar);
+            }
+        }
+        if (!canPrepare(player, server)) {
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        int slot = allocateSlot(data);
+        if (slot < 0) {
+            player.sendSystemMessage(Component.literal("All Dynamic Stage instance regions are in use."));
+            return false;
+        }
+        ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
+        if (stageLevel == null) {
+            player.sendSystemMessage(Component.literal("The Dynamic Stage dimension is unavailable."));
+            return false;
+        }
+        if (template.resetPolicy() == StageTemplate.ResetPolicy.ON_CREATE) {
+            try {
+                StageArenaSnapshot.restore(stageLevel, StagePlacement.originForSlot(slot),
+                        template.boundary(), template.arenaSnapshot());
+            } catch (java.io.IOException | RuntimeException e) {
+                player.sendSystemMessage(Component.literal(
+                        "Could not initialize the template arena: " + e.getMessage()));
+                return false;
+            }
+        }
+        long gameTime = player.serverLevel().getGameTime();
+        StageClientScene scene = template.sceneForNewInstance(server.overworld().getDayTime(), gameTime);
+        StageSession session = createMembership(player, UUID.randomUUID(), template.id(), template.lodPackId(),
+                template.lodAnchor(), slot, template.capacity(), template.boundary(), scene, flight, -1L);
+        return prepare(player, session);
+    }
+
+    public static boolean resetTemplateArena(ServerPlayer player, StageTemplate template) {
+        MinecraftServer server = player.getServer();
+        StageSession session = get(player).orElse(null);
+        if (server == null || session == null || !session.stageId().equals(template.id())) {
+            return false;
+        }
+        ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
+        if (stageLevel == null) {
+            return false;
+        }
+        try {
+            StageArenaSnapshot.restore(stageLevel, session.stageOrigin(),
+                    template.boundary(), template.arenaSnapshot());
+            return true;
+        } catch (java.io.IOException | RuntimeException e) {
+            player.sendSystemMessage(Component.literal("Could not reset the template arena: " + e.getMessage()));
+            return false;
+        }
+    }
+
     public static boolean join(ServerPlayer player, UUID instanceId) {
         MinecraftServer server = player.getServer();
         if (!canPrepare(player, server)) {
@@ -62,8 +135,18 @@ public final class StageSessionManager {
             player.sendSystemMessage(Component.literal("Unknown or inactive Dynamic Stage instance."));
             return false;
         }
-        long members = data.members(instanceId).size()
-                + PENDING.values().stream().filter(entry -> entry.session.instanceId().equals(instanceId)).count();
+        return joinExisting(player, exemplar);
+    }
+
+    private static boolean joinExisting(ServerPlayer player, StageSession exemplar) {
+        MinecraftServer server = player.getServer();
+        if (!canPrepare(player, server)) {
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        long members = data.members(exemplar.instanceId()).size()
+                + PENDING.values().stream()
+                .filter(entry -> entry.session.instanceId().equals(exemplar.instanceId())).count();
         if (members >= exemplar.capacity()) {
             player.sendSystemMessage(Component.literal("That Dynamic Stage instance is full."));
             return false;
@@ -72,8 +155,7 @@ public final class StageSessionManager {
             player.sendSystemMessage(Component.literal("That Dynamic Stage instance's flight is unavailable."));
             return false;
         }
-        StageSession session = createMembership(player, exemplar);
-        return prepare(player, session);
+        return prepare(player, createMembership(player, exemplar));
     }
 
     public static boolean setAnchor(ServerPlayer player, BlockPos anchor) {
@@ -398,9 +480,18 @@ public final class StageSessionManager {
     private static StageSession createMembership(ServerPlayer player, UUID instanceId, String stageId,
                                                   ResourceLocation lodPackId, BlockPos anchor, int slot, int capacity,
                                                   StageFlightAssets.Asset flight, long flightStart) {
-        return new StageSession(player.getUUID(), instanceId, stageId, lodPackId, anchor, slot, capacity,
+        return createMembership(player, instanceId, stageId, lodPackId, anchor, slot, capacity,
                 StageBoundary.defaults(), StageClientScene.defaults(
                         player.getServer().overworld().getDayTime(), player.getServer().overworld().getGameTime()),
+                flight, flightStart);
+    }
+
+    private static StageSession createMembership(ServerPlayer player, UUID instanceId, String stageId,
+                                                  ResourceLocation lodPackId, BlockPos anchor, int slot, int capacity,
+                                                  StageBoundary boundary, StageClientScene clientScene,
+                                                  StageFlightAssets.Asset flight, long flightStart) {
+        return new StageSession(player.getUUID(), instanceId, stageId, lodPackId, anchor, slot, capacity,
+                boundary, clientScene,
                 player.serverLevel().dimension(), player.position(), player.getYRot(), player.getXRot(),
                 flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
                 flight == null ? 0L : flight.durationMillis(), flight == null ? -1L : flightStart);

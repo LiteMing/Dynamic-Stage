@@ -90,6 +90,11 @@ expanded command to the server:
 /dstage start <stage>
 /dstage start <stage> <lod_pack> <source_x> <source_y> <source_z> [capacity]
 /dstage join <instance_uuid>
+/dstage template save <template> [parallel|shared] [on_create|manual]
+/dstage template start <template>
+/dstage template reset
+/dstage template list
+/dstage template delete <template>
 /dstage anchor <source_x> <source_y> <source_z>
 /dstage backdrop status
 /dstage backdrop follow on|off
@@ -120,6 +125,20 @@ relative link, and then sends the full server command. If no native cache is
 available, the full command is still sent with an empty automatic package ID;
 the player enters the stage with a warning and no LOD backdrop. If more than
 one native backend is active, use the explicit form instead of guessing.
+
+Portable stage templates are stored under `config/dynamicstage/templates`, so
+they are shared by different saves in the same game or server instance. Saving
+a template captures the active LOD package ID and anchor, boundary, client time
+and backdrop settings, player movement scale, capacity, CMDCam flight data, and
+the boundary's blocks, block entities, and non-player entities. Native LOD data
+is still referenced by its client-local package ID and is not copied into the
+template. `shared` reuses one live instance up to its capacity; `parallel`
+creates an isolated instance for every start. `on_create` restores the arena
+snapshot when a new instance is allocated, while `manual` leaves the slot alone
+until `/dstage template reset` is run. Arena snapshots are limited to 256 x 256
+x 128 and 4,194,304 blocks. Mod state stored only in another mod's global
+SavedData is outside the vanilla structure snapshot and requires an explicit
+compatibility adapter.
 
 `/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky and cloud rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Vanilla clouds additionally use the same virtual source position as the LOD backdrop, including the anchor, player-follow mode, and flight XYZ; the infinite-distance sky dome ignores translation.
 

@@ -25,6 +25,8 @@ import vibe.liteming.dynamicstage.stage.StageSession;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageClientScene;
 import vibe.liteming.dynamicstage.stage.StageSessionManager;
+import vibe.liteming.dynamicstage.template.StageTemplate;
+import vibe.liteming.dynamicstage.template.StageTemplateStore;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -69,6 +71,44 @@ public final class DynamicStageCommands {
         root.then(Commands.literal("join")
                         .then(Commands.argument("instance", StringArgumentType.word())
                                 .executes(ctx -> join(ctx.getSource(), StringArgumentType.getString(ctx, "instance")))));
+        LiteralArgumentBuilder<CommandSourceStack> templates = Commands.literal("template");
+        templates.then(Commands.literal("list").executes(ctx -> templateList(ctx.getSource())));
+        templates.then(Commands.literal("reset").executes(ctx -> templateReset(ctx.getSource())));
+        templates.then(Commands.literal("start")
+                .then(Commands.argument("template", StringArgumentType.word())
+                        .suggests(DynamicStageCommands::suggestTemplates)
+                        .executes(ctx -> templateStart(ctx.getSource(),
+                                StringArgumentType.getString(ctx, "template")))));
+        templates.then(Commands.literal("delete")
+                .then(Commands.argument("template", StringArgumentType.word())
+                        .suggests(DynamicStageCommands::suggestTemplates)
+                        .executes(ctx -> templateDelete(ctx.getSource(),
+                                StringArgumentType.getString(ctx, "template")))));
+        RequiredArgumentBuilder<CommandSourceStack, String> resetPolicy =
+                Commands.argument("reset_policy", StringArgumentType.word())
+                        .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
+                                java.util.List.of("on_create", "manual"), builder));
+        resetPolicy.executes(ctx -> templateSave(ctx.getSource(),
+                StringArgumentType.getString(ctx, "template"),
+                parseInstanceMode(StringArgumentType.getString(ctx, "instance_mode")),
+                parseResetPolicy(StringArgumentType.getString(ctx, "reset_policy"))));
+        RequiredArgumentBuilder<CommandSourceStack, String> instanceMode =
+                Commands.argument("instance_mode", StringArgumentType.word())
+                        .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
+                                java.util.List.of("parallel", "shared"), builder));
+        instanceMode.executes(ctx -> templateSave(ctx.getSource(),
+                StringArgumentType.getString(ctx, "template"),
+                parseInstanceMode(StringArgumentType.getString(ctx, "instance_mode")),
+                StageTemplate.ResetPolicy.ON_CREATE));
+        instanceMode.then(resetPolicy);
+        RequiredArgumentBuilder<CommandSourceStack, String> templateName =
+                Commands.argument("template", StringArgumentType.word());
+        templateName.executes(ctx -> templateSave(ctx.getSource(),
+                StringArgumentType.getString(ctx, "template"), StageTemplate.InstanceMode.PARALLEL,
+                StageTemplate.ResetPolicy.ON_CREATE));
+        templateName.then(instanceMode);
+        templates.then(Commands.literal("save").then(templateName));
+        root.then(templates);
         RequiredArgumentBuilder<CommandSourceStack, Integer> anchorZ =
                 Commands.argument("z", IntegerArgumentType.integer());
         anchorZ.executes(ctx -> anchor(ctx.getSource(), IntegerArgumentType.getInteger(ctx, "x"),
@@ -196,6 +236,127 @@ public final class DynamicStageCommands {
             source.sendFailure(Component.literal("Invalid stage instance UUID."));
             return 0;
         }
+    }
+
+    private static int templateSave(CommandSourceStack source, String id, StageTemplate.InstanceMode instanceMode,
+                                    StageTemplate.ResetPolicy resetPolicy) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        StageSession session = StageSessionManager.get(player).orElse(null);
+        if (session == null) {
+            source.sendFailure(Component.literal("Enter and configure a stage before saving it as a template."));
+            return 0;
+        }
+        try {
+            StageTemplate template = StageTemplateStore.capture(source.getServer(), session, id,
+                    instanceMode, resetPolicy);
+            StageTemplateStore.save(template);
+            source.sendSuccess(() -> Component.literal("Saved portable stage template '" + id + "' ("
+                    + instanceMode.name().toLowerCase(java.util.Locale.ROOT) + ", capacity "
+                    + template.capacity() + ")."), true);
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not save stage template: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int templateStart(CommandSourceStack source, String id) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        try {
+            StageTemplate template = StageTemplateStore.load(id);
+            if (template == null) {
+                source.sendFailure(Component.literal("Unknown stage template '" + id + "'."));
+                return 0;
+            }
+            if (!StageSessionManager.createAndEnterTemplate(player, template)) {
+                source.sendFailure(Component.literal("Could not prepare stage template '" + id + "'."));
+                return 0;
+            }
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not load stage template: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int templateDelete(CommandSourceStack source, String id) {
+        try {
+            if (!StageTemplateStore.delete(id)) {
+                source.sendFailure(Component.literal("Unknown stage template '" + id + "'."));
+                return 0;
+            }
+            source.sendSuccess(() -> Component.literal("Deleted stage template '" + id + "'."), true);
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not delete stage template: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int templateReset(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        StageSession session = StageSessionManager.get(player).orElse(null);
+        if (session == null) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        try {
+            StageTemplate template = StageTemplateStore.load(session.stageId());
+            if (template == null || !StageSessionManager.resetTemplateArena(player, template)) {
+                source.sendFailure(Component.literal("The active stage is not backed by a resettable template."));
+                return 0;
+            }
+            source.sendSuccess(() -> Component.literal("Reset the active arena from template '"
+                    + template.id() + "'."), true);
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not reset stage template: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int templateList(CommandSourceStack source) {
+        try {
+            java.util.List<String> ids = StageTemplateStore.list();
+            source.sendSuccess(() -> Component.literal(ids.isEmpty()
+                    ? "No portable stage templates are saved."
+                    : "Stage templates: " + String.join(", ", ids)), false);
+            return ids.size();
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not list stage templates: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static CompletableFuture<Suggestions> suggestTemplates(CommandContext<CommandSourceStack> context,
+                                                                    SuggestionsBuilder builder) {
+        try {
+            return SharedSuggestionProvider.suggest(StageTemplateStore.list(), builder);
+        } catch (IOException | RuntimeException e) {
+            return builder.buildFuture();
+        }
+    }
+
+    private static StageTemplate.InstanceMode parseInstanceMode(String value) {
+        return switch (value.toLowerCase(java.util.Locale.ROOT)) {
+            case "shared" -> StageTemplate.InstanceMode.SHARED;
+            case "parallel" -> StageTemplate.InstanceMode.PARALLEL;
+            default -> throw new IllegalArgumentException("instance_mode must be shared or parallel");
+        };
+    }
+
+    private static StageTemplate.ResetPolicy parseResetPolicy(String value) {
+        return switch (value.toLowerCase(java.util.Locale.ROOT)) {
+            case "on_create" -> StageTemplate.ResetPolicy.ON_CREATE;
+            case "manual" -> StageTemplate.ResetPolicy.MANUAL;
+            default -> throw new IllegalArgumentException("reset_policy must be on_create or manual");
+        };
     }
 
     private static int anchor(CommandSourceStack source, int x, int y, int z) {

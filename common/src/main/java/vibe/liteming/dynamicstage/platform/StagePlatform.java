@@ -3,6 +3,7 @@ package vibe.liteming.dynamicstage.platform;
 import dev.architectury.injectables.annotations.ExpectPlatform;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.nio.file.Path;
 import java.util.UUID;
 
 public final class StagePlatform {
@@ -16,6 +17,11 @@ public final class StagePlatform {
 
     @ExpectPlatform
     public static void clearInstanceMarker(ServerPlayer player) {
+        throw new AssertionError();
+    }
+
+    @ExpectPlatform
+    public static Path configDirectory() {
         throw new AssertionError();
     }
 }

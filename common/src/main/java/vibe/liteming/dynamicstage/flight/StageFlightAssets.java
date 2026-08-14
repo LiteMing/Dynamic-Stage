@@ -158,6 +158,11 @@ public final class StageFlightAssets {
         return new Asset(target, hash, canonical.length, scene.durationMillis(), scene.pointCount(), canonical);
     }
 
+    public static Asset install(Path worldRoot, String stageId, byte[] sceneJson) throws IOException {
+        validateStageId(stageId);
+        return store(worldRoot, stageId, StageFlightCodec.readSingle(sceneJson));
+    }
+
     public static boolean clear(Path worldRoot, String stageId) throws IOException {
         validateStageId(stageId);
         return Files.deleteIfExists(stageDirectory(worldRoot, stageId).resolve(ACTIVE_REF));
