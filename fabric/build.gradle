@@ -9,7 +9,7 @@ architectury {
     fabric()
 }
 
-base { archivesName = "${rootProject.mod_id}-fabric" }
+base { archivesName = "${rootProject.artifact_name}-fabric" }
 
 loom {
     splitEnvironmentSourceSets()

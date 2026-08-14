@@ -9,7 +9,7 @@ architectury {
     forge()
 }
 
-base { archivesName = "${rootProject.mod_id}-forge" }
+base { archivesName = "${rootProject.artifact_name}-forge" }
 
 def requestedRunTasks = gradle.startParameter.taskNames.collect { it.tokenize(":").last() }
 def forgeDhRun = requestedRunTasks.any { it == "runClient" || it == "runDhClient" }
