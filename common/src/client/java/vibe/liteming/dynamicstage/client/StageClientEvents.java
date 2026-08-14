@@ -5,6 +5,7 @@ import vibe.liteming.dynamicstage.client.flight.StageFlightController;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 import vibe.liteming.dynamicstage.stage.StageBoundaryAccess;
+import vibe.liteming.dynamicstage.client.editor.StageTemplateEditorState;
 
 public final class StageClientEvents {
     private StageClientEvents() {
@@ -12,6 +13,7 @@ public final class StageClientEvents {
 
     public static void disconnect() {
         ClientStageSession.clearLocal();
+        StageTemplateEditorState.clear();
     }
 
     public static void tick() {

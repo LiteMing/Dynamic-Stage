@@ -280,6 +280,10 @@ public final class StageSessionManager {
         return session != null && updateClientScene(player, session.clientScene().withSkyMode(mode));
     }
 
+    public static boolean setClientScene(ServerPlayer player, StageClientScene scene) {
+        return get(player).isPresent() && updateClientScene(player, scene);
+    }
+
     private static boolean updateClientScene(ServerPlayer player, StageClientScene scene) {
         MinecraftServer server = player.getServer();
         if (server == null) {

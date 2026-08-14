@@ -4,6 +4,7 @@ import dev.architectury.networking.NetworkManager;
 import vibe.liteming.dynamicstage.client.StageSkySettings;
 import vibe.liteming.dynamicstage.client.flight.StageFlightController;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
+import vibe.liteming.dynamicstage.client.editor.StageTemplateEditorState;
 
 public final class DynamicStageClientNetwork {
     private static boolean registered;
@@ -30,6 +31,11 @@ public final class DynamicStageClientNetwork {
                     StageSkyPacket packet = StageSkyPacket.decode(buf);
                     context.queue(() -> StageSkySettings.setMode(
                             StageSkySettings.Mode.valueOf(packet.mode().name())));
+                });
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.TEMPLATE_LIST,
+                (buf, context) -> {
+                    StageTemplatePackets.ListPacket packet = StageTemplatePackets.decodeList(buf);
+                    context.queue(() -> StageTemplateEditorState.accept(packet.templates()));
                 });
         registered = true;
     }

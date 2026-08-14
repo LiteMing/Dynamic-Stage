@@ -48,6 +48,25 @@ class StageTemplateStoreTest {
         assertEquals(900L, rebased.lodTransitionStartGameTime());
     }
 
+    @Test
+    void editorSummaryPreservesServerOwnedAssets() {
+        CompoundTag arena = arenaSnapshot();
+        StageTemplate existing = new StageTemplate("stage", new ResourceLocation("pack", "old"), BlockPos.ZERO,
+                StageBoundary.defaults(), StageClientScene.defaults(0L, 0L), 1,
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE,
+                new byte[0], arena);
+        StageTemplateSummary summary = new StageTemplateSummary("stage", new ResourceLocation("pack", "new"),
+                new BlockPos(10, 20, 30), new StageBoundary(40, 44, 16, 0x445566),
+                StageClientScene.defaults(6000L, 20L), 4, StageTemplate.InstanceMode.SHARED,
+                StageTemplate.ResetPolicy.MANUAL);
+
+        StageTemplate edited = summary.applyTo(existing);
+
+        assertEquals(arena, edited.arenaSnapshot());
+        assertEquals(new ResourceLocation("pack", "new"), edited.lodPackId());
+        assertEquals(4, edited.capacity());
+    }
+
     private static CompoundTag arenaSnapshot() {
         CompoundTag snapshot = new CompoundTag();
         snapshot.putInt("test", 1);

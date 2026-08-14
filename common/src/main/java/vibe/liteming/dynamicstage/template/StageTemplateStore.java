@@ -55,6 +55,23 @@ public final class StageTemplateStore {
                 flight == null ? new byte[0] : flight.sceneJson(), arena);
     }
 
+    public static StageTemplate capture(MinecraftServer server, StageSession session,
+                                        StageTemplateSummary summary) throws IOException {
+        StageFlightAssets.Asset flight = session.hasFlight()
+                ? StageFlightAssets.load(server, session.stageId(), session.flightHash()) : null;
+        if (session.hasFlight() && flight == null) {
+            throw new IOException("The active stage flight is unavailable");
+        }
+        net.minecraft.server.level.ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
+        if (stageLevel == null) {
+            throw new IOException("The stage dimension is unavailable");
+        }
+        CompoundTag arena = StageArenaSnapshot.capture(stageLevel, session.stageOrigin(), summary.boundary());
+        return new StageTemplate(summary.id(), summary.lodPackId(), summary.lodAnchor(), summary.boundary(),
+                summary.clientScene(), summary.capacity(), summary.instanceMode(), summary.resetPolicy(),
+                flight == null ? new byte[0] : flight.sceneJson(), arena);
+    }
+
     public static void save(StageTemplate template) throws IOException {
         save(rootDirectory(), template);
     }
@@ -109,23 +126,27 @@ public final class StageTemplateStore {
     }
 
     public static List<String> list() throws IOException {
+        return listTemplates().stream().map(StageTemplate::id).toList();
+    }
+
+    public static List<StageTemplate> listTemplates() throws IOException {
         Path root = rootDirectory();
         if (!Files.isDirectory(root)) {
             return List.of();
         }
-        List<String> ids = new ArrayList<>();
+        List<StageTemplate> templates = new ArrayList<>();
         try (var files = Files.list(root)) {
             for (Path path : files.filter(Files::isRegularFile).filter(file -> file.getFileName().toString()
                     .endsWith(".dat")).sorted().toList()) {
                 try {
                     StageTemplate template = readFile(path);
-                    ids.add(template.id());
+                    templates.add(template);
                 } catch (IOException ignored) {
                     // Invalid files are reported when explicitly loaded; listing remains usable.
                 }
             }
         }
-        return ids.stream().sorted().toList();
+        return templates.stream().sorted(java.util.Comparator.comparing(StageTemplate::id)).toList();
     }
 
     public static boolean delete(String id) throws IOException {

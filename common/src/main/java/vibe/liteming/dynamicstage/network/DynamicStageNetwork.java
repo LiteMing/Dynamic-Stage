@@ -6,6 +6,10 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import vibe.liteming.dynamicstage.DynamicStage;
 import vibe.liteming.dynamicstage.stage.StageSession;
+import vibe.liteming.dynamicstage.stage.StageSessionManager;
+import vibe.liteming.dynamicstage.template.StageTemplate;
+import vibe.liteming.dynamicstage.template.StageTemplateStore;
+import vibe.liteming.dynamicstage.template.StageTemplateSummary;
 
 import java.util.UUID;
 
@@ -16,6 +20,9 @@ public final class DynamicStageNetwork {
     public static final net.minecraft.resources.ResourceLocation CLIENT_READY = DynamicStage.id("client_ready");
     public static final net.minecraft.resources.ResourceLocation FLIGHT = DynamicStage.id("flight");
     public static final net.minecraft.resources.ResourceLocation SKY = DynamicStage.id("sky");
+    public static final net.minecraft.resources.ResourceLocation TEMPLATE_REQUEST = DynamicStage.id("template_request");
+    public static final net.minecraft.resources.ResourceLocation TEMPLATE_LIST = DynamicStage.id("template_list");
+    public static final net.minecraft.resources.ResourceLocation TEMPLATE_EDIT = DynamicStage.id("template_edit");
     private static boolean serverRegistered;
 
     private DynamicStageNetwork() {
@@ -31,6 +38,20 @@ public final class DynamicStageNetwork {
                 if (context.getPlayer() instanceof ServerPlayer player) {
                     vibe.liteming.dynamicstage.stage.StageSessionManager.onClientReady(player,
                             packet.instanceId(), packet.ready(), packet.error());
+                }
+            });
+        });
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, TEMPLATE_REQUEST, (buf, context) ->
+                context.queue(() -> {
+                    if (context.getPlayer() instanceof ServerPlayer player && player.hasPermissions(2)) {
+                        sendTemplateList(player);
+                    }
+                }));
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, TEMPLATE_EDIT, (buf, context) -> {
+            StageTemplatePackets.EditPacket packet = StageTemplatePackets.decodeEdit(buf);
+            context.queue(() -> {
+                if (context.getPlayer() instanceof ServerPlayer player && player.hasPermissions(2)) {
+                    handleTemplateEdit(player, packet);
                 }
             });
         });
@@ -59,6 +80,63 @@ public final class DynamicStageNetwork {
         FriendlyByteBuf buf = buffer();
         StageSkyPacket.encode(new StageSkyPacket(mode), buf);
         NetworkManager.sendToPlayer(player, SKY, buf);
+    }
+
+    public static void requestTemplates() {
+        NetworkManager.sendToServer(TEMPLATE_REQUEST, buffer());
+    }
+
+    public static void editTemplate(StageTemplatePackets.EditPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        StageTemplatePackets.encodeEdit(packet, buf);
+        NetworkManager.sendToServer(TEMPLATE_EDIT, buf);
+    }
+
+    public static void sendTemplateList(ServerPlayer player) {
+        try {
+            java.util.List<StageTemplateSummary> summaries = StageTemplateStore.listTemplates().stream()
+                    .limit(StageTemplatePackets.MAX_TEMPLATES).map(StageTemplateSummary::from).toList();
+            FriendlyByteBuf buf = buffer();
+            StageTemplatePackets.encodeList(new StageTemplatePackets.ListPacket(summaries), buf);
+            NetworkManager.sendToPlayer(player, TEMPLATE_LIST, buf);
+        } catch (java.io.IOException | RuntimeException e) {
+            player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                    "Could not list stage templates: " + e.getMessage()));
+        }
+    }
+
+    private static void handleTemplateEdit(ServerPlayer player, StageTemplatePackets.EditPacket packet) {
+        try {
+            StageTemplateSummary summary = packet.template();
+            StageTemplate template;
+            if (packet.action() == StageTemplatePackets.Action.CAPTURE_ACTIVE) {
+                StageSession session = StageSessionManager.get(player).orElseThrow(() ->
+                        new IllegalStateException("No active stage instance to capture"));
+                template = StageTemplateStore.capture(player.getServer(), session, summary);
+            } else {
+                template = summary.applyTo(StageTemplateStore.load(summary.id()));
+            }
+            StageTemplateStore.save(template);
+            if (packet.action() == StageTemplatePackets.Action.CAPTURE_ACTIVE) {
+                StageSession active = StageSessionManager.get(player).orElseThrow();
+                StageSessionManager.setBoundary(player, template.boundary());
+                StageSessionManager.setAnchor(player, template.lodAnchor());
+                StageSessionManager.setClientScene(player, template.clientScene());
+                if (!active.lodPackId().equals(template.lodPackId()) || active.capacity() != template.capacity()) {
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                            "LOD package and capacity changes apply when the next instance is created."));
+                }
+            }
+            player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                    "Saved stage template '" + template.id() + "'."));
+            if (packet.action() == StageTemplatePackets.Action.SAVE_AND_START) {
+                StageSessionManager.createAndEnterTemplate(player, template);
+            }
+            sendTemplateList(player);
+        } catch (java.io.IOException | RuntimeException e) {
+            player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                    "Could not edit stage template: " + e.getMessage()));
+        }
     }
 
     private static void send(ServerPlayer player, Object packet) {

@@ -88,6 +88,7 @@ expanded command to the server:
 
 ```text
 /dstage start <stage>
+/dstage editor
 /dstage start <stage> <lod_pack> <source_x> <source_y> <source_z> [capacity]
 /dstage join <instance_uuid>
 /dstage template save <template> [parallel|shared] [on_create|manual]
@@ -125,6 +126,15 @@ relative link, and then sends the full server command. If no native cache is
 available, the full command is still sent with an empty automatic package ID;
 the player enters the stage with a warning and no LOD backdrop. If more than
 one native backend is active, use the explicit form instead of guessing.
+
+`/dstage editor` opens the client editor. Before entry it can select or create a
+portable template, bind the current native LOD cache, edit instance, boundary,
+backdrop, sky, and client-time settings, then save and start through the normal
+LOD readiness handshake. Inside a stage, `Capture` snapshots the edited arena
+and applies settings that can change on a live instance. LOD package and
+capacity changes take effect on the next instance. The editor sends only
+bounded template summaries; LOD databases, arena snapshots, and flight files
+remain local to their existing client/server stores.
 
 Portable stage templates are stored under `config/dynamicstage/templates`, so
 they are shared by different saves in the same game or server instance. Saving

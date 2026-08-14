@@ -18,6 +18,7 @@ import vibe.liteming.dynamicstage.client.lod.CurrentLodCache;
 import vibe.liteming.dynamicstage.client.lod.LodPackImporter;
 import vibe.liteming.dynamicstage.client.lod.LodPackRegistry;
 import vibe.liteming.dynamicstage.world.StageWorlds;
+import vibe.liteming.dynamicstage.client.editor.StageTemplateEditorScreen;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -53,6 +54,7 @@ public final class StageLodClientCommands {
         root.then(LiteralArgumentBuilder.<S>literal("start")
                 .then(RequiredArgumentBuilder.<S, String>argument("stage", StringArgumentType.string())
                         .executes(StageLodClientCommands::startAutomatic)));
+        root.then(LiteralArgumentBuilder.<S>literal("editor").executes(context -> openEditor()));
         LiteralArgumentBuilder<S> lod = LiteralArgumentBuilder.literal("lod");
         lod.then(LiteralArgumentBuilder.<S>literal("root")
                 .executes(context -> showRoot()));
@@ -141,6 +143,39 @@ public final class StageLodClientCommands {
             });
         });
         return 1;
+    }
+
+    private static int openEditor() {
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.execute(() -> minecraft.setScreen(new StageTemplateEditorScreen()));
+        return 1;
+    }
+
+    public static CompletableFuture<ResourceLocation> prepareCurrentLod() {
+        final CurrentLodCache cache;
+        try {
+            cache = CurrentLodCache.discover();
+        } catch (Exception e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        if (cache == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+        Minecraft minecraft = Minecraft.getInstance();
+        Path gameDirectory = minecraft.gameDirectory.toPath().toAbsolutePath().normalize();
+        ResourceLocation packId = cache.automaticPackId(gameDirectory);
+        if (!ACTIVE_IMPORTS.add(packId)) {
+            return CompletableFuture.failedFuture(new IOException(
+                    "Automatic LOD package preparation is already running: " + packId));
+        }
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                prepareAutomaticPack(LodPackRegistry.rootDirectory(), gameDirectory, packId, cache);
+                return packId;
+            } catch (IOException e) {
+                throw new java.util.concurrent.CompletionException(e);
+            }
+        }, IMPORT_EXECUTOR).whenComplete((ignored, error) -> ACTIVE_IMPORTS.remove(packId));
     }
 
     private static void prepareAutomaticPack(Path packageRoot, Path gameDirectory, ResourceLocation packId,
