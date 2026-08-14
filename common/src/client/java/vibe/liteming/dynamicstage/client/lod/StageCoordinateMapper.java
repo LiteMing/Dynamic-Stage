@@ -18,7 +18,8 @@ public final class StageCoordinateMapper {
             return null;
         }
         return mapCamera(snapshot.lodAnchor(), snapshot.stageOrigin(), minecraft.player.position(),
-                minecraft.gameRenderer.getMainCamera().getPosition(), snapshot.clientScene().followPlayer());
+                minecraft.gameRenderer.getMainCamera().getPosition(), snapshot.clientScene().followPlayer(),
+                snapshot.clientScene().lodMovementScale());
     }
 
     @Nullable
@@ -28,22 +29,28 @@ public final class StageCoordinateMapper {
             return null;
         }
         return snapshot.clientScene().followPlayer()
-                ? map(snapshot, minecraft.player.position()) : anchor(snapshot.lodAnchor());
-    }
-
-    private static Vec3 map(ClientStageSession.Snapshot snapshot, Vec3 stagePosition) {
-        return map(snapshot.lodAnchor(), snapshot.stageOrigin(), stagePosition);
+                ? map(snapshot.lodAnchor(), snapshot.stageOrigin(), minecraft.player.position(),
+                snapshot.clientScene().lodMovementScale()) : anchor(snapshot.lodAnchor());
     }
 
     static Vec3 map(BlockPos lodAnchor, BlockPos stageOriginBlock, Vec3 stagePosition) {
+        return map(lodAnchor, stageOriginBlock, stagePosition, 1.0F);
+    }
+
+    static Vec3 map(BlockPos lodAnchor, BlockPos stageOriginBlock, Vec3 stagePosition, float movementScale) {
         Vec3 sourceOrigin = anchor(lodAnchor);
         Vec3 stageOrigin = blockCenter(stageOriginBlock);
-        return sourceOrigin.add(stagePosition.subtract(stageOrigin));
+        return sourceOrigin.add(stagePosition.subtract(stageOrigin).scale(movementScale));
     }
 
     static Vec3 mapCamera(BlockPos lodAnchor, BlockPos stageOriginBlock, Vec3 playerPosition,
                           Vec3 cameraPosition, boolean followPlayer) {
-        return followPlayer ? map(lodAnchor, stageOriginBlock, cameraPosition)
+        return mapCamera(lodAnchor, stageOriginBlock, playerPosition, cameraPosition, followPlayer, 1.0F);
+    }
+
+    static Vec3 mapCamera(BlockPos lodAnchor, BlockPos stageOriginBlock, Vec3 playerPosition,
+                          Vec3 cameraPosition, boolean followPlayer, float movementScale) {
+        return followPlayer ? map(lodAnchor, stageOriginBlock, cameraPosition, movementScale)
                 : anchor(lodAnchor).add(cameraPosition.subtract(playerPosition));
     }
 

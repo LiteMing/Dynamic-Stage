@@ -68,6 +68,7 @@ public record StageSessionPacket(boolean active, UUID instanceId, String stageId
 
     private static void encodeClientScene(StageClientScene scene, FriendlyByteBuf buf) {
         buf.writeBoolean(scene.followPlayer());
+        buf.writeFloat(scene.lodMovementScale());
         buf.writeBoolean(scene.lodVisible());
         buf.writeFloat(scene.lodBlurRadius());
         buf.writeEnum(scene.lodTransition());
@@ -80,7 +81,7 @@ public record StageSessionPacket(boolean active, UUID instanceId, String stageId
     }
 
     private static StageClientScene decodeClientScene(FriendlyByteBuf buf) {
-        return new StageClientScene(buf.readBoolean(), buf.readBoolean(), buf.readFloat(),
+        return new StageClientScene(buf.readBoolean(), buf.readFloat(), buf.readBoolean(), buf.readFloat(),
                 buf.readEnum(StageClientScene.Transition.class), buf.readVarInt(), buf.readLong(),
                 buf.readEnum(StageClientScene.TimeMode.class), buf.readLong(), buf.readLong(), buf.readVarLong());
     }

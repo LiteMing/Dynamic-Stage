@@ -154,6 +154,12 @@ public final class StageSessionManager {
                 session.clientScene().withFollowPlayer(followPlayer));
     }
 
+    public static boolean setLodMovementScale(ServerPlayer player, float scale) {
+        StageSession session = get(player).orElse(null);
+        return session != null && updateClientScene(player,
+                session.clientScene().withLodMovementScale(scale));
+    }
+
     public static boolean setLodVisible(ServerPlayer player, boolean visible,
                                         StageClientScene.Transition transition, int transitionTicks) {
         StageSession session = get(player).orElse(null);
