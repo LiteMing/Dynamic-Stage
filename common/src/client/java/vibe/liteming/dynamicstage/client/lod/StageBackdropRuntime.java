@@ -24,6 +24,8 @@ public final class StageBackdropRuntime {
                 backend = selected;
             }
             return result;
+        } catch (LodPackRegistry.UnavailableException e) {
+            return Result.unavailable(rootMessage(e));
         } catch (Throwable e) {
             return Result.failure(rootMessage(e));
         }
@@ -86,13 +88,27 @@ public final class StageBackdropRuntime {
 
     private enum Backend { NONE, DH, VOXY }
 
-    public record Result(boolean ready, String error) {
+    public record Result(Status status, String error) {
+        public boolean ready() {
+            return status == Status.READY;
+        }
+
+        public boolean unavailable() {
+            return status == Status.UNAVAILABLE;
+        }
+
         public static Result success() {
-            return new Result(true, "");
+            return new Result(Status.READY, "");
+        }
+
+        public static Result unavailable(String error) {
+            return new Result(Status.UNAVAILABLE, error);
         }
 
         public static Result failure(String error) {
-            return new Result(false, error);
+            return new Result(Status.FAILED, error);
         }
     }
+
+    public enum Status { READY, UNAVAILABLE, FAILED }
 }

@@ -230,6 +230,7 @@ public final class StageSessionManager {
                 player.sendSystemMessage(Component.literal("LOD backdrop unavailable: " + boundedError(error)));
                 return;
             }
+            warnMissingLod(player, error);
             enterPrepared(player, pending.session);
             return;
         }
@@ -242,6 +243,7 @@ public final class StageSessionManager {
                         + boundedError(error)));
                 exit(player);
             } else {
+                warnMissingLod(player, error);
                 sendOrStartFlight(player, restored);
             }
         }
@@ -453,6 +455,13 @@ public final class StageSessionManager {
             return "unknown client error";
         }
         return error.length() <= 256 ? error : error.substring(0, 256);
+    }
+
+    private static void warnMissingLod(ServerPlayer player, String warning) {
+        if (warning != null && !warning.isBlank()) {
+            player.sendSystemMessage(Component.literal(
+                    "LOD backdrop missing; entering the stage without it: " + boundedError(warning)));
+        }
     }
 
     private static void markPlayer(ServerPlayer player, UUID instanceId) {

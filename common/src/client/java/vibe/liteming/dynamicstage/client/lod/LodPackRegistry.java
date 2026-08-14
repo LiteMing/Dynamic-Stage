@@ -76,9 +76,14 @@ public final class LodPackRegistry {
         Path safetyRoot = external == null ? directory : database.getRoot();
         if (dhDirectory == null || safetyRoot == null
                 || (external == null && !dhDirectory.startsWith(directory))
-                || containsSymbolicLink(safetyRoot, database)
-                || !Files.isRegularFile(database, LinkOption.NOFOLLOW_LINKS) || Files.size(database) < 100L) {
-            throw new IOException("missing dh/" + DH_DATABASE);
+                || containsSymbolicLink(safetyRoot, database)) {
+            throw new IOException("DH database path is unsafe");
+        }
+        if (!Files.isRegularFile(database, LinkOption.NOFOLLOW_LINKS)) {
+            throw new UnavailableException("missing DH database: " + database);
+        }
+        if (Files.size(database) < 100L) {
+            throw new IOException("DH database is too small: " + database);
         }
         validateSqliteHeader(database);
         return new DhPack(id, directory, dhDirectory, database);
@@ -102,11 +107,13 @@ public final class LodPackRegistry {
                 || worldDirectory.getFileName() == null
                 || !worldId.equals(worldDirectory.getFileName().toString())
                 || (external == null && !storageDirectory.startsWith(baseDirectory))
-                || containsSymbolicLink(safetyRoot, storageDirectory)
-                || !Files.isDirectory(storageDirectory, LinkOption.NOFOLLOW_LINKS)
+                || containsSymbolicLink(safetyRoot, storageDirectory)) {
+            throw new IOException("Voxy storage path is unsafe");
+        }
+        if (!Files.isDirectory(storageDirectory, LinkOption.NOFOLLOW_LINKS)
                 || !Files.isRegularFile(storageDirectory.resolve("CURRENT"), LinkOption.NOFOLLOW_LINKS)
                 || !hasRocksManifest(storageDirectory)) {
-            throw new IOException("missing voxy/" + worldId + "/storage RocksDB database");
+            throw new UnavailableException("missing Voxy RocksDB storage: " + storageDirectory);
         }
         if (!Files.isWritable(baseDirectory) || !Files.isWritable(storageDirectory)) {
             throw new IOException("Voxy package must be a writable runtime copy");
@@ -132,9 +139,11 @@ public final class LodPackRegistry {
 
     private static JsonObject readManifest(Path directory) throws IOException {
         Path manifestPath = directory.resolve("manifest.json");
-        if (!Files.isRegularFile(manifestPath, LinkOption.NOFOLLOW_LINKS)
-                || Files.size(manifestPath) <= 0L || Files.size(manifestPath) > MAX_MANIFEST_BYTES) {
-            throw new IOException("missing or oversized manifest.json");
+        if (!Files.isRegularFile(manifestPath, LinkOption.NOFOLLOW_LINKS)) {
+            throw new UnavailableException("missing LOD package manifest: " + manifestPath);
+        }
+        if (Files.size(manifestPath) <= 0L || Files.size(manifestPath) > MAX_MANIFEST_BYTES) {
+            throw new IOException("empty or oversized manifest.json");
         }
         try (Reader reader = Files.newBufferedReader(manifestPath, StandardCharsets.UTF_8)) {
             return JsonParser.parseReader(reader).getAsJsonObject();
@@ -211,5 +220,11 @@ public final class LodPackRegistry {
 
     public record VoxyPack(ResourceLocation id, Path directory, Path baseDirectory,
                            Path storageDirectory, String worldId) implements Pack {
+    }
+
+    public static final class UnavailableException extends IOException {
+        public UnavailableException(String message) {
+            super(message);
+        }
     }
 }

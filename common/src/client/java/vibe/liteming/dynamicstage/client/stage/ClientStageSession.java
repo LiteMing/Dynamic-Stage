@@ -46,10 +46,14 @@ public final class ClientStageSession {
         activationAttempts = 0;
         StageBackdropRuntime.Result result = StageBackdropRuntime.mount(snapshot);
         if (!result.ready()) {
-            active = null;
-            StageBoundaryAccess.clearClient();
             readyAfterActivation = null;
             StageBackdropRuntime.unmount();
+            if (result.unavailable()) {
+                DynamicStageNetwork.clientReady(snapshot.instanceId(), true, result.error());
+                return;
+            }
+            active = null;
+            StageBoundaryAccess.clearClient();
             DynamicStageNetwork.clientReady(snapshot.instanceId(), false, result.error());
             return;
         }

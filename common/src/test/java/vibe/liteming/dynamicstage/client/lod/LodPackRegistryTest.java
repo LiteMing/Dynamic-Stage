@@ -43,6 +43,26 @@ class LodPackRegistryTest {
     }
 
     @Test
+    void distinguishesMissingLodContentFromInvalidContent() throws IOException {
+        ResourceLocation missingPack = new ResourceLocation("stages", "missing_pack");
+        assertThrows(LodPackRegistry.UnavailableException.class,
+                () -> LodPackRegistry.load(temporaryDirectory, missingPack));
+
+        ResourceLocation missingDatabase = new ResourceLocation("stages", "missing_database");
+        Path directory = temporaryDirectory.resolve("stages/missing_database");
+        Files.createDirectories(directory);
+        Files.writeString(directory.resolve("manifest.json"), manifest());
+        assertThrows(LodPackRegistry.UnavailableException.class,
+                () -> LodPackRegistry.loadDh(temporaryDirectory, missingDatabase));
+
+        Files.createDirectories(directory.resolve("dh"));
+        Files.write(directory.resolve("dh/DistantHorizons.sqlite"), new byte[100]);
+        IOException invalid = assertThrows(IOException.class,
+                () -> LodPackRegistry.loadDh(temporaryDirectory, missingDatabase));
+        assertFalse(invalid instanceof LodPackRegistry.UnavailableException);
+    }
+
+    @Test
     void rejectsSymbolicLinkPathsWhenSupported() throws IOException {
         ResourceLocation id = new ResourceLocation("stages", "linked");
         Path outside = temporaryDirectory.resolve("linked-target");
