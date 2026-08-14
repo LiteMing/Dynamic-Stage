@@ -30,7 +30,9 @@ public final class StageTemplateEditorScreen extends Screen {
     private final List<EditBox> editBoxes = new ArrayList<>();
     private Draft draft;
     private Tab tab = Tab.STAGE;
-    private String status = "";
+    private Component status = Component.empty();
+    private boolean statusError;
+    private boolean statusPending;
     private long observedRevision = -1L;
     private int selectedTemplate = -1;
 
@@ -52,7 +54,7 @@ public final class StageTemplateEditorScreen extends Screen {
     private EditBox cycleTicks;
 
     public StageTemplateEditorScreen() {
-        super(Component.literal("Dynamic Stage Editor"));
+        super(text("title"));
     }
 
     @Override
@@ -73,17 +75,21 @@ public final class StageTemplateEditorScreen extends Screen {
         int left = (width - panelWidth) / 2;
         int top = 24;
         int navWidth = Math.max(100, panelWidth - 164);
-        templateId = field(left, top, navWidth, draft.id, 128);
-        label("Template", left, top - 10);
-        addButton(left + navWidth + 4, top, 38, "<", button -> selectTemplate(-1));
-        addButton(left + navWidth + 44, top, 38, ">", button -> selectTemplate(1));
-        addButton(left + navWidth + 84, top, 76, "Refresh", button -> DynamicStageNetwork.requestTemplates());
+        Component templateLabel = text("field.template");
+        templateId = field(left, top, navWidth, draft.id, 128, templateLabel);
+        label(templateLabel, left, top - 10);
+        addButton(left + navWidth + 4, top, 38, Component.literal("<"), button -> selectTemplate(-1));
+        addButton(left + navWidth + 44, top, 38, Component.literal(">"), button -> selectTemplate(1));
+        addButton(left + navWidth + 84, top, 76, text("action.refresh"),
+                button -> DynamicStageNetwork.requestTemplates());
 
         int tabsY = top + 25;
         int tabWidth = panelWidth / 3;
-        addButton(left, tabsY, tabWidth - 2, "Stage", button -> switchTab(Tab.STAGE));
-        addButton(left + tabWidth, tabsY, tabWidth - 2, "Backdrop", button -> switchTab(Tab.BACKDROP));
-        addButton(left + tabWidth * 2, tabsY, panelWidth - tabWidth * 2, "Time", button -> switchTab(Tab.TIME));
+        addButton(left, tabsY, tabWidth - 2, text("tab.stage"), button -> switchTab(Tab.STAGE));
+        addButton(left + tabWidth, tabsY, tabWidth - 2, text("tab.backdrop"),
+                button -> switchTab(Tab.BACKDROP));
+        addButton(left + tabWidth * 2, tabsY, panelWidth - tabWidth * 2, text("tab.time"),
+                button -> switchTab(Tab.TIME));
 
         int contentY = tabsY + 29;
         switch (tab) {
@@ -95,97 +101,99 @@ public final class StageTemplateEditorScreen extends Screen {
     }
 
     private void buildStageTab(int left, int top, int panelWidth) {
-        lodPack = labeledField("LOD package", left, top, panelWidth, draft.lodPack, 256);
+        lodPack = labeledField("lod_package", left, top, panelWidth, draft.lodPack, 256);
         int y = top + ROW_HEIGHT;
         int third = (panelWidth - 8) / 3;
-        anchorX = labeledCompact("Anchor X", left, y, third, Integer.toString(draft.anchor.getX()));
-        anchorY = labeledCompact("Y", left + third + 4, y, third, Integer.toString(draft.anchor.getY()));
-        anchorZ = labeledCompact("Z", left + (third + 4) * 2, y,
+        anchorX = labeledCompact("anchor_x", left, y, third, Integer.toString(draft.anchor.getX()));
+        anchorY = labeledCompact("anchor_y", left + third + 4, y, third, Integer.toString(draft.anchor.getY()));
+        anchorZ = labeledCompact("anchor_z", left + (third + 4) * 2, y,
                 panelWidth - (third + 4) * 2, Integer.toString(draft.anchor.getZ()));
         y += ROW_HEIGHT;
-        boundaryWidth = labeledCompact("Width", left, y, third, Integer.toString(draft.boundary.width()));
-        boundaryDepth = labeledCompact("Depth", left + third + 4, y, third,
+        boundaryWidth = labeledCompact("width", left, y, third, Integer.toString(draft.boundary.width()));
+        boundaryDepth = labeledCompact("depth", left + third + 4, y, third,
                 Integer.toString(draft.boundary.depth()));
-        boundaryHeight = labeledCompact("Height", left + (third + 4) * 2, y,
+        boundaryHeight = labeledCompact("height", left + (third + 4) * 2, y,
                 panelWidth - (third + 4) * 2, Integer.toString(draft.boundary.height()));
         y += ROW_HEIGHT;
         int half = (panelWidth - 4) / 2;
-        boundaryColor = labeledCompact("Boundary RGB", left, y, half,
+        boundaryColor = labeledCompact("boundary_rgb", left, y, half,
                 String.format(Locale.ROOT, "%06X", draft.boundary.color()));
-        capacity = labeledCompact("Capacity", left + half + 4, y, panelWidth - half - 4,
+        capacity = labeledCompact("capacity", left + half + 4, y, panelWidth - half - 4,
                 Integer.toString(draft.capacity));
         y += ROW_HEIGHT;
-        addButton(left, y, half, "Instances: " + lower(draft.instanceMode), button -> {
+        addButton(left, y, half, text("setting.instances", value(draft.instanceMode)), button -> {
             draft.instanceMode = draft.instanceMode == StageTemplate.InstanceMode.SHARED
                     ? StageTemplate.InstanceMode.PARALLEL : StageTemplate.InstanceMode.SHARED;
-            button.setMessage(Component.literal("Instances: " + lower(draft.instanceMode)));
+            button.setMessage(text("setting.instances", value(draft.instanceMode)));
         });
-        addButton(left + half + 4, y, panelWidth - half - 4, "Reset: " + lower(draft.resetPolicy), button -> {
+        addButton(left + half + 4, y, panelWidth - half - 4,
+                text("setting.reset", value(draft.resetPolicy)), button -> {
             draft.resetPolicy = draft.resetPolicy == StageTemplate.ResetPolicy.ON_CREATE
                     ? StageTemplate.ResetPolicy.MANUAL : StageTemplate.ResetPolicy.ON_CREATE;
-            button.setMessage(Component.literal("Reset: " + lower(draft.resetPolicy)));
+            button.setMessage(text("setting.reset", value(draft.resetPolicy)));
         });
         y += ROW_HEIGHT;
-        addButton(left, y, panelWidth, "Use current native LOD", button -> prepareCurrentLod());
+        addButton(left, y, panelWidth, text("action.use_current_lod"), button -> prepareCurrentLod());
     }
 
     private void buildBackdropTab(int left, int top, int panelWidth) {
         int half = (panelWidth - 4) / 2;
-        addButton(left, top, half, "Player movement: " + onOff(draft.followPlayer), button -> {
+        addButton(left, top, half, text("setting.player_movement", toggle(draft.followPlayer)), button -> {
             draft.followPlayer = !draft.followPlayer;
-            button.setMessage(Component.literal("Player movement: " + onOff(draft.followPlayer)));
+            button.setMessage(text("setting.player_movement", toggle(draft.followPlayer)));
         });
-        addButton(left + half + 4, top, panelWidth - half - 4, "LOD visible: " + onOff(draft.lodVisible),
+        addButton(left + half + 4, top, panelWidth - half - 4,
+                text("setting.lod_visible", toggle(draft.lodVisible)),
                 button -> {
                     draft.lodVisible = !draft.lodVisible;
-                    button.setMessage(Component.literal("LOD visible: " + onOff(draft.lodVisible)));
+                    button.setMessage(text("setting.lod_visible", toggle(draft.lodVisible)));
                 });
         int y = top + ROW_HEIGHT;
-        movementScale = labeledCompact("Movement scale", left, y, half,
+        movementScale = labeledCompact("movement_scale", left, y, half,
                 Float.toString(draft.movementScale));
-        dhNearFadeScale = labeledCompact("DH near fade", left + half + 4, y, panelWidth - half - 4,
+        dhNearFadeScale = labeledCompact("dh_near_fade", left + half + 4, y, panelWidth - half - 4,
                 Float.toString(draft.dhNearFadeScale));
         y += ROW_HEIGHT;
-        blurRadius = labeledCompact("Persistent blur", left, y, half,
+        blurRadius = labeledCompact("persistent_blur", left, y, half,
                 Float.toString(draft.blurRadius));
         y += ROW_HEIGHT;
-        addButton(left, y, half, "Transition: " + lower(draft.transition), button -> {
+        addButton(left, y, half, text("setting.transition", value(draft.transition)), button -> {
             draft.transition = switch (draft.transition) {
                 case INSTANT -> StageClientScene.Transition.FADE;
                 case FADE -> StageClientScene.Transition.BLUR;
                 case BLUR -> StageClientScene.Transition.INSTANT;
             };
-            button.setMessage(Component.literal("Transition: " + lower(draft.transition)));
+            button.setMessage(text("setting.transition", value(draft.transition)));
             if (transitionTicks != null && draft.transition == StageClientScene.Transition.INSTANT) {
                 transitionTicks.setValue("0");
             }
         });
-        transitionTicks = labeledCompact("Transition ticks", left + half + 4, y,
+        transitionTicks = labeledCompact("transition_ticks", left + half + 4, y,
                 panelWidth - half - 4, Integer.toString(draft.transitionTicks));
         y += ROW_HEIGHT;
-        addButton(left, y, panelWidth, "Sky: " + lower(draft.skyMode), button -> {
+        addButton(left, y, panelWidth, text("setting.sky", value(draft.skyMode)), button -> {
             draft.skyMode = switch (draft.skyMode) {
                 case OVERWORLD -> StageClientScene.SkyMode.END;
                 case END -> StageClientScene.SkyMode.OFF;
                 case OFF -> StageClientScene.SkyMode.OVERWORLD;
             };
-            button.setMessage(Component.literal("Sky: " + lower(draft.skyMode)));
+            button.setMessage(text("setting.sky", value(draft.skyMode)));
         });
     }
 
     private void buildTimeTab(int left, int top, int panelWidth) {
-        addButton(left, top, panelWidth, "Time: " + lower(draft.timeMode), button -> {
+        addButton(left, top, panelWidth, text("setting.time", value(draft.timeMode)), button -> {
             draft.timeMode = switch (draft.timeMode) {
                 case FOLLOW -> StageClientScene.TimeMode.FIXED;
                 case FIXED -> StageClientScene.TimeMode.CYCLE;
                 case CYCLE -> StageClientScene.TimeMode.FOLLOW;
             };
-            button.setMessage(Component.literal("Time: " + lower(draft.timeMode)));
+            button.setMessage(text("setting.time", value(draft.timeMode)));
         });
         int y = top + ROW_HEIGHT;
         int half = (panelWidth - 4) / 2;
-        dayTime = labeledCompact("Base day time", left, y, half, Long.toString(draft.baseDayTime));
-        cycleTicks = labeledCompact("Cycle ticks", left + half + 4, y, panelWidth - half - 4,
+        dayTime = labeledCompact("base_day_time", left, y, half, Long.toString(draft.baseDayTime));
+        cycleTicks = labeledCompact("cycle_ticks", left + half + 4, y, panelWidth - half - 4,
                 Long.toString(draft.cycleTicks));
     }
 
@@ -193,15 +201,15 @@ public final class StageTemplateEditorScreen extends Screen {
         int y = height - 26;
         int gap = 3;
         int buttonWidth = (panelWidth - gap * 3) / 4;
-        addButton(left, y, buttonWidth, "Save", button -> submit(StageTemplatePackets.Action.SAVE));
-        Button capture = addButton(left + buttonWidth + gap, y, buttonWidth, "Capture",
+        addButton(left, y, buttonWidth, text("action.save"), button -> submit(StageTemplatePackets.Action.SAVE));
+        Button capture = addButton(left + buttonWidth + gap, y, buttonWidth, text("action.capture"),
                 button -> submit(StageTemplatePackets.Action.CAPTURE_ACTIVE));
         capture.active = ClientStageSession.active() != null;
-        Button enter = addButton(left + (buttonWidth + gap) * 2, y, buttonWidth, "Save & Enter",
+        Button enter = addButton(left + (buttonWidth + gap) * 2, y, buttonWidth, text("action.save_and_enter"),
                 button -> submit(StageTemplatePackets.Action.SAVE_AND_START));
         enter.active = ClientStageSession.active() == null;
         addButton(left + (buttonWidth + gap) * 3, y,
-                panelWidth - (buttonWidth + gap) * 3, "Close", button -> onClose());
+                panelWidth - (buttonWidth + gap) * 3, text("action.close"), button -> onClose());
     }
 
     private void switchTab(Tab next) {
@@ -214,12 +222,12 @@ public final class StageTemplateEditorScreen extends Screen {
     private void selectTemplate(int direction) {
         List<StageTemplateSummary> templates = StageTemplateEditorState.templates();
         if (templates.isEmpty()) {
-            status = "No templates";
+            setStatus("status.no_templates");
             return;
         }
         selectedTemplate = Math.floorMod(selectedTemplate + direction, templates.size());
         draft = Draft.from(templates.get(selectedTemplate));
-        status = (selectedTemplate + 1) + " / " + templates.size();
+        setStatus("status.template_index", selectedTemplate + 1, templates.size());
         buildWidgets();
     }
 
@@ -227,25 +235,25 @@ public final class StageTemplateEditorScreen extends Screen {
         if (!captureVisible()) {
             return;
         }
-        status = "Preparing current LOD...";
+        setStatus("status.preparing_lod");
         StageLodClientCommands.prepareCurrentLod().whenComplete((pack, error) ->
                 Minecraft.getInstance().execute(() -> {
                     if (minecraft == null || minecraft.screen != this) {
                         return;
                     }
                     if (error != null) {
-                        status = "LOD preparation failed: " + rootMessage(error);
+                        setErrorStatus("status.lod_preparation_failed", rootMessage(error));
                         return;
                     }
                     if (pack == null) {
-                        status = "No native LOD cache is open";
+                        setErrorStatus("status.no_native_lod");
                         return;
                     }
                     draft.lodPack = pack.toString();
                     if (minecraft.player != null) {
                         draft.anchor = minecraft.player.blockPosition();
                     }
-                    status = "Prepared " + pack;
+                    setStatus("status.prepared_lod", pack);
                     buildWidgets();
                 }));
     }
@@ -257,22 +265,22 @@ public final class StageTemplateEditorScreen extends Screen {
         try {
             StageTemplateSummary summary = draft.toSummary(currentGameTime());
             DynamicStageNetwork.editTemplate(new StageTemplatePackets.EditPacket(action, summary));
-            status = action == StageTemplatePackets.Action.CAPTURE_ACTIVE
-                    ? "Capturing stage..." : "Saving template...";
+            setPendingStatus(action == StageTemplatePackets.Action.CAPTURE_ACTIVE
+                    ? "status.capturing_stage" : "status.saving_template");
             if (action == StageTemplatePackets.Action.SAVE_AND_START) {
                 onClose();
             }
         } catch (RuntimeException e) {
-            status = e.getMessage();
+            setErrorStatus("status.operation_failed", rootMessage(e));
         }
     }
 
     private boolean captureVisible() {
         try {
-            draft.id = nonBlank(templateId.getValue(), "Template ID");
+            draft.id = nonBlank(templateId.getValue(), text("field.template").getString());
             switch (tab) {
                 case STAGE -> {
-                    draft.lodPack = nonBlank(lodPack.getValue(), "LOD package");
+                    draft.lodPack = nonBlank(lodPack.getValue(), text("field.lod_package").getString());
                     draft.anchor = new BlockPos(integer(anchorX), integer(anchorY), integer(anchorZ));
                     draft.boundary = new StageBoundary(integer(boundaryWidth), integer(boundaryDepth),
                             integer(boundaryHeight), parseColor(boundaryColor.getValue()));
@@ -291,10 +299,10 @@ public final class StageTemplateEditorScreen extends Screen {
                             ? Long.parseLong(cycleTicks.getValue()) : 0L;
                 }
             }
-            status = "";
+            clearStatus();
             return true;
         } catch (RuntimeException e) {
-            status = "Invalid value: " + e.getMessage();
+            setErrorStatus("status.invalid_value", rootMessage(e));
             return false;
         }
     }
@@ -306,8 +314,8 @@ public final class StageTemplateEditorScreen extends Screen {
         long revision = StageTemplateEditorState.revision();
         if (revision != observedRevision) {
             observedRevision = revision;
-            if (status.isEmpty() || status.startsWith("Saving") || status.startsWith("Capturing")) {
-                status = StageTemplateEditorState.templates().size() + " templates";
+            if (status.getString().isEmpty() || statusPending) {
+                setStatus("status.template_count", StageTemplateEditorState.templates().size());
             }
         }
     }
@@ -319,9 +327,9 @@ public final class StageTemplateEditorScreen extends Screen {
         for (Label label : labels) {
             graphics.drawString(font, label.text, label.x, label.y, 0xA0A0A0, false);
         }
-        if (!status.isEmpty()) {
-            graphics.drawCenteredString(font, Component.literal(status), width / 2, height - 38,
-                    status.startsWith("Invalid") || status.contains("failed") ? 0xFF6666 : 0xB8B8B8);
+        if (!status.getString().isEmpty()) {
+            graphics.drawCenteredString(font, status, width / 2, height - 38,
+                    statusError ? 0xFF6666 : 0xB8B8B8);
         }
         super.render(graphics, mouseX, mouseY, partialTick);
     }
@@ -331,33 +339,35 @@ public final class StageTemplateEditorScreen extends Screen {
         return false;
     }
 
-    private EditBox labeledField(String name, int x, int y, int width, String value, int maxLength) {
+    private EditBox labeledField(String key, int x, int y, int width, String value, int maxLength) {
+        Component name = text("field." + key);
         int labelWidth = 72;
         label(name, x, y + 5);
-        return field(x + labelWidth, y, width - labelWidth, value, maxLength);
+        return field(x + labelWidth, y, width - labelWidth, value, maxLength, name);
     }
 
-    private EditBox labeledCompact(String name, int x, int y, int width, String value) {
+    private EditBox labeledCompact(String key, int x, int y, int width, String value) {
+        Component name = text("field." + key);
         int labelWidth = Math.min(78, Math.max(34, width / 2));
         label(name, x, y + 5);
-        return field(x + labelWidth, y, width - labelWidth, value, 32);
+        return field(x + labelWidth, y, width - labelWidth, value, 32, name);
     }
 
-    private EditBox field(int x, int y, int width, String value, int maxLength) {
-        EditBox box = new EditBox(font, x, y, Math.max(24, width), FIELD_HEIGHT, Component.empty());
+    private EditBox field(int x, int y, int width, String value, int maxLength, Component narration) {
+        EditBox box = new EditBox(font, x, y, Math.max(24, width), FIELD_HEIGHT, narration);
         box.setMaxLength(maxLength);
         box.setValue(value);
         editBoxes.add(box);
         return addRenderableWidget(box);
     }
 
-    private Button addButton(int x, int y, int width, String text, Button.OnPress action) {
-        return addRenderableWidget(Button.builder(Component.literal(text), action)
+    private Button addButton(int x, int y, int width, Component message, Button.OnPress action) {
+        return addRenderableWidget(Button.builder(message, action)
                 .bounds(x, y, Math.max(20, width), 20).build());
     }
 
-    private void label(String value, int x, int y) {
-        labels.add(new Label(Component.literal(value), x, y));
+    private void label(Component value, int x, int y) {
+        labels.add(new Label(value, x, y));
     }
 
     private Draft initialDraft() {
@@ -391,24 +401,50 @@ public final class StageTemplateEditorScreen extends Screen {
     private static int parseColor(String value) {
         String digits = value.startsWith("#") ? value.substring(1) : value;
         if (!digits.matches("[0-9A-Fa-f]{6}")) {
-            throw new IllegalArgumentException("boundary color must be six hex digits");
+            throw new IllegalArgumentException(text("validation.boundary_color").getString());
         }
         return Integer.parseInt(digits, 16);
     }
 
     private static String nonBlank(String value, String name) {
         if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " is empty");
+            throw new IllegalArgumentException(text("validation.empty", name).getString());
         }
         return value;
     }
 
-    private static String onOff(boolean value) {
-        return value ? "on" : "off";
+    private void setStatus(String key, Object... args) {
+        setStatus(text(key, args), false, false);
     }
 
-    private static String lower(Enum<?> value) {
-        return value.name().toLowerCase(Locale.ROOT);
+    private void setPendingStatus(String key, Object... args) {
+        setStatus(text(key, args), false, true);
+    }
+
+    private void setErrorStatus(String key, Object... args) {
+        setStatus(text(key, args), true, false);
+    }
+
+    private void setStatus(Component message, boolean error, boolean pending) {
+        status = message;
+        statusError = error;
+        statusPending = pending;
+    }
+
+    private void clearStatus() {
+        setStatus(Component.empty(), false, false);
+    }
+
+    private static Component text(String key, Object... args) {
+        return Component.translatable("screen.dynamicstage.editor." + key, args);
+    }
+
+    private static Component toggle(boolean enabled) {
+        return text(enabled ? "value.on" : "value.off");
+    }
+
+    private static Component value(Enum<?> value) {
+        return text("value." + value.name().toLowerCase(Locale.ROOT));
     }
 
     private static String rootMessage(Throwable error) {
@@ -471,7 +507,7 @@ public final class StageTemplateEditorScreen extends Screen {
         private StageTemplateSummary toSummary(long gameTime) {
             ResourceLocation pack = ResourceLocation.tryParse(lodPack);
             if (pack == null) {
-                throw new IllegalArgumentException("invalid LOD package ID");
+                throw new IllegalArgumentException(text("validation.invalid_lod_package").getString());
             }
             long normalizedDayTime = Math.floorMod(baseDayTime, 24_000L);
             StageClientScene scene = new StageClientScene(followPlayer, movementScale, dhNearFadeScale, lodVisible, blurRadius,
