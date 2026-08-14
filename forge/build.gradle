@@ -210,7 +210,9 @@ if (forgeVoxyRun) {
 
 processResources {
     inputs.property "version", project.version
+    inputs.property "modName", rootProject.mod_name
     filesMatching("META-INF/mods.toml") { expand "version": project.version }
+    filesMatching("pack.mcmeta") { expand "mod_name": rootProject.mod_name }
 }
 
 jar {
