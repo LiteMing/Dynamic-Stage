@@ -9,6 +9,7 @@
     "DhNearClipMixin",
     "DhPlayerPositionMixin",
     "DhViewMixin",
+    "OculusDhShaderMixin",
     "StageClientTimeMixin",
     "StageLevelRendererMixin",
     "StageSkyMixin",
