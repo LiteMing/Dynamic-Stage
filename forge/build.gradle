@@ -12,7 +12,10 @@ architectury {
 base { archivesName = "${rootProject.artifact_name}-forge" }
 
 def requestedRunTasks = gradle.startParameter.taskNames.collect { it.tokenize(":").last() }
-def forgeDhRun = requestedRunTasks.any { it == "runClient" || it == "runDhClient" }
+// The ordinary Forge client is the shader-compatibility profile. Keep the
+// DH-only profile available for isolating renderer behaviour without Oculus.
+def forgeOculusRun = requestedRunTasks.any { it == "runClient" || it == "runOculusClient" }
+def forgeDhRun = requestedRunTasks.any { it == "runClient" || it == "runDhClient" } || forgeOculusRun
 def forgeVoxyRun = requestedRunTasks.any {
     it == "runVoxyClient" || it == "prepareNamedConnector"
 }
@@ -20,8 +23,57 @@ def localVoxyJar = rootProject.file(
         "../voxy-thirdparty-java17/build/libs/voxy-${rootProject.voxy_modrinth_version}.jar")
 def connectorVersion = rootProject.connector_modrinth_version
 def connectorNestedPath = "META-INF/jarjar/Connector-${connectorVersion}-mod.jar"
+def oculusJar = layout.buildDirectory.file(
+        "development-libs/oculus-${rootProject.oculus_modrinth_version}.jar")
 def connectorRunJar = layout.buildDirectory.file(
         "connector-runtime/Connector-${connectorVersion}-named.jar")
+
+def oculusSha1 = { File file ->
+    def digest = java.security.MessageDigest.getInstance("SHA-1")
+    file.withInputStream { input ->
+        byte[] buffer = new byte[8192]
+        int read
+        while ((read = input.read(buffer)) != -1) {
+            digest.update(buffer, 0, read)
+        }
+    }
+    digest.digest().collect { String.format("%02x", it & 0xff) }.join()
+}
+def downloadOculus = { File target ->
+    target.parentFile.mkdirs()
+    target.delete()
+    URI downloadUri = new URI(rootProject.oculus_modrinth_download_url)
+    String proxyValue = System.getenv("HTTPS_PROXY") ?: System.getenv("https_proxy") ?: System.getenv("HTTP_PROXY") ?: System.getenv("http_proxy")
+    URLConnection connection
+    if (proxyValue) {
+        URI proxyUri = new URI(proxyValue)
+        if (proxyUri.host && proxyUri.port > 0) {
+            connection = downloadUri.toURL().openConnection(new Proxy(
+                    Proxy.Type.HTTP, new InetSocketAddress(proxyUri.host, proxyUri.port)))
+        } else {
+            connection = downloadUri.toURL().openConnection()
+        }
+    } else {
+        connection = downloadUri.toURL().openConnection()
+    }
+    connection.connectTimeout = 30_000
+    connection.readTimeout = 60_000
+    connection.getInputStream().withCloseable { input ->
+        target.withOutputStream { output -> input.transferTo(output) }
+    }
+    String actual = oculusSha1(target)
+    if (actual != rootProject.oculus_modrinth_sha1.toLowerCase(Locale.ROOT)) {
+        target.delete()
+        throw new GradleException("Oculus download failed SHA-1 verification: ${actual}")
+    }
+}
+if (forgeOculusRun) {
+    File target = oculusJar.get().asFile
+    if (!target.isFile() || oculusSha1(target) != rootProject.oculus_modrinth_sha1.toLowerCase(Locale.ROOT)) {
+        logger.lifecycle("Preparing Oculus ${rootProject.oculus_modrinth_version} for the Forge development client")
+        downloadOculus(target)
+    }
+}
 if (forgeDhRun && forgeVoxyRun) {
     throw new GradleException("DH and Voxy development clients must be launched separately")
 }
@@ -40,6 +92,12 @@ loom {
         voxyClient {
             inherit(getByName("client"))
             name("Forge Voxy Client")
+            ideConfigGenerated(false)
+            client()
+        }
+        oculusClient {
+            inherit(getByName("client"))
+            name("Forge DH + Oculus Client")
             ideConfigGenerated(false)
             client()
         }
@@ -86,6 +144,13 @@ dependencies {
     if (forgeDhRun) {
         modRuntimeOnly "maven.modrinth:distanthorizons:FWGxbEM3"
     }
+    if (forgeOculusRun) {
+        modRuntimeOnly "maven.modrinth:embeddium:UTbfe5d1"
+        // Oculus publishes a filename that does not match its Maven module.
+        // Inject the verified official CDN artifact into the dev runtime.
+        modRuntimeOnly files(oculusJar)
+        runtimeOnly "io.github.llamalad7:mixinextras-forge:0.4.1"
+    }
     if (forgeVoxyRun) {
         // Connector is an early ModLauncher service. Voxy must remain in its
         // original intermediary mappings so Connector can transform it.
@@ -111,6 +176,45 @@ dependencies {
     if (forgeDhRun || forgeVoxyRun) {
         modRuntimeOnly "maven.modrinth:cmdcam:as7nPEt0"
         modRuntimeOnly "maven.modrinth:creativecore:m9VEcxwz"
+    }
+}
+
+if (forgeOculusRun) {
+    def resolveOculus = tasks.register("resolveOculusRuntime") {
+        group = "dynamic stage"
+        description = "Downloads and verifies the Oculus development runtime."
+        inputs.property "version", rootProject.oculus_modrinth_version
+        inputs.property "sha1", rootProject.oculus_modrinth_sha1
+        outputs.file oculusJar
+
+        doLast {
+            File target = oculusJar.get().asFile
+            String expected = rootProject.oculus_modrinth_sha1.toLowerCase(Locale.ROOT)
+            def sha1 = { File file ->
+                def digest = java.security.MessageDigest.getInstance("SHA-1")
+                file.withInputStream { input ->
+                    byte[] buffer = new byte[8192]
+                    int read
+                    while ((read = input.read(buffer)) != -1) {
+                        digest.update(buffer, 0, read)
+                    }
+                }
+                digest.digest().collect { String.format("%02x", it & 0xff) }.join()
+            }
+
+            if (target.isFile() && sha1(target) == expected) {
+                return
+            }
+
+            downloadOculus(target)
+        }
+    }
+
+    tasks.matching { it.name == "runClient" || it.name == "runOculusClient" }.configureEach {
+        dependsOn resolveOculus
+    }
+    tasks.matching { it.name == "generateRemapClasspath" }.configureEach {
+        dependsOn resolveOculus
     }
 }
 

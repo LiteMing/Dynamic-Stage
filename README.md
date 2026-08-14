@@ -178,16 +178,25 @@ Build and run tests:
 
 The output is `build/libs/dynamicstage-0.1.0-all.jar`; it does not embed DH, CMDCam, SQLite, RocksDB, or compression libraries.
 
-Run the DH compatibility client (the default Forge client is also DH-only):
+Run the default Forge client with DH and Oculus shader compatibility:
+
+```powershell
+.\gradlew.bat :forge:runClient
+```
+
+Run the isolated DH-only client when shader compatibility itself needs to be
+diagnosed:
 
 ```powershell
 .\gradlew.bat :forge:runDhClient
 ```
 
 Forge development clients never load DH and Voxy together. `runDhClient` loads
-Distant Horizons 3.2, while `runVoxyClient` loads the pinned Connector/Voxy
-pair. Both profiles load CMDCam and CreativeCore; only Voxy additionally loads
-Embeddium.
+Distant Horizons 3.2, while `runClient`/`runOculusClient` add Embeddium and
+Oculus 1.20.1-1.8.0 (the release with DH 2.2+ compatibility). `runVoxyClient`
+loads the pinned Connector/Voxy pair. All profiles load CMDCam and CreativeCore.
+Gradle downloads and verifies the Oculus CDN artifact into
+`forge/build/development-libs`; no dependency is copied into `forge/run/mods`.
 
 DH acceptance flow using the development layout:
 
