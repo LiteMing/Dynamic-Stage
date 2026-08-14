@@ -8,12 +8,20 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
+import vibe.liteming.dynamicstage.client.lod.CurrentLodCache;
 import vibe.liteming.dynamicstage.client.lod.LodPackImporter;
 import vibe.liteming.dynamicstage.client.lod.LodPackRegistry;
+import vibe.liteming.dynamicstage.world.StageWorlds;
 
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Locale;
@@ -42,6 +50,9 @@ public final class StageLodClientCommands {
 
     private static <S> LiteralArgumentBuilder<S> buildRoot(String name) {
         LiteralArgumentBuilder<S> root = LiteralArgumentBuilder.literal(name);
+        root.then(LiteralArgumentBuilder.<S>literal("start")
+                .then(RequiredArgumentBuilder.<S, String>argument("stage", StringArgumentType.string())
+                        .executes(StageLodClientCommands::startAutomatic)));
         LiteralArgumentBuilder<S> lod = LiteralArgumentBuilder.literal("lod");
         lod.then(LiteralArgumentBuilder.<S>literal("root")
                 .executes(context -> showRoot()));
@@ -63,6 +74,100 @@ public final class StageLodClientCommands {
                 .<S, String>argument("pack", StringArgumentType.word())
                 .then(source);
         return LiteralArgumentBuilder.<S>literal(name).then(pack);
+    }
+
+    private static <S> int startAutomatic(CommandContext<S> context) {
+        Minecraft minecraft = Minecraft.getInstance();
+        ClientPacketListener connection = minecraft.getConnection();
+        if (minecraft.player == null || minecraft.level == null || connection == null) {
+            message(Component.literal("Cannot start a stage without an active client level."));
+            return 0;
+        }
+        if (StageWorlds.isStageLevel(minecraft.level)) {
+            message(Component.literal("Exit the active stage before starting another one."));
+            return 0;
+        }
+        String stage = StringArgumentType.getString(context, "stage");
+        BlockPos anchor = minecraft.player.blockPosition();
+        ResourceKey<Level> dimension = minecraft.level.dimension();
+
+        CurrentLodCache cache;
+        try {
+            cache = CurrentLodCache.discover();
+        } catch (Exception e) {
+            message(Component.literal("Could not inspect the current native LOD cache: " + rootMessage(e)));
+            return 0;
+        }
+        if (cache == null) {
+            ResourceLocation missing = CurrentLodCache.missingPackId(stage, dimension.location());
+            message(Component.literal("No native LOD cache is open for the current level; entering without one."));
+            sendStart(connection, stage, missing, anchor);
+            return 1;
+        }
+
+        Path gameDirectory = minecraft.gameDirectory.toPath().toAbsolutePath().normalize();
+        ResourceLocation packId = cache.automaticPackId(gameDirectory);
+        if (!ACTIVE_IMPORTS.add(packId)) {
+            message(Component.literal("Automatic LOD package preparation is already running: " + packId));
+            return 0;
+        }
+        Path packageRoot = LodPackRegistry.rootDirectory();
+        message(Component.literal("Preparing the current " + cache.backend().displayName()
+                + " LOD cache for stage '" + stage + "'."));
+        CompletableFuture.runAsync(() -> {
+            try {
+                prepareAutomaticPack(packageRoot, gameDirectory, packId, cache);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }, IMPORT_EXECUTOR).whenComplete((ignored, error) -> {
+            ACTIVE_IMPORTS.remove(packId);
+            minecraft.execute(() -> {
+                if (minecraft.getConnection() != connection || minecraft.level == null
+                        || !minecraft.level.dimension().equals(dimension)) {
+                    message(Component.literal("Automatic stage start cancelled because the client level changed."));
+                    return;
+                }
+                if (error != null) {
+                    if (missingContent(error)) {
+                        message(Component.literal("The current LOD cache disappeared; entering without it."));
+                        sendStart(connection, stage, packId, anchor);
+                        return;
+                    }
+                    message(Component.literal("Could not prepare the current LOD cache: " + rootMessage(error)));
+                    return;
+                }
+                sendStart(connection, stage, packId, anchor);
+            });
+        });
+        return 1;
+    }
+
+    private static void prepareAutomaticPack(Path packageRoot, Path gameDirectory, ResourceLocation packId,
+                                             CurrentLodCache cache) throws IOException {
+        try {
+            LodPackRegistry.Pack existing = LodPackRegistry.load(packageRoot, packId);
+            if (cache.matches(existing)) {
+                return;
+            }
+            throw new IOException("automatic package ID collision: " + packId);
+        } catch (LodPackRegistry.UnavailableException unavailable) {
+            Path destination = packageRoot.resolve(packId.getNamespace()).resolve(packId.getPath()).normalize();
+            if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("automatic package is incomplete; remove it before retrying: " + destination,
+                        unavailable);
+            }
+        }
+        LodPackImporter.Mode mode = cache.source().startsWith(gameDirectory)
+                ? LodPackImporter.Mode.LINK_RELATIVE : LodPackImporter.Mode.LINK;
+        LodPackImporter.importPack(packageRoot, packId, cache.source(), mode);
+    }
+
+    private static void sendStart(ClientPacketListener connection, String stage,
+                                  ResourceLocation packId, BlockPos anchor) {
+        String command = "dstage start " + StringArgumentType.escapeIfRequired(stage) + ' ' + packId
+                + ' ' + anchor.getX() + ' ' + anchor.getY() + ' ' + anchor.getZ();
+        connection.sendCommand(command);
     }
 
     private static int showRoot() {
@@ -194,6 +299,18 @@ public final class StageLodClientCommands {
         }
         String message = current.getMessage();
         return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
+    }
+
+    private static boolean missingContent(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof LodPackRegistry.UnavailableException
+                    || current instanceof java.nio.file.NoSuchFileException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private static void message(Component component) {

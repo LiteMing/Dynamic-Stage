@@ -31,7 +31,7 @@ public final class LodPackRegistry {
         return load(rootDirectory(), id);
     }
 
-    static Pack load(Path rootDirectory, ResourceLocation id) throws IOException {
+    public static Pack load(Path rootDirectory, ResourceLocation id) throws IOException {
         Path root = rootDirectory.toAbsolutePath().normalize();
         Path directory = root.resolve(id.getNamespace()).resolve(id.getPath()).toAbsolutePath().normalize();
         if (!directory.startsWith(root) || containsSymbolicLink(root, directory)) {

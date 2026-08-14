@@ -103,6 +103,27 @@ public final class DhBackdropRuntime {
         return current != null && current.instanceId.equals(instanceId);
     }
 
+    @Nullable
+    public static CurrentSource currentSource() {
+        try {
+            if (!classPresent(DH_API)) {
+                return null;
+            }
+            Object[] pair = currentWorldAndWrapper();
+            if (pair == null) {
+                return null;
+            }
+            Object level = invokeCompatible(pair[0], "getLevel", pair[1]);
+            if (level == null) {
+                return null;
+            }
+            String identifier = String.valueOf(pair[1].getClass().getMethod("getDhIdentifier").invoke(pair[1]));
+            return new CurrentSource(databasePath(level), identifier);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Could not inspect DH's current LOD database", e);
+        }
+    }
+
     public static boolean needsStageActivation(UUID instanceId) {
         return isMounted(instanceId) && !stageLevelBound;
     }
@@ -392,15 +413,7 @@ public final class DhBackdropRuntime {
         if (current == null) {
             throw new IllegalStateException("The DH LOD package was unmounted while its level was loading");
         }
-        Object provider = findMethod(level.getClass(), "getFullDataProvider", 0).invoke(level);
-        Field repoField = findField(provider.getClass(), "repo");
-        Object repo = repoField.get(provider);
-        Field databaseField = findField(repo.getClass(), "databaseFile");
-        Object value = databaseField.get(repo);
-        if (!(value instanceof File database)) {
-            throw new IllegalStateException("DH returned an unsupported database path");
-        }
-        Path actual = database.toPath().toAbsolutePath().normalize();
+        Path actual = databasePath(level);
         Path expected = current.pack.database().toAbsolutePath().normalize();
         try {
             if (!Files.isSameFile(actual, expected)) {
@@ -410,6 +423,18 @@ public final class DhBackdropRuntime {
             throw new IllegalStateException("Could not verify DH's opened database: " + actual, e);
         }
         LOGGER.info("DH opened stage LOD database {}", actual);
+    }
+
+    private static Path databasePath(Object level) throws ReflectiveOperationException {
+        Object provider = findMethod(level.getClass(), "getFullDataProvider", 0).invoke(level);
+        Field repoField = findField(provider.getClass(), "repo");
+        Object repo = repoField.get(provider);
+        Field databaseField = findField(repo.getClass(), "databaseFile");
+        Object value = databaseField.get(repo);
+        if (!(value instanceof File database)) {
+            throw new IllegalStateException("DH returned an unsupported database path");
+        }
+        return database.toPath().toAbsolutePath().normalize();
     }
 
     @Nullable
@@ -474,6 +499,9 @@ public final class DhBackdropRuntime {
     }
 
     private record Mounted(UUID instanceId, LodPackRegistry.DhPack pack) {
+    }
+
+    public record CurrentSource(Path database, String worldIdentifier) {
     }
 
     public record Result(boolean ready, String error) {

@@ -41,7 +41,7 @@ public final class LodPackImporter {
         Path root = packageRoot.toAbsolutePath().normalize();
         Path normalizedSource = source.toAbsolutePath().normalize();
         if (!Files.exists(normalizedSource, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("LOD source does not exist: " + normalizedSource);
+            throw new LodPackRegistry.UnavailableException("LOD source does not exist: " + normalizedSource);
         }
 
         List<Candidate> candidates = discover(normalizedSource);
@@ -112,7 +112,9 @@ public final class LodPackImporter {
         if (Files.isRegularFile(normalized, LinkOption.NOFOLLOW_LINKS)) {
             addFileCandidate(normalized, candidates);
         } else if (Files.isDirectory(normalized, LinkOption.NOFOLLOW_LINKS)) {
-            addVoxyCandidate(normalized, candidates);
+            if (addVoxyCandidate(normalized, candidates)) {
+                return List.copyOf(candidates.values());
+            }
             Files.walkFileTree(normalized, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes)

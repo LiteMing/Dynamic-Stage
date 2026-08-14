@@ -11,6 +11,10 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** Soft-dependency integration that lets Voxy own its RocksDB and render lifecycle. */
@@ -68,6 +72,40 @@ public final class VoxyBackdropRuntime {
     public static boolean isMounted(UUID instanceId) {
         Mounted current = mounted;
         return current != null && current.instanceId.equals(instanceId);
+    }
+
+    public static List<CurrentSource> currentSources() {
+        try {
+            Class<?> common = Class.forName(VOXY_COMMON);
+            Object instance = common.getMethod("getInstance").invoke(null);
+            if (instance == null) {
+                return List.of();
+            }
+            Field activeWorldsField = findField(instance.getClass(), "activeWorlds");
+            Object activeWorlds = activeWorldsField.get(instance);
+            if (!(activeWorlds instanceof Map<?, ?> worlds) || worlds.isEmpty()) {
+                return List.of();
+            }
+            Map<Path, CurrentSource> sources = new LinkedHashMap<>();
+            for (var entry : worlds.entrySet()) {
+                Object identifier = entry.getKey();
+                Object world = entry.getValue();
+                if (identifier == null || world == null) {
+                    continue;
+                }
+                String worldId = String.valueOf(identifier.getClass().getMethod("getWorldId").invoke(identifier));
+                Field storageField = findField(world.getClass(), "storage");
+                Field backendField = findField(storageField.get(world).getClass(), "backend");
+                Object backend = backendField.get(storageField.get(world));
+                Path storage = findRocksDbPath(backend);
+                sources.putIfAbsent(storage, new CurrentSource(storage, worldId));
+            }
+            return new ArrayList<>(sources.values());
+        } catch (ClassNotFoundException e) {
+            return List.of();
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Could not inspect Voxy's current LOD storage", e);
+        }
     }
 
     public static boolean needsStageActivation(UUID instanceId) {
@@ -279,5 +317,8 @@ public final class VoxyBackdropRuntime {
     }
 
     private record Mounted(UUID instanceId, LodPackRegistry.VoxyPack pack) {
+    }
+
+    public record CurrentSource(Path storage, String worldId) {
     }
 }

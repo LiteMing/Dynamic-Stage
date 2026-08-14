@@ -82,9 +82,12 @@ DH 3.2 still requires the database file and its directory to be writable when op
 
 ## Commands
 
-Commands currently require permission level 2:
+Server-side commands currently require permission level 2. The short
+`/dstage start <stage>` form is registered on the client and forwards the
+expanded command to the server:
 
 ```text
+/dstage start <stage>
 /dstage start <stage> <lod_pack> <source_x> <source_y> <source_z> [capacity]
 /dstage join <instance_uuid>
 /dstage anchor <source_x> <source_y> <source_z>
@@ -109,6 +112,14 @@ Commands currently require permission level 2:
 /dstage lod import copy <pack_id> <source_path>
 /dstage lod root
 ```
+
+`/dstage start <stage>` is a client-side convenience shortcut. It captures the
+executor's current block position, identifies the single native DH or Voxy LOD
+storage currently opened for that level, creates or reuses a client-local
+relative link, and then sends the full server command. If no native cache is
+available, the full command is still sent with an empty automatic package ID;
+the player enters the stage with a warning and no LOD backdrop. If more than
+one native backend is active, use the explicit form instead of guessing.
 
 `/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky and cloud rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Vanilla clouds additionally use the same virtual source position as the LOD backdrop, including the anchor, player-follow mode, and flight XYZ; the infinite-distance sky dome ignores translation.
 
