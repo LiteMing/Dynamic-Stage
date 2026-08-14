@@ -150,6 +150,7 @@ dependencies {
         // Inject the verified official CDN artifact into the dev runtime.
         modRuntimeOnly files(oculusJar)
         runtimeOnly "io.github.llamalad7:mixinextras-forge:0.4.1"
+        forgeRuntimeLibrary "org.anarres:jcpp:1.4.14"
     }
     if (forgeVoxyRun) {
         // Connector is an early ModLauncher service. Voxy must remain in its
