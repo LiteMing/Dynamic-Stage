@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -85,6 +86,92 @@ class LodPackRegistryTest {
         Files.writeString(directory.resolve("manifest.json"), voxyManifest(worldId));
         Files.createDirectories(directory.resolve("voxy").resolve(worldId).resolve("storage"));
         assertThrows(IOException.class, () -> LodPackRegistry.load(temporaryDirectory, id));
+    }
+
+    @Test
+    void linksAnExternalDhDatabaseWithoutCopyingIt() throws IOException {
+        ResourceLocation id = new ResourceLocation("stages", "linked_dh");
+        Path source = createExternalDhSource("linked-world");
+        Path packageRoot = temporaryDirectory.resolve("packages");
+
+        LodPackImporter.ImportResult result = LodPackImporter.importPack(
+                packageRoot, id, source, LodPackImporter.Mode.LINK);
+
+        assertEquals(0, result.fileCount());
+        Path packageDirectory = packageRoot.resolve("stages/linked_dh");
+        assertFalse(Files.exists(packageDirectory.resolve("dh")));
+        assertTrue(Files.readString(packageDirectory.resolve("manifest.json")).contains("sourcePath"));
+        LodPackRegistry.DhPack loaded = LodPackRegistry.loadDh(packageRoot, id);
+        assertEquals(source, loaded.database());
+    }
+
+    @Test
+    void copiesAnExternalDhDatabaseWhenRequested() throws IOException {
+        ResourceLocation id = new ResourceLocation("stages", "copied_dh");
+        Path source = createExternalDhSource("copied-world");
+        Files.write(source.resolveSibling("DistantHorizons.sqlite-wal"), new byte[]{1, 2, 3});
+        Path packageRoot = temporaryDirectory.resolve("packages");
+
+        LodPackImporter.ImportResult result = LodPackImporter.importPack(
+                packageRoot, id, source, LodPackImporter.Mode.COPY);
+
+        assertEquals(2, result.fileCount());
+        assertTrue(Files.exists(packageRoot.resolve("stages/copied_dh/dh/DistantHorizons.sqlite")));
+        assertTrue(Files.exists(packageRoot.resolve("stages/copied_dh/dh/DistantHorizons.sqlite-wal")));
+        assertFalse(Files.readString(packageRoot.resolve("stages/copied_dh/manifest.json")).contains("sourcePath"));
+        assertEquals(packageRoot.resolve("stages/copied_dh/dh/DistantHorizons.sqlite").toAbsolutePath().normalize(),
+                LodPackRegistry.loadDh(packageRoot, id).database());
+    }
+
+    @Test
+    void linksAnExternalVoxyStorageDirectory() throws IOException {
+        ResourceLocation id = new ResourceLocation("stages", "linked_voxy");
+        String worldId = "0123456789abcdef0123456789abcdef";
+        Path storage = createExternalVoxySource(worldId);
+        Path packageRoot = temporaryDirectory.resolve("packages");
+
+        LodPackImporter.importPack(packageRoot, id, storage, LodPackImporter.Mode.LINK);
+
+        LodPackRegistry.VoxyPack loaded = (LodPackRegistry.VoxyPack) LodPackRegistry.load(packageRoot, id);
+        assertEquals(storage, loaded.storageDirectory());
+        assertTrue(Files.readString(packageRoot.resolve("stages/linked_voxy/manifest.json"))
+                .contains("sourcePath"));
+    }
+
+    @Test
+    void rejectsAmbiguousSourceDirectory() throws IOException {
+        Path source = temporaryDirectory.resolve("other-instance/saves");
+        Files.createDirectories(source);
+        createDhDatabase(source.resolve("one/DistantHorizons.sqlite"));
+        createDhDatabase(source.resolve("two/DistantHorizons.sqlite"));
+        assertEquals(2, LodPackImporter.discover(source).size());
+        assertThrows(IOException.class, () -> LodPackImporter.importPack(
+                temporaryDirectory.resolve("packages"), new ResourceLocation("stages", "ambiguous"), source,
+                LodPackImporter.Mode.LINK));
+    }
+
+    private Path createExternalDhSource(String world) throws IOException {
+        Path database = temporaryDirectory.resolve("other-game/saves").resolve(world)
+                .resolve("data/DistantHorizons.sqlite");
+        createDhDatabase(database);
+        return database;
+    }
+
+    private Path createExternalVoxySource(String worldId) throws IOException {
+        Path storage = temporaryDirectory.resolve("other-game/saves/voxy-world/voxy")
+                .resolve(worldId).resolve("storage");
+        Files.createDirectories(storage);
+        Files.writeString(storage.resolve("CURRENT"), "MANIFEST-000001\n");
+        Files.write(storage.resolve("MANIFEST-000001"), new byte[]{1});
+        return storage;
+    }
+
+    private static void createDhDatabase(Path database) throws IOException {
+        Files.createDirectories(database.getParent());
+        byte[] bytes = new byte[100];
+        byte[] header = "SQLite format 3\0".getBytes(StandardCharsets.US_ASCII);
+        System.arraycopy(header, 0, bytes, 0, header.length);
+        Files.write(database, bytes);
     }
 
     private Path createPack(ResourceLocation id) throws IOException {

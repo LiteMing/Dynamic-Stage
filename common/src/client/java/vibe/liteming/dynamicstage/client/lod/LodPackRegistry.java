@@ -68,9 +68,15 @@ public final class LodPackRegistry {
 
     private static DhPack loadDh(ResourceLocation id, Path directory, JsonObject manifest) throws IOException {
         requireString(manifest, "distantHorizonsVersion", DH_VERSION);
-        Path dhDirectory = directory.resolve("dh").normalize();
-        Path database = dhDirectory.resolve(DH_DATABASE).normalize();
-        if (!dhDirectory.startsWith(directory) || containsSymbolicLink(directory, database)
+        Path external = externalSource(manifest, directory);
+        Path database = external == null
+                ? directory.resolve("dh").resolve(DH_DATABASE).normalize()
+                : external;
+        Path dhDirectory = database.getParent();
+        Path safetyRoot = external == null ? directory : database.getRoot();
+        if (dhDirectory == null || safetyRoot == null
+                || (external == null && !dhDirectory.startsWith(directory))
+                || containsSymbolicLink(safetyRoot, database)
                 || !Files.isRegularFile(database, LinkOption.NOFOLLOW_LINKS) || Files.size(database) < 100L) {
             throw new IOException("missing dh/" + DH_DATABASE);
         }
@@ -84,9 +90,19 @@ public final class LodPackRegistry {
         if (!VOXY_WORLD_ID.matcher(worldId).matches()) {
             throw new IOException("worldId must be 32 lowercase hexadecimal characters");
         }
-        Path baseDirectory = directory.resolve("voxy").normalize();
-        Path storageDirectory = baseDirectory.resolve(worldId).resolve("storage").normalize();
-        if (!storageDirectory.startsWith(baseDirectory) || containsSymbolicLink(directory, storageDirectory)
+        Path external = externalSource(manifest, directory);
+        Path storageDirectory = external == null
+                ? directory.resolve("voxy").resolve(worldId).resolve("storage").normalize()
+                : external;
+        Path worldDirectory = storageDirectory.getParent();
+        Path baseDirectory = worldDirectory == null ? null : worldDirectory.getParent();
+        Path safetyRoot = external == null ? directory : storageDirectory.getRoot();
+        if (baseDirectory == null || safetyRoot == null
+                || !"storage".equals(storageDirectory.getFileName().toString())
+                || worldDirectory.getFileName() == null
+                || !worldId.equals(worldDirectory.getFileName().toString())
+                || (external == null && !storageDirectory.startsWith(baseDirectory))
+                || containsSymbolicLink(safetyRoot, storageDirectory)
                 || !Files.isDirectory(storageDirectory, LinkOption.NOFOLLOW_LINKS)
                 || !Files.isRegularFile(storageDirectory.resolve("CURRENT"), LinkOption.NOFOLLOW_LINKS)
                 || !hasRocksManifest(storageDirectory)) {
@@ -96,6 +112,22 @@ public final class LodPackRegistry {
             throw new IOException("Voxy package must be a writable runtime copy");
         }
         return new VoxyPack(id, directory, baseDirectory, storageDirectory, worldId);
+    }
+
+    private static Path externalSource(JsonObject manifest, Path directory) throws IOException {
+        if (!manifest.has("sourcePath")) {
+            return null;
+        }
+        String raw = requireString(manifest, "sourcePath");
+        try {
+            Path source = Path.of(raw);
+            if (!source.isAbsolute()) {
+                source = directory.resolve(source);
+            }
+            return source.toAbsolutePath().normalize();
+        } catch (RuntimeException e) {
+            throw new IOException("invalid sourcePath", e);
+        }
     }
 
     private static JsonObject readManifest(Path directory) throws IOException {

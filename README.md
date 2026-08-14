@@ -42,6 +42,34 @@ Example `.minecraft/dynamicstage/lodpacks/stages/forest/manifest.json`:
 
 The package is selected as `stages:forest`. Dynamic Stage validates the manifest, rejects symbolic-link paths, checks the SQLite header, mounts the directory through DH's save-structure override, and forces DH read-only while the stage is active. The database is never sent over the Dynamic Stage network channel.
 
+Packages can also be created from another save or another game instance with the
+client-only command:
+
+```text
+/dstage lod import link <pack_id> <source_path>
+/dstage lod import copy <pack_id> <source_path>
+/dstage lod root
+```
+
+`source_path` can point at a `DistantHorizons.sqlite` file, a DH dimension
+directory, a Voxy `storage` directory, a Voxy world directory, a save
+directory, or an instance directory. The importer scans for exactly one native
+cache, detects DH versus Voxy, and writes the manifest and package layout
+automatically. If multiple dimensions or worlds are found, point the command
+at the specific cache instead of allowing an ambiguous selection.
+An existing package ID is never overwritten; use a new ID or remove the old
+client-local package deliberately before importing it again.
+
+`link` writes only a small manifest containing the local absolute source path;
+the native cache is mounted in place and consumes no second copy. `copy`
+creates an isolated writable cache copy and is the recommended mode when the
+source was produced by another Minecraft, DH, or Voxy version. Both commands
+require the source game instance to be closed. A link still needs a writable
+source because DH/Voxy may create locks or perform schema migration; DS only
+disables stage-time generation and network retrieval, it cannot turn the
+backend's file format into a true read-only connection. Source paths remain
+client-local and are never sent to the server.
+
 DH 3.2 still requires the database file and its directory to be writable when opening it, and may apply its own schema migrations. "Read-only" here means DS asks DH to stop LOD updates, generation, and network retrieval while the stage is active; it is not a SQLite read-only connection. Distribute a writable package produced by the same supported DH version and keep an immutable source copy outside the live instance when exact byte preservation matters.
 
 ## Commands
@@ -68,6 +96,9 @@ Commands currently require permission level 2:
 /dstage flight status <stage>
 /dstage flight clear <stage>
 /dstage sky overworld|end|off
+/dstage lod import link <pack_id> <source_path>
+/dstage lod import copy <pack_id> <source_path>
+/dstage lod root
 ```
 
 `/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky and cloud rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Vanilla clouds additionally use the same virtual source position as the LOD backdrop, including the anchor, player-follow mode, and flight XYZ; the infinite-distance sky dome ignores translation.
