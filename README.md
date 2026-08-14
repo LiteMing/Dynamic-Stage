@@ -173,10 +173,12 @@ Music remains the responsibility of `mob-battle-music`. KubeJS can combine its m
 Build and run tests:
 
 ```powershell
-.\gradlew.bat clean test jarJar
+.\gradlew.bat clean build
 ```
 
-The output is `build/libs/dynamicstage-0.1.0-all.jar`; it does not embed DH, CMDCam, SQLite, RocksDB, or compression libraries.
+The release outputs are `fabric/build/libs/dstage-fabric-1.1.0.jar` and
+`forge/build/libs/dstage-forge-1.1.0.jar`. They do not embed DH, CMDCam,
+SQLite, RocksDB, or compression libraries.
 
 Run the default Forge client with DH and Oculus shader compatibility:
 
