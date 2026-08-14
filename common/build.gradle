@@ -1,3 +1,6 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
 plugins {
     id "dev.architectury.loom"
     id "architectury-plugin"
@@ -9,12 +12,59 @@ architectury {
 
 base { archivesName = "${rootProject.artifact_name}-common" }
 
+def mainRefmapName = "${base.archivesName.get()}-common-refmap.json"
+def clientRefmapName = "client-${mainRefmapName}"
+def mainRefmap = layout.buildDirectory.file("classes/java/main/${mainRefmapName}")
+def clientRefmap = layout.buildDirectory.file("classes/java/client/${clientRefmapName}")
+def mergedRefmapDirectory = layout.buildDirectory.dir("generated/mixin-refmap")
+def mergedRefmap = mergedRefmapDirectory.map { it.file(mainRefmapName) }
+
 loom {
     splitEnvironmentSourceSets()
     mods {
         dynamicstage {
             sourceSet sourceSets.main
             sourceSet sourceSets.client
+        }
+    }
+}
+
+def mergeMixinRefmaps = tasks.register("mergeMixinRefmaps") {
+    dependsOn tasks.named("compileJava"), tasks.named("compileClientJava")
+    inputs.files(mainRefmap, clientRefmap)
+    outputs.file(mergedRefmap)
+
+    doLast {
+        def mergeMaps
+        mergeMaps = { Map target, Map source ->
+            source.each { key, value ->
+                if (target[key] instanceof Map && value instanceof Map) {
+                    mergeMaps(target[key] as Map, value as Map)
+                } else if (target.containsKey(key) && target[key] != value) {
+                    throw new GradleException("Conflicting Mixin refmap entry ${key}")
+                } else {
+                    target[key] = value
+                }
+            }
+        }
+
+        Map merged = new JsonSlurper().parse(mainRefmap.get().asFile) as Map
+        Map client = new JsonSlurper().parse(clientRefmap.get().asFile) as Map
+        mergeMaps(merged, client)
+
+        File output = mergedRefmap.get().asFile
+        output.parentFile.mkdirs()
+        output.text = JsonOutput.prettyPrint(JsonOutput.toJson(merged)) + System.lineSeparator()
+    }
+}
+
+tasks.named("jar") {
+    dependsOn mergeMixinRefmaps
+    from(mergedRefmap)
+    eachFile { details ->
+        if ((details.path == mainRefmapName || details.path == clientRefmapName)
+                && !details.file.toPath().startsWith(mergedRefmapDirectory.get().asFile.toPath())) {
+            details.exclude()
         }
     }
 }

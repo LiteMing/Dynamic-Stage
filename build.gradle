@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
     id "architectury-plugin" version "3.4-SNAPSHOT" apply false
     id "dev.architectury.loom" version "1.7.435" apply false
@@ -33,5 +35,71 @@ allprojects {
     tasks.withType(JavaCompile).configureEach {
         options.encoding = "UTF-8"
         options.release = 17
+    }
+}
+
+configure(subprojects.findAll { it.name == "fabric" || it.name == "forge" }) { platformProject ->
+    afterEvaluate {
+        def remapJarTask = tasks.named("remapJar")
+        def releaseJar = remapJarTask.flatMap { it.archiveFile }
+        def verifyMixinRefmaps = tasks.register("verifyMixinRefmaps") {
+            dependsOn remapJarTask
+            inputs.file(releaseJar)
+
+            doLast {
+                new java.util.jar.JarFile(releaseJar.get().asFile).withCloseable { jar ->
+                    def readEntry = { String name ->
+                        def entry = jar.getJarEntry(name)
+                        if (entry == null) {
+                            throw new GradleException("Release jar is missing ${name}")
+                        }
+                        jar.getInputStream(entry).withCloseable { it.getText("UTF-8") }
+                    }
+
+                    def configs = ["dynamicstage.mixins.json", "dynamicstage.client.mixins.json"]
+                    def parsedConfigs = configs.collectEntries { name ->
+                        [(name): new JsonSlurper().parseText(readEntry(name))]
+                    }
+                    def refmapNames = parsedConfigs.values()*.refmap as Set
+                    if (refmapNames.size() != 1 || refmapNames.first() == null) {
+                        throw new GradleException("Mixin configs must share one merged refmap: ${refmapNames}")
+                    }
+
+                    Map refmap = new JsonSlurper().parseText(readEntry(refmapNames.first())) as Map
+                    Map mappings = refmap.mappings as Map
+                    if (!mappings.keySet().any { it.endsWith("/EntityMixin") }
+                            || !mappings.keySet().any { it.endsWith("/StageSkyMixin") }) {
+                        throw new GradleException("Merged refmap lacks main or client Mixin mappings")
+                    }
+                    Map skyMappings = mappings.find { it.key.endsWith("/StageSkyMixin") }.value as Map
+                    String renderSky = skyMappings.renderSky
+
+                    if (platformProject.name == "forge") {
+                        if (!(refmap.data as Map).containsKey("searge")
+                                || renderSky == null || !renderSky.contains(";m_")) {
+                            throw new GradleException("Forge release jar does not contain SRG client Mixin mappings")
+                        }
+                        def registered = jar.manifest.mainAttributes.getValue("MixinConfigs")
+                                ?.split(",") as Set
+                        if (registered != configs as Set) {
+                            throw new GradleException("Forge manifest does not register both Mixin configs")
+                        }
+                    } else {
+                        if (!(refmap.data as Map).containsKey("named:intermediary")
+                                || renderSky == null || !renderSky.contains(";method_")) {
+                            throw new GradleException("Fabric release jar does not contain intermediary client Mixin mappings")
+                        }
+                        def metadata = new JsonSlurper().parseText(readEntry("fabric.mod.json"))
+                        if (metadata.mixins as Set != configs as Set) {
+                            throw new GradleException("Fabric metadata does not register both Mixin configs")
+                        }
+                    }
+                }
+            }
+        }
+
+        tasks.named("check") {
+            dependsOn verifyMixinRefmaps
+        }
     }
 }

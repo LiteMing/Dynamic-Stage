@@ -6,22 +6,6 @@
   "mixins": [
     "EntityMixin"
   ],
-  "client": [
-    "DhCameraMixin",
-    "DhCompositeMixin",
-    "DhNearClipMixin",
-    "DhPlayerPositionMixin",
-    "DhViewMixin",
-    "StageClientTimeMixin",
-    "StageLevelRendererMixin",
-    "StageSkyMixin",
-    "StageSkyEffectsMixin",
-    "VoxyCameraMixin",
-    "VoxyCompositeMixin",
-    "VoxyNearClipMixin",
-    "VoxyStorageMixin",
-    "VoxyWorldIdentifierMixin"
-  ],
   "injectors": {
     "defaultRequire": 0
   }

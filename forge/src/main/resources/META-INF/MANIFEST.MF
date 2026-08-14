@@ -1,3 +1,2 @@
 Manifest-Version: 1.0
-MixinConfigs: dynamicstage.mixins.json
-
+MixinConfigs: dynamicstage.mixins.json,dynamicstage.client.mixins.json

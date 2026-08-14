@@ -217,7 +217,7 @@ processResources {
 
 jar {
     manifest {
-        attributes "MixinConfigs": "dynamicstage.mixins.json"
+        attributes "MixinConfigs": "dynamicstage.mixins.json,dynamicstage.client.mixins.json"
     }
 }
 
@@ -226,7 +226,7 @@ shadowJar {
     configurations = [project.configurations.shadowCommon]
     archiveClassifier = "dev-shadow"
     manifest {
-        attributes "MixinConfigs": "dynamicstage.mixins.json"
+        attributes "MixinConfigs": "dynamicstage.mixins.json,dynamicstage.client.mixins.json"
     }
 }
 
