@@ -69,7 +69,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         return new StageClientScene(clientScene.followPlayer(), clientScene.lodMovementScale(),
                 clientScene.lodVisible(), clientScene.lodBlurRadius(), clientScene.lodTransition(),
                 clientScene.lodTransitionTicks(), gameTime, clientScene.timeMode(), baseDayTime, gameTime,
-                clientScene.timeCycleTicks());
+                clientScene.timeCycleTicks(), clientScene.skyMode());
     }
 
     public boolean matches(StageSession session) {
@@ -89,7 +89,8 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 && expected.timeMode() == actual.timeMode()
                 && (expected.timeMode() == StageClientScene.TimeMode.FOLLOW
                 || expected.timeBaseDayTime() == actual.timeBaseDayTime())
-                && expected.timeCycleTicks() == actual.timeCycleTicks();
+                && expected.timeCycleTicks() == actual.timeCycleTicks()
+                && expected.skyMode() == actual.skyMode();
     }
 
     public CompoundTag save() {

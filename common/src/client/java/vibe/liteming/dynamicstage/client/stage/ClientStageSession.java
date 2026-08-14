@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 import vibe.liteming.dynamicstage.client.flight.StageFlightController;
+import vibe.liteming.dynamicstage.client.StageSkySettings;
 import vibe.liteming.dynamicstage.client.lod.StageBackdropRuntime;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageSessionPacket;
@@ -36,6 +37,7 @@ public final class ClientStageSession {
                 packet.flightBytes(), packet.flightDurationMillis(), packet.clientScene());
         Snapshot previous = active;
         active = snapshot;
+        StageSkySettings.setMode(StageSkySettings.Mode.valueOf(packet.clientScene().skyMode().name()));
         StageBoundaryAccess.setClient(packet.instanceId(), packet.stageOrigin(), packet.boundary());
         if (previous != null && previous.instanceId().equals(snapshot.instanceId())
                 && previous.lodPackId().equals(snapshot.lodPackId())
@@ -67,6 +69,7 @@ public final class ClientStageSession {
 
     public static void clearLocal() {
         active = null;
+        StageSkySettings.setMode(StageSkySettings.Mode.OVERWORLD);
         StageBoundaryAccess.clearClient();
         readyAfterActivation = null;
         activationAttempts = 0;

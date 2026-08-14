@@ -78,12 +78,14 @@ public record StageSessionPacket(boolean active, UUID instanceId, String stageId
         buf.writeLong(scene.timeBaseDayTime());
         buf.writeLong(scene.timeBaseGameTime());
         buf.writeVarLong(scene.timeCycleTicks());
+        buf.writeEnum(scene.skyMode());
     }
 
     private static StageClientScene decodeClientScene(FriendlyByteBuf buf) {
         return new StageClientScene(buf.readBoolean(), buf.readFloat(), buf.readBoolean(), buf.readFloat(),
                 buf.readEnum(StageClientScene.Transition.class), buf.readVarInt(), buf.readLong(),
-                buf.readEnum(StageClientScene.TimeMode.class), buf.readLong(), buf.readLong(), buf.readVarLong());
+                buf.readEnum(StageClientScene.TimeMode.class), buf.readLong(), buf.readLong(), buf.readVarLong(),
+                buf.readEnum(StageClientScene.SkyMode.class));
     }
 
 }

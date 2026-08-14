@@ -20,7 +20,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.storage.LevelResource;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
-import vibe.liteming.dynamicstage.network.StageSkyPacket;
 import vibe.liteming.dynamicstage.stage.StageSession;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageClientScene;
@@ -160,9 +159,9 @@ public final class DynamicStageCommands {
         root.then(Commands.literal("exit").executes(ctx -> exit(ctx.getSource())));
         root.then(Commands.literal("sky")
                 .then(Commands.literal("overworld").executes(ctx -> sky(ctx.getSource(),
-                        StageSkyPacket.Mode.OVERWORLD)))
-                .then(Commands.literal("end").executes(ctx -> sky(ctx.getSource(), StageSkyPacket.Mode.END)))
-                .then(Commands.literal("off").executes(ctx -> sky(ctx.getSource(), StageSkyPacket.Mode.OFF))));
+                        StageClientScene.SkyMode.OVERWORLD)))
+                .then(Commands.literal("end").executes(ctx -> sky(ctx.getSource(), StageClientScene.SkyMode.END)))
+                .then(Commands.literal("off").executes(ctx -> sky(ctx.getSource(), StageClientScene.SkyMode.OFF))));
         LiteralArgumentBuilder<CommandSourceStack> boundary = Commands.literal("boundary");
         boundary.then(Commands.literal("status").executes(ctx -> boundaryStatus(ctx.getSource())));
         boundary.then(Commands.literal("size")
@@ -513,11 +512,14 @@ public final class DynamicStageCommands {
         return 1;
     }
 
-    private static int sky(CommandSourceStack source, StageSkyPacket.Mode mode) {
+    private static int sky(CommandSourceStack source, StageClientScene.SkyMode mode) {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
             return 0;
         }
-        DynamicStageNetwork.sendSky(player, mode);
+        if (!StageSessionManager.setSkyMode(player, mode)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
         source.sendSuccess(() -> Component.literal("Dynamic Stage sky: "
                 + mode.name().toLowerCase(java.util.Locale.ROOT)), false);
         return 1;

@@ -11,7 +11,7 @@ class StageClientSceneTest {
     void persistsAllClientSceneSettings() {
         StageClientScene scene = new StageClientScene(false, 0.5F, false, 6.5F,
                 StageClientScene.Transition.BLUR, 40, 250L,
-                StageClientScene.TimeMode.CYCLE, 18_000L, 200L, 1_200L);
+                StageClientScene.TimeMode.CYCLE, 18_000L, 200L, 1_200L, StageClientScene.SkyMode.END);
 
         assertEquals(scene, StageClientScene.load(scene.save()));
     }
