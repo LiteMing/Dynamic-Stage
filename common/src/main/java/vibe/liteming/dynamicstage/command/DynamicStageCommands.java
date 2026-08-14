@@ -130,6 +130,12 @@ public final class DynamicStageCommands {
                                         StageClientScene.MAX_LOD_MOVEMENT_SCALE))
                                 .executes(ctx -> movementScale(ctx.getSource(),
                                         (float) DoubleArgumentType.getDouble(ctx, "scale")))))
+                .then(Commands.literal("dh-fade")
+                        .then(Commands.argument("scale", DoubleArgumentType.doubleArg(
+                                        StageClientScene.MIN_DH_NEAR_FADE_SCALE,
+                                        StageClientScene.MAX_DH_NEAR_FADE_SCALE))
+                                .executes(ctx -> dhNearFadeScale(ctx.getSource(),
+                                        (float) DoubleArgumentType.getDouble(ctx, "scale")))))
                 .then(backdropVisibility("show", true))
                 .then(backdropVisibility("hide", false))
                 .then(Commands.literal("blur")
@@ -389,6 +395,16 @@ public final class DynamicStageCommands {
         return 1;
     }
 
+    private static int dhNearFadeScale(CommandSourceStack source, float scale) {
+        if (!(source.getEntity() instanceof ServerPlayer player)
+                || !StageSessionManager.setDhNearFadeScale(player, scale)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("DH near fade scale: " + scale + '.'), true);
+        return 1;
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> backdropVisibility(String name, boolean visible) {
         return Commands.literal(name)
                 .executes(ctx -> backdropVisibility(ctx.getSource(), visible,
@@ -443,6 +459,7 @@ public final class DynamicStageCommands {
         StageClientScene scene = session.clientScene();
         source.sendSuccess(() -> Component.literal("Stage backdrop: follow_player=" + scene.followPlayer()
                 + ", movement_scale=" + scene.lodMovementScale()
+                + ", dh_fade_scale=" + scene.dhNearFadeScale()
                 + ", visible=" + scene.lodVisible() + ", blur=" + scene.lodBlurRadius()
                 + ", transition=" + scene.lodTransition().name().toLowerCase(java.util.Locale.ROOT) + '.'), false);
         return 1;

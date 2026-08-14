@@ -21,6 +21,6 @@ public abstract class DhNearClipMixin {
             require = 1,
             remap = false)
     private float dynamicstage$renderLodUpToStageCamera(float original) {
-        return DhVirtualCamera.position() == null ? original : 0.01F;
+        return DhVirtualCamera.scaleNearFade(original);
     }
 }

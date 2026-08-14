@@ -47,6 +47,15 @@ public final class DhVirtualCamera {
         return camera == null ? null : StageLodCamera.lookVector(camera.flight());
     }
 
+    /** Applies the active stage's configurable DH near-fade multiplier. */
+    public static float scaleNearFade(float original) {
+        ClientStageSession.Snapshot snapshot = activeSnapshot();
+        if (snapshot == null || !Float.isFinite(original)) {
+            return original;
+        }
+        return original * snapshot.clientScene().dhNearFadeScale();
+    }
+
     @Nullable
     private static ClientStageSession.Snapshot activeSnapshot() {
         Minecraft minecraft = Minecraft.getInstance();

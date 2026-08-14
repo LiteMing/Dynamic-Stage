@@ -60,7 +60,7 @@ public abstract class OculusDhShaderMixin {
             require = 1,
             remap = false)
     private float dynamicstage$renderLodUpToStageCamera(float original) {
-        return DhVirtualCamera.position() == null ? original : 0.01F;
+        return DhVirtualCamera.scaleNearFade(original);
     }
 
     @Inject(method = FILL_UNIFORM_DATA, at = @At("TAIL"), require = 1, remap = false)
@@ -80,7 +80,7 @@ public abstract class OculusDhShaderMixin {
         }
         float original = GL20C.glGetUniformf(id, location);
         if (Float.isFinite(original) && original > 0.0F) {
-            GL20C.glUniform1f(location, Math.max(0.01F, original * 0.1F));
+            GL20C.glUniform1f(location, DhVirtualCamera.scaleNearFade(original));
         }
     }
 }

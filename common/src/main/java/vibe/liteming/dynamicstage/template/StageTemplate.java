@@ -67,7 +67,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         long baseDayTime = clientScene.timeMode() == StageClientScene.TimeMode.FOLLOW
                 ? overworldDayTime : clientScene.timeBaseDayTime();
         return new StageClientScene(clientScene.followPlayer(), clientScene.lodMovementScale(),
-                clientScene.lodVisible(), clientScene.lodBlurRadius(), clientScene.lodTransition(),
+                clientScene.dhNearFadeScale(), clientScene.lodVisible(), clientScene.lodBlurRadius(), clientScene.lodTransition(),
                 clientScene.lodTransitionTicks(), gameTime, clientScene.timeMode(), baseDayTime, gameTime,
                 clientScene.timeCycleTicks(), clientScene.skyMode());
     }
@@ -82,6 +82,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
     private static boolean equivalentScene(StageClientScene expected, StageClientScene actual) {
         return expected.followPlayer() == actual.followPlayer()
                 && Float.compare(expected.lodMovementScale(), actual.lodMovementScale()) == 0
+                && Float.compare(expected.dhNearFadeScale(), actual.dhNearFadeScale()) == 0
                 && expected.lodVisible() == actual.lodVisible()
                 && Float.compare(expected.lodBlurRadius(), actual.lodBlurRadius()) == 0
                 && expected.lodTransition() == actual.lodTransition()

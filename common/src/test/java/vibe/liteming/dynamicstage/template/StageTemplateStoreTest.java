@@ -21,8 +21,9 @@ class StageTemplateStoreTest {
     void roundTripsPortableTemplateWithoutAbsolutePaths() throws Exception {
         StageTemplate template = new StageTemplate("boss_1", new ResourceLocation("pack", "city"),
                 new BlockPos(-2089, 128, 7627), new StageBoundary(80, 60, 24, 0x12ABEF),
-                new StageClientScene(true, 0.35F, true, 2.0F, StageClientScene.Transition.FADE,
-                        20, 200L, StageClientScene.TimeMode.CYCLE, 18_000L, 100L, 1_200L),
+                new StageClientScene(true, 0.35F, 0.05F, true, 2.0F, StageClientScene.Transition.FADE,
+                        20, 200L, StageClientScene.TimeMode.CYCLE, 18_000L, 100L, 1_200L,
+                        StageClientScene.SkyMode.OVERWORLD),
                 4, StageTemplate.InstanceMode.SHARED, StageTemplate.ResetPolicy.ON_CREATE,
                 new byte[0], arenaSnapshot());
 
@@ -34,9 +35,9 @@ class StageTemplateStoreTest {
 
     @Test
     void rebasesClientEpochsForEachNewWorldInstance() {
-        StageClientScene scene = new StageClientScene(true, 0.5F, true, 0.0F,
+        StageClientScene scene = new StageClientScene(true, 0.5F, 0.125F, true, 0.0F,
                 StageClientScene.Transition.INSTANT, 0, 50L,
-                StageClientScene.TimeMode.FOLLOW, 6000L, 50L, 0L);
+                StageClientScene.TimeMode.FOLLOW, 6000L, 50L, 0L, StageClientScene.SkyMode.OVERWORLD);
         StageTemplate template = new StageTemplate("stage", new ResourceLocation("pack", "lod"), BlockPos.ZERO,
                 StageBoundary.defaults(), scene, 1, StageTemplate.InstanceMode.PARALLEL,
                 StageTemplate.ResetPolicy.MANUAL, new byte[0], new CompoundTag());
@@ -46,6 +47,7 @@ class StageTemplateStoreTest {
         assertEquals(12_000L, rebased.timeBaseDayTime());
         assertEquals(900L, rebased.timeBaseGameTime());
         assertEquals(900L, rebased.lodTransitionStartGameTime());
+        assertEquals(0.125F, rebased.dhNearFadeScale());
     }
 
     @Test

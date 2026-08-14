@@ -242,6 +242,12 @@ public final class StageSessionManager {
                 session.clientScene().withLodMovementScale(scale));
     }
 
+    public static boolean setDhNearFadeScale(ServerPlayer player, float scale) {
+        StageSession session = get(player).orElse(null);
+        return session != null && updateClientScene(player,
+                session.clientScene().withDhNearFadeScale(scale));
+    }
+
     public static boolean setLodVisible(ServerPlayer player, boolean visible,
                                         StageClientScene.Transition transition, int transitionTicks) {
         StageSession session = get(player).orElse(null);
