@@ -135,7 +135,7 @@ public final class VoxyBackdropRuntime {
                     current == null ? "<unmounted>" : current.pack.id(), instanceId);
             return StageBackdropRuntime.Result.success();
         } catch (Throwable e) {
-            LOGGER.debug("Voxy stage backdrop is not ready yet: {}", e.toString());
+            LOGGER.debug("Voxy stage backdrop is not ready yet: {}", rootMessage(e), e);
             return StageBackdropRuntime.Result.failure(rootMessage(e));
         }
     }
