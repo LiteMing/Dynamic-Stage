@@ -101,7 +101,8 @@ expanded command to the server:
 /dstage backdrop follow on|off
 /dstage backdrop movement <scale>
 /dstage backdrop dh-fade <scale>
-/dstage backdrop voxy-clip <scale>
+/dstage backdrop voxy-culling <true|false>
+/dstage backdrop switch <lod_pack> [fade|blur] [ticks]
 /dstage backdrop show|hide
 /dstage backdrop show|hide fade <ticks>
 /dstage backdrop show|hide blur <ticks>
@@ -119,6 +120,8 @@ expanded command to the server:
 /dstage flight library list
 /dstage flight status <stage>
 /dstage flight clear <stage>
+/dstage flight play <flight|configured> [fade|blur] [ticks]
+/dstage flight stop [fade|blur] [ticks]
 /dstage sky overworld|end|off
 /dstage lod import link <pack_id> <source_path>
 /dstage lod import link-relative <pack_id> <source_path>
@@ -135,8 +138,9 @@ the player enters the stage with a warning and no LOD backdrop. If more than
 one native backend is active, use the explicit form instead of guessing.
 
 `/dstage editor` opens the client editor. Before entry it can select or create a
-portable template, bind the current native LOD cache, bind or clear a configured
-CMDCam flight, edit instance, boundary, backdrop, sky, and client-time settings, then save and start through the normal
+portable template, bind the current native LOD cache, select a global Flight by
+its `.minecraft/dynamicstage/<name>.dat` name, bind or clear that Flight, edit instance,
+boundary, backdrop, sky, and client-time settings, then save and start through the normal
 LOD readiness handshake. Inside a stage, `Capture` snapshots the edited arena
 and applies settings that can change on a live instance. LOD package and
 capacity changes take effect on the next instance. The editor sends only
@@ -167,7 +171,9 @@ Stage flights do not replace Minecraft's main camera or a shader pack's shadow c
 
 Backdrop and time settings belong to the instance and are broadcast to all members. Player movement following is enabled by default. Turning it off pins the native LOD camera to the source anchor while preserving first/third-person camera offsets and CMDCam flight motion. Stage time is evaluated only by the client: `follow` advances from a synchronized Overworld epoch, `fixed` holds a vanilla day-time value in the `0..23999` range, and `cycle` maps one visual Minecraft day onto the configured number of client ticks. These modes do not change server-side stage time or send per-tick network updates.
 
-LOD visibility changes can be instant, fade, or blur transitions. Persistent blur is independent from transitions and uses a `0..32` pixel radius; `0` disables it. DH near fade and Voxy near clip scales are independently configurable in the editor and stage commands. Dynamic Stage filters only the native backend's intermediate LOD color texture before DH or Voxy performs its original depth-aware composite, so the sky, stage blocks, entities, and UI are not blurred.
+LOD visibility and live LOD package or Flight replacements can be instant, fade, or blur transitions. Persistent blur is independent from transitions and uses a `0..32` pixel radius; `0` disables it. DH near fade remains configurable. Voxy's stage projection always uses its depth-safe `0.1` near plane; `voxy-culling=false` preserves the LOD section containing the camera instead of changing projection depth. This Voxy override requires the matching HDRS Voxy build and leaves normal-world Voxy culling unchanged. Dynamic Stage filters only the native backend's intermediate LOD color texture before DH or Voxy performs its original depth-aware composite, so the sky, stage blocks, entities, and UI are not blurred.
+
+Version 1.2.0 intentionally exposes command-level runtime scheduling rather than an internal cue timeline. Repeated `/dstage backdrop switch`, `/dstage flight play`, and `/dstage flight stop` commands can combine any number of named LOD packages and global Flights during one instance. Each command applies to every member of that instance. KubeJS or another server script can issue them from music markers, player NBT, or timed events; Flight motion uses a shared server game-time epoch so all clients sample the same animation position.
 
 ## CMDCam and music
 
@@ -185,8 +191,8 @@ Build and run tests:
 .\gradlew.bat clean build
 ```
 
-The release outputs are `fabric/build/libs/dstage-fabric-1.1.2.jar` and
-`forge/build/libs/dstage-forge-1.1.2.jar`. They do not embed DH, CMDCam,
+The release outputs are `fabric/build/libs/dstage-fabric-1.2.0.jar` and
+`forge/build/libs/dstage-forge-1.2.0.jar`. They do not embed DH, Voxy, CMDCam,
 SQLite, RocksDB, or compression libraries.
 
 Run the default Forge client with DH and Oculus shader compatibility:
