@@ -20,7 +20,7 @@ class StageTemplatePacketsTest {
         StageTemplateSummary summary = new StageTemplateSummary("boss_1",
                 new ResourceLocation("stages", "city"), new BlockPos(-20, 100, 30),
                 new StageBoundary(80, 60, 24, 0x12ABEF),
-                new StageClientScene(true, 0.4F, 0.2F, false, 3.0F, StageClientScene.Transition.BLUR,
+                new StageClientScene(true, 0.4F, 0.2F, 0.04F, false, 3.0F, StageClientScene.Transition.BLUR,
                         40, 500L, StageClientScene.TimeMode.CYCLE, 18_000L, 500L, 1_200L,
                         StageClientScene.SkyMode.END), 4, StageTemplate.InstanceMode.SHARED,
                 StageTemplate.ResetPolicy.ON_CREATE);

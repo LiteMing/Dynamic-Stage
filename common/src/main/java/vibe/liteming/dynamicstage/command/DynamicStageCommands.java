@@ -137,6 +137,12 @@ public final class DynamicStageCommands {
                                         StageClientScene.MAX_DH_NEAR_FADE_SCALE))
                                 .executes(ctx -> dhNearFadeScale(ctx.getSource(),
                                         (float) DoubleArgumentType.getDouble(ctx, "scale")))))
+                .then(Commands.literal("voxy-clip")
+                        .then(Commands.argument("scale", DoubleArgumentType.doubleArg(
+                                        StageClientScene.MIN_VOXY_NEAR_CLIP_SCALE,
+                                        StageClientScene.MAX_VOXY_NEAR_CLIP_SCALE))
+                                .executes(ctx -> voxyNearClipScale(ctx.getSource(),
+                                        (float) DoubleArgumentType.getDouble(ctx, "scale")))))
                 .then(backdropVisibility("show", true))
                 .then(backdropVisibility("hide", false))
                 .then(Commands.literal("blur")
@@ -433,6 +439,16 @@ public final class DynamicStageCommands {
         return 1;
     }
 
+    private static int voxyNearClipScale(CommandSourceStack source, float scale) {
+        if (!(source.getEntity() instanceof ServerPlayer player)
+                || !StageSessionManager.setVoxyNearClipScale(player, scale)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Voxy near clip scale: " + scale + '.'), true);
+        return 1;
+    }
+
     private static LiteralArgumentBuilder<CommandSourceStack> backdropVisibility(String name, boolean visible) {
         return Commands.literal(name)
                 .executes(ctx -> backdropVisibility(ctx.getSource(), visible,
@@ -488,6 +504,7 @@ public final class DynamicStageCommands {
         source.sendSuccess(() -> Component.literal("Stage backdrop: follow_player=" + scene.followPlayer()
                 + ", movement_scale=" + scene.lodMovementScale()
                 + ", dh_fade_scale=" + scene.dhNearFadeScale()
+                + ", voxy_clip_scale=" + scene.voxyNearClipScale()
                 + ", visible=" + scene.lodVisible() + ", blur=" + scene.lodBlurRadius()
                 + ", transition=" + scene.lodTransition().name().toLowerCase(java.util.Locale.ROOT) + '.'), false);
         return 1;

@@ -156,6 +156,18 @@ public final class VoxyBackdropRuntime {
         return mounted != null && externalInstanceActive;
     }
 
+    public static float scaleNearClip(float original) {
+        if (!Float.isFinite(original) || !shouldOverrideCurrentStage()) {
+            return original;
+        }
+        ClientStageSession.Snapshot snapshot = ClientStageSession.active();
+        if (snapshot == null || !StageWorlds.isStageLevel(Minecraft.getInstance().level)
+                || !isMounted(snapshot.instanceId())) {
+            return original;
+        }
+        return original * snapshot.clientScene().voxyNearClipScale();
+    }
+
     public static void leaveStageLevel() {
         if (mounted == null || !normalInstanceSuspended) {
             return;

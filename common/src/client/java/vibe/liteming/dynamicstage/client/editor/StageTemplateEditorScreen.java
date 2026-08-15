@@ -48,6 +48,7 @@ public final class StageTemplateEditorScreen extends Screen {
     private EditBox capacity;
     private EditBox movementScale;
     private EditBox dhNearFadeScale;
+    private EditBox voxyNearClipScale;
     private EditBox blurRadius;
     private EditBox transitionTicks;
     private EditBox dayTime;
@@ -154,7 +155,9 @@ public final class StageTemplateEditorScreen extends Screen {
         dhNearFadeScale = labeledCompact("dh_near_fade", left + half + 4, y, panelWidth - half - 4,
                 Float.toString(draft.dhNearFadeScale));
         y += ROW_HEIGHT;
-        blurRadius = labeledCompact("persistent_blur", left, y, half,
+        voxyNearClipScale = labeledCompact("voxy_near_clip", left, y, half,
+                Float.toString(draft.voxyNearClipScale));
+        blurRadius = labeledCompact("persistent_blur", left + half + 4, y, panelWidth - half - 4,
                 Float.toString(draft.blurRadius));
         y += ROW_HEIGHT;
         addButton(left, y, half, text("setting.transition", value(draft.transition)), button -> {
@@ -289,6 +292,7 @@ public final class StageTemplateEditorScreen extends Screen {
                 case BACKDROP -> {
                     draft.movementScale = decimal(movementScale);
                     draft.dhNearFadeScale = decimal(dhNearFadeScale);
+                    draft.voxyNearClipScale = decimal(voxyNearClipScale);
                     draft.blurRadius = decimal(blurRadius);
                     draft.transitionTicks = draft.transition == StageClientScene.Transition.INSTANT
                             ? 0 : integer(transitionTicks);
@@ -471,6 +475,7 @@ public final class StageTemplateEditorScreen extends Screen {
         private boolean followPlayer;
         private float movementScale;
         private float dhNearFadeScale;
+        private float voxyNearClipScale;
         private boolean lodVisible;
         private float blurRadius;
         private StageClientScene.Transition transition;
@@ -493,6 +498,7 @@ public final class StageTemplateEditorScreen extends Screen {
             draft.followPlayer = scene.followPlayer();
             draft.movementScale = scene.lodMovementScale();
             draft.dhNearFadeScale = scene.dhNearFadeScale();
+            draft.voxyNearClipScale = scene.voxyNearClipScale();
             draft.lodVisible = scene.lodVisible();
             draft.blurRadius = scene.lodBlurRadius();
             draft.transition = scene.lodTransition();
@@ -510,7 +516,7 @@ public final class StageTemplateEditorScreen extends Screen {
                 throw new IllegalArgumentException(text("validation.invalid_lod_package").getString());
             }
             long normalizedDayTime = Math.floorMod(baseDayTime, 24_000L);
-            StageClientScene scene = new StageClientScene(followPlayer, movementScale, dhNearFadeScale, lodVisible, blurRadius,
+            StageClientScene scene = new StageClientScene(followPlayer, movementScale, dhNearFadeScale, voxyNearClipScale, lodVisible, blurRadius,
                     transition, transition == StageClientScene.Transition.INSTANT ? 0 : transitionTicks,
                     gameTime, timeMode, normalizedDayTime, gameTime,
                     timeMode == StageClientScene.TimeMode.CYCLE ? cycleTicks : 0L, skyMode);
