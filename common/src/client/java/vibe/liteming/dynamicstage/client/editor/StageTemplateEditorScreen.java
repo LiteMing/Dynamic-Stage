@@ -58,6 +58,9 @@ public final class StageTemplateEditorScreen extends Screen {
     private EditBox clientBoundaryDistance;
     private EditBox clientBoundaryOpacity;
     private EditBox clientBoundaryColor;
+    private EditBox clientMaxServerLodMib;
+    private boolean clientAllowServerLodDownloads;
+    private int clientMaxServerLodDownloadMib;
 
     public StageTemplateEditorScreen() {
         super(text("title"));
@@ -70,6 +73,8 @@ public final class StageTemplateEditorScreen extends Screen {
         }
         if (clientBoundary == null) {
             clientBoundary = StageClientConfig.boundary();
+            clientAllowServerLodDownloads = StageClientConfig.allowServerLodDownloads();
+            clientMaxServerLodDownloadMib = StageClientConfig.maxServerLodDownloadMib();
         }
         buildWidgets();
         DynamicStageNetwork.requestTemplates();
@@ -229,6 +234,14 @@ public final class StageTemplateEditorScreen extends Screen {
                 panelWidth - half - 4, Float.toString(clientBoundary.opacity()));
         clientBoundaryColor = labeledField("client_boundary_color", left, top + ROW_HEIGHT, panelWidth,
                 clientBoundary.colorSetting(), 16);
+        int y = top + ROW_HEIGHT * 2;
+        addButton(left, y, half, text("setting.server_lod_downloads", toggle(clientAllowServerLodDownloads)),
+                button -> {
+                    clientAllowServerLodDownloads = !clientAllowServerLodDownloads;
+                    button.setMessage(text("setting.server_lod_downloads", toggle(clientAllowServerLodDownloads)));
+                });
+        clientMaxServerLodMib = labeledCompact("server_lod_max_mib", left + half + 4, y,
+                panelWidth - half - 4, Integer.toString(clientMaxServerLodDownloadMib));
     }
 
     private void buildActions(int left, int panelWidth) {
@@ -306,9 +319,10 @@ public final class StageTemplateEditorScreen extends Screen {
             return;
         }
         try {
-            StageClientConfig.saveBoundary(clientBoundary);
+            StageClientConfig.save(clientBoundary, clientAllowServerLodDownloads,
+                    clientMaxServerLodDownloadMib);
             setStatus("status.client_config_saved");
-        } catch (java.io.IOException e) {
+        } catch (java.io.IOException | IllegalArgumentException e) {
             setErrorStatus("status.operation_failed", rootMessage(e));
         }
     }
@@ -363,9 +377,13 @@ public final class StageTemplateEditorScreen extends Screen {
                     draft.cycleTicks = draft.timeMode == StageClientScene.TimeMode.CYCLE
                             ? Long.parseLong(cycleTicks.getValue()) : 0L;
                 }
-                case CLIENT -> clientBoundary = StageClientConfig.createBoundaryDisplay(
-                        Double.parseDouble(clientBoundaryDistance.getValue()),
-                        Float.parseFloat(clientBoundaryOpacity.getValue()), clientBoundaryColor.getValue().trim());
+                case CLIENT -> {
+                    clientBoundary = StageClientConfig.createBoundaryDisplay(
+                            Double.parseDouble(clientBoundaryDistance.getValue()),
+                            Float.parseFloat(clientBoundaryOpacity.getValue()),
+                            clientBoundaryColor.getValue().trim());
+                    clientMaxServerLodDownloadMib = Integer.parseInt(clientMaxServerLodMib.getValue());
+                }
             }
             clearStatus();
             return true;

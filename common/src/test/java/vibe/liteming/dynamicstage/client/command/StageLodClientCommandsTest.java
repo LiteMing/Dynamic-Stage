@@ -34,5 +34,9 @@ class StageLodClientCommandsTest {
         assertNotNull(root.getChild("lod").getChild("import").getChild("link"));
         assertNotNull(root.getChild("lod").getChild("import").getChild("link-relative"));
         assertNotNull(root.getChild("lod").getChild("import").getChild("copy"));
+        assertNotNull(root.getChild("lod").getChild("downloads").getChild("status"));
+        assertNotNull(root.getChild("lod").getChild("downloads").getChild("on"));
+        assertNotNull(root.getChild("lod").getChild("downloads").getChild("off"));
+        assertNotNull(root.getChild("lod").getChild("downloads").getChild("max"));
     }
 }
