@@ -24,4 +24,8 @@ public final class StagePlatformImpl {
     public static Path configDirectory() {
         return FabricLoader.getInstance().getConfigDir();
     }
+
+    public static Path gameDirectory() {
+        return FabricLoader.getInstance().getGameDir();
+    }
 }

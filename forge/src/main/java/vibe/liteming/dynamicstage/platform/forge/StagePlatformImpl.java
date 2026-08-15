@@ -22,4 +22,8 @@ public final class StagePlatformImpl {
     public static Path configDirectory() {
         return FMLPaths.CONFIGDIR.get();
     }
+
+    public static Path gameDirectory() {
+        return FMLPaths.GAMEDIR.get();
+    }
 }

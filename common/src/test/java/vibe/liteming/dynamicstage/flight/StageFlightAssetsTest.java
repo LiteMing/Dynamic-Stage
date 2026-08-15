@@ -68,6 +68,29 @@ class StageFlightAssetsTest {
         assertTrue(StageFlightAssets.findConfigured(worldRoot, "boss") != null);
     }
 
+    @Test
+    void readsModernDimensionScopedCMDCamDataAndExternalFiles() throws Exception {
+        CompoundTag root = new CompoundTag();
+        CompoundTag scenes = new CompoundTag();
+        scenes.put("scarlet", cmdcamScene());
+        root.put("data", scenes);
+        Path modern = worldRoot.resolve("dimensions/minecraft/overworld/data/cmdcam/scenes.dat");
+        Files.createDirectories(modern.getParent());
+        try (var output = Files.newOutputStream(modern)) {
+            NbtIo.writeCompressed(root, output);
+        }
+
+        assertEquals(java.util.List.of("scarlet"), StageFlightAssets.listCMDCamScenes(worldRoot));
+        StageFlightAssets.Asset asset = StageFlightAssets.importFromCMDCam(worldRoot, "modern", "scarlet");
+        assertEquals(2, asset.pointCount());
+
+        Path external = worldRoot.resolve("external-scenes.dat");
+        Files.copy(modern, external);
+        StageFlightAssets.Asset externalAsset = StageFlightAssets.importFromCMDCamFile(
+                external, worldRoot, "external", null);
+        assertEquals(asset.sceneJson().length, externalAsset.sceneJson().length);
+    }
+
     private static CompoundTag cmdcamScene() {
         CompoundTag scene = new CompoundTag();
         scene.putLong("duration", 3000L);

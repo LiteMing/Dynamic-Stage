@@ -24,4 +24,9 @@ public final class StagePlatform {
     public static Path configDirectory() {
         throw new AssertionError();
     }
+
+    @ExpectPlatform
+    public static Path gameDirectory() {
+        throw new AssertionError();
+    }
 }

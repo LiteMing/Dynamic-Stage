@@ -29,6 +29,7 @@ import vibe.liteming.dynamicstage.template.StageTemplateStore;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -194,6 +195,20 @@ public final class DynamicStageCommands {
                 StringArgumentType.getString(ctx, "stage"), StringArgumentType.getString(ctx, "scene")));
         flight.then(Commands.literal("import")
                 .then(Commands.argument("stage", StringArgumentType.string()).then(flightScene)));
+        flight.then(Commands.literal("importfile")
+                .then(Commands.argument("stage", StringArgumentType.string())
+                        .then(Commands.argument("file", StringArgumentType.greedyString())
+                                .executes(ctx -> importCMDCamFileFlight(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "stage"),
+                                        StringArgumentType.getString(ctx, "file"), null)))));
+        flight.then(Commands.literal("importscene")
+                .then(Commands.argument("stage", StringArgumentType.string())
+                        .then(Commands.argument("file", StringArgumentType.string())
+                                .then(Commands.argument("scene", StringArgumentType.greedyString())
+                                        .executes(ctx -> importCMDCamFileFlight(ctx.getSource(),
+                                                StringArgumentType.getString(ctx, "stage"),
+                                                StringArgumentType.getString(ctx, "file"),
+                                                StringArgumentType.getString(ctx, "scene")))))));
         RequiredArgumentBuilder<CommandSourceStack, String> flightName =
                 Commands.argument("name", StringArgumentType.word());
         flightName.suggests(DynamicStageCommands::suggestFlightImports);
@@ -209,6 +224,19 @@ public final class DynamicStageCommands {
                 .executes(ctx -> clearFlight(ctx.getSource(), StringArgumentType.getString(ctx, "stage")))));
         flight.then(Commands.literal("status").then(Commands.argument("stage", StringArgumentType.string())
                 .executes(ctx -> flightStatus(ctx.getSource(), StringArgumentType.getString(ctx, "stage")))));
+        RequiredArgumentBuilder<CommandSourceStack, String> libraryStage =
+                Commands.argument("stage", StringArgumentType.string());
+        libraryStage.executes(ctx -> useLibraryFlight(ctx.getSource(),
+                StringArgumentType.getString(ctx, "stage"), StringArgumentType.getString(ctx, "stage")));
+        libraryStage.then(Commands.argument("flight", StringArgumentType.word())
+                .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
+                        StageFlightAssets.listLibraryFlights(), builder))
+                .executes(ctx -> useLibraryFlight(ctx.getSource(),
+                        StringArgumentType.getString(ctx, "stage"),
+                        StringArgumentType.getString(ctx, "flight"))));
+        flight.then(Commands.literal("use").then(libraryStage));
+        flight.then(Commands.literal("library").then(Commands.literal("list")
+                .executes(ctx -> listLibraryFlights(ctx.getSource()))));
         root.then(flight);
         return root;
     }
@@ -604,6 +632,14 @@ public final class DynamicStageCommands {
     }
 
     private static int importCMDCamFlight(CommandSourceStack source, String stage, String scene) {
+        try {
+            Path candidate = Path.of(scene).toAbsolutePath().normalize();
+            if (Files.isRegularFile(candidate)) {
+                return importCMDCamFileFlight(source, stage, scene, null);
+            }
+        } catch (RuntimeException ignored) {
+            // Treat non-path arguments as saved scene names.
+        }
         Path worldRoot = source.getServer().getWorldPath(LevelResource.ROOT);
         try {
             StageFlightAssets.Asset asset = StageFlightAssets.importFromCMDCam(source.getLevel(),
@@ -613,6 +649,21 @@ public final class DynamicStageCommands {
             return 1;
         } catch (IOException | RuntimeException e) {
             source.sendFailure(Component.literal("Could not import CMDCam scene: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int importCMDCamFileFlight(CommandSourceStack source, String stage,
+                                               String file, String scene) {
+        Path worldRoot = source.getServer().getWorldPath(LevelResource.ROOT);
+        try {
+            StageFlightAssets.Asset asset = StageFlightAssets.importFromCMDCamFile(
+                    Path.of(file), worldRoot, stage, scene);
+            source.sendSuccess(() -> Component.literal("Imported external CMDCam flight for '" + stage
+                    + "': " + asset.pointCount() + " points, " + asset.durationMillis() + " ms."), true);
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not import external CMDCam scene: " + e.getMessage()));
             return 0;
         }
     }
@@ -628,6 +679,27 @@ public final class DynamicStageCommands {
             source.sendFailure(Component.literal("Could not import stage flight: " + e.getMessage()));
             return 0;
         }
+    }
+
+    private static int useLibraryFlight(CommandSourceStack source, String stage, String flightName) {
+        Path worldRoot = source.getServer().getWorldPath(LevelResource.ROOT);
+        try {
+            StageFlightAssets.Asset asset = StageFlightAssets.importFromLibrary(worldRoot, stage, flightName);
+            source.sendSuccess(() -> Component.literal("Installed global flight '" + flightName + "' for '"
+                    + stage + "': " + asset.pointCount() + " points, " + asset.durationMillis() + " ms."), true);
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not install global flight: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int listLibraryFlights(CommandSourceStack source) {
+        java.util.List<String> names = StageFlightAssets.listLibraryFlights();
+        source.sendSuccess(() -> Component.literal(names.isEmpty()
+                ? "No global Dynamic Stage flights are saved."
+                : "Global Dynamic Stage flights: " + String.join(", ", names)), false);
+        return names.size();
     }
 
     private static CompletableFuture<Suggestions> suggestCMDCamScenes(CommandContext<CommandSourceStack> context,
