@@ -7,6 +7,7 @@ import vibe.liteming.dynamicstage.client.flight.StageFlightController;
 import vibe.liteming.dynamicstage.client.StageSkySettings;
 import vibe.liteming.dynamicstage.client.lod.StageBackdropRuntime;
 import vibe.liteming.dynamicstage.client.lod.StageBackdropEffects;
+import vibe.liteming.dynamicstage.client.lod.LodPackDownloadManager;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageBackdropSwitchPacket;
 import vibe.liteming.dynamicstage.network.StageSessionPacket;
@@ -14,6 +15,7 @@ import vibe.liteming.dynamicstage.world.StageWorlds;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageClientScene;
 import vibe.liteming.dynamicstage.stage.StageBoundaryAccess;
+import vibe.liteming.dynamicstage.lod.LodPackageOffer;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
@@ -25,6 +27,7 @@ public final class ClientStageSession {
     @Nullable private static volatile Snapshot active;
     @Nullable private static UUID readyAfterActivation;
     private static int activationAttempts;
+    private static long preparationSerial;
     @Nullable private static SwitchState backdropSwitch;
 
     private ClientStageSession() {
@@ -40,8 +43,8 @@ public final class ClientStageSession {
         if (switching != null && switching.target.instanceId().equals(snapshot.instanceId())
                 && switching.target.lodPackId().equals(snapshot.lodPackId())) {
             switching.target = snapshot;
-            applySnapshotState(snapshot);
-            if (switching.phase != SwitchPhase.OUT) {
+            if (switching.phase != SwitchPhase.PREPARE && switching.phase != SwitchPhase.OUT) {
+                applySnapshotState(snapshot);
                 active = snapshot;
             }
             StageFlightController.confirmSession(snapshot.flightHash());
@@ -62,24 +65,58 @@ public final class ClientStageSession {
             StageFlightController.clear();
         }
         activationAttempts = 0;
+        prepareInitialMount(snapshot);
+    }
+
+    private static void prepareInitialMount(Snapshot snapshot) {
+        long serial = ++preparationSerial;
+        LodPackDownloadManager.prepare(snapshot.lodPackId(), snapshot.lodOffer())
+                .whenComplete((download, error) -> Minecraft.getInstance().execute(() -> {
+                    Snapshot current = active;
+                    if (serial != preparationSerial || current == null
+                            || !current.instanceId().equals(snapshot.instanceId())
+                            || !current.lodPackId().equals(snapshot.lodPackId())) {
+                        return;
+                    }
+                    if (error != null) {
+                        finishInitialPreparation(snapshot, false, rootMessage(error));
+                        return;
+                    }
+                    if (!download.proceed()) {
+                        finishInitialPreparation(snapshot, false, download.error());
+                        return;
+                    }
+                    finishInitialPreparation(snapshot, true, download.error());
+                }));
+    }
+
+    private static void finishInitialPreparation(Snapshot snapshot, boolean proceed, String warning) {
+        if (!proceed) {
+            readyAfterActivation = null;
+            StageBackdropRuntime.unmount();
+            active = null;
+            StageBoundaryAccess.clearClient();
+            DynamicStageNetwork.clientReady(snapshot.instanceId(), false, warning);
+            return;
+        }
         StageBackdropRuntime.Result result = StageBackdropRuntime.mount(snapshot);
         if (!result.ready()) {
             readyAfterActivation = null;
             StageBackdropRuntime.unmount();
             if (result.unavailable()) {
-                DynamicStageNetwork.clientReady(snapshot.instanceId(), true, result.error());
+                DynamicStageNetwork.clientReady(snapshot.instanceId(), true, joinWarnings(warning, result.error()));
                 return;
             }
             active = null;
             StageBoundaryAccess.clearClient();
-            DynamicStageNetwork.clientReady(snapshot.instanceId(), false, result.error());
+            DynamicStageNetwork.clientReady(snapshot.instanceId(), false, joinWarnings(warning, result.error()));
             return;
         }
         if (StageWorlds.isStageLevel(Minecraft.getInstance().level)) {
             readyAfterActivation = snapshot.instanceId();
         } else {
             readyAfterActivation = null;
-            DynamicStageNetwork.clientReady(snapshot.instanceId(), true, "");
+            DynamicStageNetwork.clientReady(snapshot.instanceId(), true, warning == null ? "" : warning);
         }
     }
 
@@ -95,13 +132,32 @@ public final class ClientStageSession {
             DynamicStageNetwork.backdropSwitchResult(target.instanceId(), target.lodPackId(), true, "");
             return;
         }
-        backdropSwitch = new SwitchState(previous, target, packet.transition(), packet.transitionTicks(),
-                gameTime(), previous.clientScene().lodVisible()
+        boolean animate = previous.clientScene().lodVisible()
                 && packet.transition() != StageClientScene.Transition.INSTANT
-                && packet.transitionTicks() > 0 ? SwitchPhase.OUT : SwitchPhase.MOUNT);
+                && packet.transitionTicks() > 0;
+        SwitchState state = new SwitchState(previous, target, packet.transition(), packet.transitionTicks(),
+                gameTime(), SwitchPhase.PREPARE);
+        backdropSwitch = state;
+        long serial = ++preparationSerial;
+        LodPackDownloadManager.prepare(target.lodPackId(), target.lodOffer())
+                .whenComplete((download, error) -> Minecraft.getInstance().execute(() -> {
+                    if (serial != preparationSerial || backdropSwitch != state) {
+                        return;
+                    }
+                    if (error != null || !download.proceed()) {
+                        backdropSwitch = null;
+                        DynamicStageNetwork.backdropSwitchResult(target.instanceId(), target.lodPackId(), false,
+                                error == null ? download.error() : rootMessage(error));
+                        return;
+                    }
+                    state.phase = animate ? SwitchPhase.OUT : SwitchPhase.MOUNT;
+                    state.phaseStart = gameTime();
+                    state.preparationWarning = download.error();
+                }));
     }
 
     public static void clearLocal() {
+        preparationSerial++;
         active = null;
         StageSkySettings.setMode(StageSkySettings.Mode.OVERWORLD);
         StageBoundaryAccess.clearClient();
@@ -153,6 +209,9 @@ public final class ClientStageSession {
             return;
         }
         long now = minecraft.level.getGameTime();
+        if (state.phase == SwitchPhase.PREPARE) {
+            return;
+        }
         if (state.phase == SwitchPhase.OUT && now - state.phaseStart >= state.outTicks()) {
             state.phase = SwitchPhase.MOUNT;
         }
@@ -163,7 +222,7 @@ public final class ClientStageSession {
         if (state.phase == SwitchPhase.ACTIVATE) {
             StageBackdropRuntime.Result result = StageBackdropRuntime.activateStage(state.target.instanceId());
             if (result.ready()) {
-                finishMount(state, now, "");
+                finishMount(state, now, state.preparationWarning);
             } else if (++state.activationAttempts >= MAX_ACTIVATION_ATTEMPTS) {
                 rollbackSwitch(state, result.error());
             }
@@ -188,6 +247,9 @@ public final class ClientStageSession {
             return StageBackdropEffects.sampleSwitch(state.target.clientScene(), state.transition, false,
                     progress(gameTime, partialTick, state.phaseStart, state.inTicks()));
         }
+        if (state.phase == SwitchPhase.PREPARE) {
+            return StageBackdropEffects.sample(state.previous.clientScene(), gameTime, partialTick);
+        }
         return StageBackdropEffects.sampleSwitch(state.target.clientScene(), state.transition, false, 0.0F);
     }
 
@@ -197,7 +259,7 @@ public final class ClientStageSession {
         applySnapshotState(state.target);
         StageBackdropRuntime.Result result = StageBackdropRuntime.mount(state.target);
         if (result.unavailable()) {
-            finishMount(state, now, result.error());
+            finishMount(state, now, joinWarnings(state.preparationWarning, result.error()));
             return;
         }
         if (!result.ready()) {
@@ -209,7 +271,7 @@ public final class ClientStageSession {
             state.phaseStart = now;
             state.activationAttempts = 0;
         } else {
-            finishMount(state, now, "");
+            finishMount(state, now, state.preparationWarning);
         }
     }
 
@@ -254,7 +316,7 @@ public final class ClientStageSession {
     private static Snapshot snapshot(StageSessionPacket packet) {
         return new Snapshot(packet.instanceId(), packet.stageId(), packet.lodPackId(),
                 packet.lodAnchor(), packet.stageOrigin(), packet.capacity(), packet.boundary(), packet.flightHash(),
-                packet.flightBytes(), packet.flightDurationMillis(), packet.clientScene());
+                packet.flightBytes(), packet.flightDurationMillis(), packet.clientScene(), packet.lodOffer());
     }
 
     private static void applySnapshotState(Snapshot snapshot) {
@@ -266,14 +328,15 @@ public final class ClientStageSession {
     public record Snapshot(UUID instanceId, String stageId, ResourceLocation lodPackId, BlockPos lodAnchor,
                            BlockPos stageOrigin, int capacity, StageBoundary boundary,
                            String flightHash, int flightBytes,
-                           long flightDurationMillis, StageClientScene clientScene) {
+                           long flightDurationMillis, StageClientScene clientScene,
+                           LodPackageOffer lodOffer) {
 
         public boolean hasFlight() {
             return !flightHash.isEmpty();
         }
     }
 
-    private enum SwitchPhase { OUT, MOUNT, ACTIVATE, IN }
+    private enum SwitchPhase { PREPARE, OUT, MOUNT, ACTIVATE, IN }
 
     private static final class SwitchState {
         private final Snapshot previous;
@@ -283,6 +346,7 @@ public final class ClientStageSession {
         private long phaseStart;
         private SwitchPhase phase;
         private int activationAttempts;
+        private String preparationWarning = "";
 
         private SwitchState(Snapshot previous, Snapshot target, StageClientScene.Transition transition,
                             int totalTicks, long phaseStart, SwitchPhase phase) {
@@ -301,5 +365,24 @@ public final class ClientStageSession {
         private int inTicks() {
             return Math.max(1, totalTicks - outTicks());
         }
+    }
+
+    private static String joinWarnings(String first, String second) {
+        if (first == null || first.isBlank()) {
+            return second == null ? "" : second;
+        }
+        if (second == null || second.isBlank()) {
+            return first;
+        }
+        return first + "; " + second;
+    }
+
+    private static String rootMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        return message == null || message.isBlank() ? current.getClass().getSimpleName() : message;
     }
 }

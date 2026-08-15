@@ -7,6 +7,7 @@ import net.minecraft.resources.ResourceLocation;
 import org.junit.jupiter.api.Test;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageClientScene;
+import vibe.liteming.dynamicstage.lod.LodPackageOffer;
 
 import java.util.UUID;
 
@@ -27,6 +28,19 @@ class StageSessionPacketTest {
 
         StageSessionPacket.encode(packet, buffer);
 
+        assertEquals(packet, StageSessionPacket.decode(buffer));
+        buffer.release();
+    }
+
+    @Test
+    void preservesAnOptionalLodOffer() {
+        LodPackageOffer offer = new LodPackageOffer(LodPackageOffer.Delivery.OPTIONAL,
+                "https://cdn.example.invalid/red-mansion.dstlod", 12_345L, "ab".repeat(32));
+        StageSessionPacket packet = new StageSessionPacket(true, UUID.randomUUID(), "boss",
+                new ResourceLocation("stages", "city"), BlockPos.ZERO, BlockPos.ZERO, 1,
+                StageBoundary.defaults(), StageClientScene.defaults(0L, 0L), "", 0, 0L, offer);
+        FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
+        StageSessionPacket.encode(packet, buffer);
         assertEquals(packet, StageSessionPacket.decode(buffer));
         buffer.release();
     }

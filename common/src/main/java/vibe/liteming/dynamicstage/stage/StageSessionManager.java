@@ -12,6 +12,8 @@ import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
+import vibe.liteming.dynamicstage.lod.LodDistributionStore;
+import vibe.liteming.dynamicstage.lod.LodPackageOffer;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageFlightPacket;
 import vibe.liteming.dynamicstage.network.StageBackdropSwitchPacket;
@@ -353,7 +355,7 @@ public final class StageSessionManager {
         }
         StageSessionData data = StageSessionData.get(server);
         long deadline = server.overworld().getGameTime()
-                + transitionTicks / 2L + BACKDROP_SWITCH_TIMEOUT_MARGIN_TICKS;
+                + transitionTicks / 2L + backdropSwitchTimeoutTicks(server, lodPackId);
         BackdropSwitchState state = new BackdropSwitchState(
                 session.lodPackId(), lodPackId, new HashSet<>(), deadline, reloadPlan);
         if (BACKDROP_SWITCHES.putIfAbsent(session.instanceId(), state) != null) {
@@ -375,7 +377,7 @@ public final class StageSessionManager {
             }
             state.awaiting.add(member.playerId());
             DynamicStageNetwork.sendBackdropSwitch(target, new StageBackdropSwitchPacket(
-                    vibe.liteming.dynamicstage.network.StageSessionPacket.active(member),
+                    DynamicStageNetwork.sessionPacket(target, member),
                     transition, transitionTicks));
         }
         for (PendingEntry entry : PENDING.values()) {
@@ -933,6 +935,16 @@ public final class StageSessionManager {
             return "unknown client error";
         }
         return error.length() <= 256 ? error : error.substring(0, 256);
+    }
+
+    private static int backdropSwitchTimeoutTicks(MinecraftServer server, ResourceLocation lodPackId) {
+        LodPackageOffer offer = LodDistributionStore.find(server, lodPackId);
+        if (offer == null) {
+            return BACKDROP_SWITCH_TIMEOUT_MARGIN_TICKS;
+        }
+        long mebibytes = Math.max(1L, (offer.bytes() + 1_048_575L) / 1_048_576L);
+        long seconds = Math.min(600L, 60L + mebibytes * 3L);
+        return (int) Math.max(BACKDROP_SWITCH_TIMEOUT_MARGIN_TICKS, seconds * 20L);
     }
 
     private static void warnMissingLod(ServerPlayer player, String warning) {

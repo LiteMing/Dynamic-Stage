@@ -23,8 +23,13 @@ public final class StageClientConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final double DEFAULT_VISIBLE_DISTANCE = 10.0D;
     private static final float DEFAULT_OPACITY = 1.0F;
+    private static final boolean DEFAULT_ALLOW_SERVER_LOD_DOWNLOADS = true;
+    private static final int DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB = 256;
+    private static final int MAX_SERVER_LOD_DOWNLOAD_MIB = 512;
 
     private static volatile BoundaryDisplay boundary = BoundaryDisplay.defaults();
+    private static volatile boolean allowServerLodDownloads = DEFAULT_ALLOW_SERVER_LOD_DOWNLOADS;
+    private static volatile int maxServerLodDownloadMib = DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB;
     private static boolean loaded;
 
     private StageClientConfig() {
@@ -37,15 +42,38 @@ public final class StageClientConfig {
         return boundary;
     }
 
+    public static boolean allowServerLodDownloads() {
+        if (!loaded) {
+            reload();
+        }
+        return allowServerLodDownloads;
+    }
+
+    public static int maxServerLodDownloadMib() {
+        if (!loaded) {
+            reload();
+        }
+        return maxServerLodDownloadMib;
+    }
+
+    public static long maxServerLodDownloadBytes() {
+        return maxServerLodDownloadMib() * 1024L * 1024L;
+    }
+
     public static synchronized void reload() {
         Path path = configPath();
         try {
             if (!Files.isRegularFile(path)) {
                 writeDefaults(path);
             }
-            boundary = read(path);
+            Settings settings = readSettings(path);
+            boundary = settings.boundary();
+            allowServerLodDownloads = settings.allowServerLodDownloads();
+            maxServerLodDownloadMib = settings.maxServerLodDownloadMib();
         } catch (IOException | RuntimeException e) {
             boundary = BoundaryDisplay.defaults();
+            allowServerLodDownloads = DEFAULT_ALLOW_SERVER_LOD_DOWNLOADS;
+            maxServerLodDownloadMib = DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB;
             LOGGER.warn("Could not load Dynamic Stage client config {}: {}", path, e.getMessage());
         }
         loaded = true;
@@ -56,12 +84,27 @@ public final class StageClientConfig {
     }
 
     public static synchronized void saveBoundary(BoundaryDisplay display) throws IOException {
-        write(configPath(), display);
-        boundary = display;
+        save(display, allowServerLodDownloads(), maxServerLodDownloadMib());
+    }
+
+    public static synchronized void saveServerLodDownloads(boolean allow, int maxMib) throws IOException {
+        save(boundary(), allow, maxMib);
+    }
+
+    public static synchronized void save(BoundaryDisplay display, boolean allow, int maxMib) throws IOException {
+        Settings settings = new Settings(display, allow, maxMib);
+        writeSettings(configPath(), settings);
+        boundary = settings.boundary();
+        allowServerLodDownloads = settings.allowServerLodDownloads();
+        maxServerLodDownloadMib = settings.maxServerLodDownloadMib();
         loaded = true;
     }
 
     static BoundaryDisplay read(Path path) throws IOException {
+        return readSettings(path).boundary();
+    }
+
+    static Settings readSettings(Path path) throws IOException {
         JsonObject root;
         try {
             root = GSON.fromJson(Files.readString(path, StandardCharsets.UTF_8), JsonObject.class);
@@ -78,7 +121,14 @@ public final class StageClientConfig {
         String color = root.has("boundary_fallback_color")
                 ? root.get("boundary_fallback_color").getAsString()
                 : root.has("boundary_color") ? root.get("boundary_color").getAsString() : "default";
-        return new BoundaryDisplay(visibleDistance, opacity, parseColor(color));
+        boolean allowDownloads = root.has("allow_server_lod_downloads")
+                ? root.get("allow_server_lod_downloads").getAsBoolean()
+                : DEFAULT_ALLOW_SERVER_LOD_DOWNLOADS;
+        int maxDownloads = root.has("max_server_lod_download_mib")
+                ? root.get("max_server_lod_download_mib").getAsInt()
+                : DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB;
+        return new Settings(new BoundaryDisplay(visibleDistance, opacity, parseColor(color)),
+                allowDownloads, maxDownloads);
     }
 
     private static void writeDefaults(Path path) throws IOException {
@@ -86,15 +136,22 @@ public final class StageClientConfig {
     }
 
     static void write(Path path, BoundaryDisplay display) throws IOException {
+        writeSettings(path, new Settings(display, DEFAULT_ALLOW_SERVER_LOD_DOWNLOADS,
+                DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB));
+    }
+
+    static void writeSettings(Path path, Settings settings) throws IOException {
         Path parent = path.toAbsolutePath().normalize().getParent();
         if (parent == null) {
             throw new IOException("client config path has no parent");
         }
         Files.createDirectories(parent);
         JsonObject root = new JsonObject();
-        root.addProperty("boundary_visible_distance", display.visibleDistance());
-        root.addProperty("boundary_opacity", display.opacity());
-        root.addProperty("boundary_fallback_color", display.colorSetting());
+        root.addProperty("boundary_visible_distance", settings.boundary().visibleDistance());
+        root.addProperty("boundary_opacity", settings.boundary().opacity());
+        root.addProperty("boundary_fallback_color", settings.boundary().colorSetting());
+        root.addProperty("allow_server_lod_downloads", settings.allowServerLodDownloads());
+        root.addProperty("max_server_lod_download_mib", settings.maxServerLodDownloadMib());
         Path temporary = Files.createTempFile(parent, path.getFileName().toString(), ".tmp");
         try {
             Files.writeString(temporary, GSON.toJson(root) + System.lineSeparator(), StandardCharsets.UTF_8);
@@ -152,6 +209,18 @@ public final class StageClientConfig {
 
         public String colorSetting() {
             return fallbackColor == null ? "default" : String.format(Locale.ROOT, "%06X", fallbackColor);
+        }
+    }
+
+    record Settings(BoundaryDisplay boundary, boolean allowServerLodDownloads, int maxServerLodDownloadMib) {
+        Settings {
+            if (boundary == null) {
+                throw new IllegalArgumentException("boundary settings are required");
+            }
+            if (maxServerLodDownloadMib < 1 || maxServerLodDownloadMib > MAX_SERVER_LOD_DOWNLOAD_MIB) {
+                throw new IllegalArgumentException("max_server_lod_download_mib must be between 1 and "
+                        + MAX_SERVER_LOD_DOWNLOAD_MIB);
+            }
         }
     }
 }

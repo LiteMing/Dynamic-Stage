@@ -11,10 +11,11 @@ import vibe.liteming.dynamicstage.template.StageTemplate;
 import vibe.liteming.dynamicstage.template.StageTemplateStore;
 import vibe.liteming.dynamicstage.template.StageTemplateSummary;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
+import vibe.liteming.dynamicstage.lod.LodDistributionStore;
 
 import java.util.UUID;
 
-/** Small stage control protocol; LOD geometry and databases are never transferred by DS. */
+/** Small stage control protocol; LOD archives are offered by URL, never streamed over this channel. */
 public final class DynamicStageNetwork {
 
     public static final net.minecraft.resources.ResourceLocation SESSION = DynamicStage.id("session");
@@ -70,7 +71,12 @@ public final class DynamicStageNetwork {
     }
 
     public static void sendSession(ServerPlayer player, StageSession session) {
-        send(player, StageSessionPacket.active(session));
+        send(player, sessionPacket(player, session));
+    }
+
+    public static StageSessionPacket sessionPacket(ServerPlayer player, StageSession session) {
+        return StageSessionPacket.active(session,
+                LodDistributionStore.find(player.getServer(), session.lodPackId()));
     }
 
     public static void clearSession(ServerPlayer player) {

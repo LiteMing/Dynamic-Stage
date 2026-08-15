@@ -3,6 +3,7 @@ package vibe.liteming.dynamicstage.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.LongArgumentType;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
@@ -20,6 +21,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.storage.LevelResource;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
+import vibe.liteming.dynamicstage.lod.LodDistributionStore;
+import vibe.liteming.dynamicstage.lod.LodPackageOffer;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.stage.StageSession;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
@@ -246,7 +249,86 @@ public final class DynamicStageCommands {
         flight.then(Commands.literal("library").then(Commands.literal("list")
                 .executes(ctx -> listLibraryFlights(ctx.getSource()))));
         root.then(flight);
+        LiteralArgumentBuilder<CommandSourceStack> distribution = Commands.literal("distribution");
+        distribution.then(Commands.literal("list").executes(ctx -> distributionList(ctx.getSource())));
+        distribution.then(Commands.literal("path").executes(ctx -> distributionPath(ctx.getSource())));
+        distribution.then(Commands.literal("remove")
+                .then(Commands.argument("lod_pack", ResourceLocationArgument.id())
+                        .executes(ctx -> distributionRemove(ctx.getSource(),
+                                ResourceLocationArgument.getId(ctx, "lod_pack")))));
+        RequiredArgumentBuilder<CommandSourceStack, String> distributionUrl =
+                Commands.argument("url", StringArgumentType.greedyString());
+        distributionUrl.executes(ctx -> distributionSet(ctx.getSource(),
+                ResourceLocationArgument.getId(ctx, "lod_pack"),
+                StringArgumentType.getString(ctx, "delivery"),
+                LongArgumentType.getLong(ctx, "bytes"),
+                StringArgumentType.getString(ctx, "sha256"),
+                StringArgumentType.getString(ctx, "url")));
+        RequiredArgumentBuilder<CommandSourceStack, String> distributionHash =
+                Commands.argument("sha256", StringArgumentType.word());
+        distributionHash.then(distributionUrl);
+        RequiredArgumentBuilder<CommandSourceStack, Long> distributionBytes =
+                Commands.argument("bytes", LongArgumentType.longArg(1L, LodPackageOffer.MAX_BYTES));
+        distributionBytes.then(distributionHash);
+        RequiredArgumentBuilder<CommandSourceStack, String> distributionDelivery =
+                Commands.argument("delivery", StringArgumentType.word())
+                        .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
+                                java.util.List.of("optional", "required"), builder));
+        distributionDelivery.then(distributionBytes);
+        distribution.then(Commands.literal("set")
+                .then(Commands.argument("lod_pack", ResourceLocationArgument.id())
+                        .then(distributionDelivery)));
+        root.then(distribution);
         return root;
+    }
+
+    private static int distributionList(CommandSourceStack source) {
+        try {
+            var offers = LodDistributionStore.read(source.getServer());
+            source.sendSuccess(() -> Component.literal(offers.isEmpty()
+                    ? "No downloadable Dynamic Stage LOD packages are configured."
+                    : "Downloadable Dynamic Stage LOD packages: " + String.join(", ", offers.keySet())), false);
+            return offers.size();
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not read LOD distribution catalog: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int distributionPath(CommandSourceStack source) {
+        source.sendSuccess(() -> Component.literal("Dynamic Stage LOD distribution catalog: "
+                + LodDistributionStore.path(source.getServer())), false);
+        return 1;
+    }
+
+    private static int distributionSet(CommandSourceStack source, ResourceLocation id, String rawDelivery,
+                                       long bytes, String sha256, String url) {
+        try {
+            LodPackageOffer.Delivery delivery = LodPackageOffer.Delivery.valueOf(
+                    rawDelivery.toUpperCase(java.util.Locale.ROOT));
+            LodPackageOffer offer = new LodPackageOffer(delivery, url.trim(), bytes, sha256);
+            LodDistributionStore.put(source.getServer(), id, offer);
+            source.sendSuccess(() -> Component.literal("Published LOD package '" + id + "' as "
+                    + delivery.name().toLowerCase(java.util.Locale.ROOT) + " (" + bytes + " bytes)."), true);
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not publish LOD package: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int distributionRemove(CommandSourceStack source, ResourceLocation id) {
+        try {
+            if (!LodDistributionStore.remove(source.getServer(), id)) {
+                source.sendFailure(Component.literal("LOD package '" + id + "' is not published."));
+                return 0;
+            }
+            source.sendSuccess(() -> Component.literal("Removed downloadable LOD package '" + id + "'."), true);
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not remove LOD package: " + e.getMessage()));
+            return 0;
+        }
     }
 
     private static int start(CommandSourceStack source, String stage, ResourceLocation pack,

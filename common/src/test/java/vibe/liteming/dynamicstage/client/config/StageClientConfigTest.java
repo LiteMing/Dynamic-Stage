@@ -9,8 +9,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StageClientConfigTest {
     @TempDir
@@ -60,5 +62,37 @@ class StageClientConfigTest {
         StageClientConfig.write(path, expected);
 
         assertEquals(expected, StageClientConfig.read(path));
+    }
+
+    @Test
+    void readsServerDownloadPolicy() throws IOException {
+        Path path = temporaryDirectory.resolve("client.json");
+        Files.writeString(path, """
+                {"allow_server_lod_downloads": false, "max_server_lod_download_mib": 96}
+                """);
+
+        StageClientConfig.Settings settings = StageClientConfig.readSettings(path);
+
+        assertFalse(settings.allowServerLodDownloads());
+        assertEquals(96, settings.maxServerLodDownloadMib());
+    }
+
+    @Test
+    void legacyConfigUsesDownloadDefaults() throws IOException {
+        Path path = temporaryDirectory.resolve("client.json");
+        Files.writeString(path, "{}");
+
+        StageClientConfig.Settings settings = StageClientConfig.readSettings(path);
+
+        assertTrue(settings.allowServerLodDownloads());
+        assertEquals(256, settings.maxServerLodDownloadMib());
+    }
+
+    @Test
+    void rejectsInvalidDownloadLimit() throws IOException {
+        Path path = temporaryDirectory.resolve("client.json");
+        Files.writeString(path, "{\"max_server_lod_download_mib\": 0}");
+
+        assertThrows(IllegalArgumentException.class, () -> StageClientConfig.readSettings(path));
     }
 }
