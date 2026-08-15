@@ -40,13 +40,10 @@ public final class StageBoundaryRenderer {
 
         StageBoundary boundary = session.boundary();
         StageClientConfig.BoundaryDisplay display = StageClientConfig.boundary();
-        if (display.visibleDistance() <= 0.0D || display.opacity() <= 0.0F) {
+        if (display.opacity() <= 0.0F) {
             return;
         }
         AABB bounds = boundary.bounds(session.stageOrigin());
-        // Keep the virtual walls visible while an observer is just outside
-        // the play area; the normal distance fade is useful only from inside.
-        boolean outsideBoundary = !bounds.contains(player.position());
         Vec3 cameraPosition = camera.getPosition();
         int color = display.color(boundary.color());
         int red = color >> 16 & 255;
@@ -69,23 +66,48 @@ public final class StageBoundaryRenderer {
         double z0 = clamp(player.getZ() - SEGMENT_RADIUS, bounds.minZ, bounds.maxZ);
         double z1 = clamp(player.getZ() + SEGMENT_RADIUS, bounds.minZ, bounds.maxZ);
 
-        drawYZ(matrix, bounds.minX, y0, y1, z0, z1,
-                outsideBoundary ? 1.0D : fade(player.getX() - bounds.minX, display),
+        double minXDistance = player.getX() - bounds.minX;
+        double maxXDistance = bounds.maxX - player.getX();
+        double minZDistance = player.getZ() - bounds.minZ;
+        double maxZDistance = bounds.maxZ - player.getZ();
+        double minYDistance = player.getY() - bounds.minY;
+        double maxYDistance = bounds.maxY - player.getY();
+        boolean beyondMinX = outside(minXDistance);
+        boolean beyondMaxX = outside(maxXDistance);
+        boolean beyondMinZ = outside(minZDistance);
+        boolean beyondMaxZ = outside(maxZDistance);
+        boolean belowFloor = outside(minYDistance);
+        boolean aboveCeiling = outside(maxYDistance);
+
+        drawYZ(matrix, bounds.minX,
+                beyondMinX ? bounds.minY : y0, beyondMinX ? bounds.maxY : y1,
+                beyondMinX ? bounds.minZ : z0, beyondMinX ? bounds.maxZ : z1,
+                faceVisibility(minXDistance, display.visibleDistance()),
                 red, green, blue, display.opacity());
-        drawYZ(matrix, bounds.maxX, y0, y1, z0, z1,
-                outsideBoundary ? 1.0D : fade(bounds.maxX - player.getX(), display),
+        drawYZ(matrix, bounds.maxX,
+                beyondMaxX ? bounds.minY : y0, beyondMaxX ? bounds.maxY : y1,
+                beyondMaxX ? bounds.minZ : z0, beyondMaxX ? bounds.maxZ : z1,
+                faceVisibility(maxXDistance, display.visibleDistance()),
                 red, green, blue, display.opacity());
-        drawXY(matrix, bounds.minZ, x0, x1, y0, y1,
-                outsideBoundary ? 1.0D : fade(player.getZ() - bounds.minZ, display),
+        drawXY(matrix, bounds.minZ,
+                beyondMinZ ? bounds.minX : x0, beyondMinZ ? bounds.maxX : x1,
+                beyondMinZ ? bounds.minY : y0, beyondMinZ ? bounds.maxY : y1,
+                faceVisibility(minZDistance, display.visibleDistance()),
                 red, green, blue, display.opacity());
-        drawXY(matrix, bounds.maxZ, x0, x1, y0, y1,
-                outsideBoundary ? 1.0D : fade(bounds.maxZ - player.getZ(), display),
+        drawXY(matrix, bounds.maxZ,
+                beyondMaxZ ? bounds.minX : x0, beyondMaxZ ? bounds.maxX : x1,
+                beyondMaxZ ? bounds.minY : y0, beyondMaxZ ? bounds.maxY : y1,
+                faceVisibility(maxZDistance, display.visibleDistance()),
                 red, green, blue, display.opacity());
-        drawXZ(matrix, bounds.minY, x0, x1, z0, z1,
-                outsideBoundary ? 1.0D : fade(player.getY() - bounds.minY, display),
+        drawXZ(matrix, bounds.minY,
+                belowFloor ? bounds.minX : x0, belowFloor ? bounds.maxX : x1,
+                belowFloor ? bounds.minZ : z0, belowFloor ? bounds.maxZ : z1,
+                faceVisibility(minYDistance, display.visibleDistance()),
                 red, green, blue, display.opacity());
-        drawXZ(matrix, bounds.maxY, x0, x1, z0, z1,
-                outsideBoundary ? 1.0D : fade(bounds.maxY - player.getY(), display),
+        drawXZ(matrix, bounds.maxY,
+                aboveCeiling ? bounds.minX : x0, aboveCeiling ? bounds.maxX : x1,
+                aboveCeiling ? bounds.minZ : z0, aboveCeiling ? bounds.maxZ : z1,
+                faceVisibility(maxYDistance, display.visibleDistance()),
                 red, green, blue, display.opacity());
 
         RenderSystem.lineWidth(1.0F);
@@ -155,10 +177,19 @@ public final class StageBoundaryRenderer {
         builder.vertex(matrix, (float) x, (float) y, (float) z).color(red, green, blue, alpha).endVertex();
     }
 
-    private static double fade(double distance, StageClientConfig.BoundaryDisplay display) {
-        double normalized = 1.0D - Mth.clamp(
-                Math.abs(distance) / display.visibleDistance(), 0.0D, 1.0D);
+    static double faceVisibility(double inwardDistance, double visibleDistance) {
+        if (outside(inwardDistance)) {
+            return 1.0D;
+        }
+        if (visibleDistance <= 0.0D) {
+            return 0.0D;
+        }
+        double normalized = 1.0D - Mth.clamp(inwardDistance / visibleDistance, 0.0D, 1.0D);
         return normalized * normalized;
+    }
+
+    private static boolean outside(double inwardDistance) {
+        return inwardDistance < 0.0D;
     }
 
     private static double clamp(double value, double min, double max) {

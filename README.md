@@ -174,8 +174,9 @@ slots do not fail on duplicate bounds.
 
 The six virtual boundary walls constrain players, mobs, and other non-projectile
 entities without placing blocks. Projectiles intentionally pass through them.
-The client grid keeps rendering at full configured opacity while the local player
-is outside the boundary so an escaped observer can still locate the arena.
+Each wall uses its own inward distance: crossing a wall keeps that entire wall
+fully visible, while walls still inside the boundary only render their nearby
+grid segment and fade over the configured client distance.
 
 `/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky and cloud rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Vanilla clouds additionally use the same virtual source position as the LOD backdrop, including the anchor, player-follow mode, and flight XYZ; the infinite-distance sky dome ignores translation.
 
