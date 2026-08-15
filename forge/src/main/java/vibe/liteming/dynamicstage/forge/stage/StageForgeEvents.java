@@ -9,6 +9,7 @@ import net.minecraftforge.eventbus.api.Event;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.event.server.ServerStoppedEvent;
+import net.minecraftforge.event.TickEvent;
 import vibe.liteming.dynamicstage.DynamicStage;
 import vibe.liteming.dynamicstage.stage.StageSessionManager;
 import vibe.liteming.dynamicstage.world.StageWorlds;
@@ -23,6 +24,13 @@ public final class StageForgeEvents {
     @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
         StageSessionManager.onServerStopped();
+    }
+
+    @SubscribeEvent
+    public static void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase == TickEvent.Phase.END) {
+            event.getServer().getPlayerList().getPlayers().forEach(StageSessionManager::enforceBoundary);
+        }
     }
 
     @SubscribeEvent

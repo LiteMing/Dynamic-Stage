@@ -48,19 +48,22 @@ public final class FabricStageEvents {
                 RESPAWN_EXITS.put(newPlayer.getUUID(), 1);
             }
         });
-        ServerTickEvents.END_SERVER_TICK.register(server -> RESPAWN_EXITS.forEach((playerId, delay) -> {
-            if (delay > 0) {
-                RESPAWN_EXITS.replace(playerId, delay, delay - 1);
-                return;
-            }
-            if (!RESPAWN_EXITS.remove(playerId, delay)) {
-                return;
-            }
-            var player = server.getPlayerList().getPlayer(playerId);
-            if (player != null) {
-                StageSessionManager.exit(player);
-            }
-        }));
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            RESPAWN_EXITS.forEach((playerId, delay) -> {
+                if (delay > 0) {
+                    RESPAWN_EXITS.replace(playerId, delay, delay - 1);
+                    return;
+                }
+                if (!RESPAWN_EXITS.remove(playerId, delay)) {
+                    return;
+                }
+                var player = server.getPlayerList().getPlayer(playerId);
+                if (player != null) {
+                    StageSessionManager.exit(player);
+                }
+            });
+            server.getPlayerList().getPlayers().forEach(StageSessionManager::enforceBoundary);
+        });
 
         AttackBlockCallback.EVENT.register((player, level, hand, pos, direction) ->
                 StageWorlds.isStageLevel(level) ? InteractionResult.FAIL : InteractionResult.PASS);

@@ -10,6 +10,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageFlightPacket;
@@ -294,6 +295,51 @@ public final class StageSessionManager {
 
     public static boolean setClientScene(ServerPlayer player, StageClientScene scene) {
         return get(player).isPresent() && updateClientScene(player, scene);
+    }
+
+    /** Server-side safety net for the one-tick window around teleports and session updates. */
+    public static void enforceBoundary(ServerPlayer player) {
+        if (player == null || player.isSpectator() || !StageWorlds.isStageLevel(player.level())) {
+            return;
+        }
+        StageSession session = get(player).orElse(null);
+        if (session == null) {
+            return;
+        }
+        Vec3 position = player.position();
+        Vec3 clamped = session.boundary().clampPlayer(session.stageOrigin(), position,
+                player.getBbWidth(), player.getBbHeight());
+        Vec3 correction = clamped.subtract(position);
+        double distance = correction.length();
+        if (distance <= 1.0E-4D) {
+            return;
+        }
+        // Small crossings receive an inward pull, which avoids a visible rubber
+        // band while still preventing a player standing on an edge from falling.
+        if (distance <= 1.5D) {
+            Vec3 normal = correction.scale(1.0D / distance);
+            Vec3 velocity = player.getDeltaMovement();
+            double inward = velocity.dot(normal);
+            if (inward < 0.0D) {
+                velocity = velocity.subtract(normal.scale(inward));
+                inward = 0.0D;
+            }
+            double pull = 0.08D + 0.42D * Math.min(1.0D, distance / 1.5D);
+            if (inward < pull) {
+                velocity = velocity.add(normal.scale(pull - inward));
+            }
+            player.setDeltaMovement(velocity);
+            player.hurtMarked = true;
+            player.hasImpulse = true;
+            player.connection.send(new ClientboundSetEntityMotionPacket(player));
+            return;
+        }
+        player.teleportTo(player.serverLevel(), clamped.x, clamped.y, clamped.z,
+                player.getYRot(), player.getXRot());
+        player.setDeltaMovement(Vec3.ZERO);
+        player.hurtMarked = true;
+        player.hasImpulse = true;
+        player.connection.send(new ClientboundSetEntityMotionPacket(player));
     }
 
     private static boolean updateClientScene(ServerPlayer player, StageClientScene scene) {

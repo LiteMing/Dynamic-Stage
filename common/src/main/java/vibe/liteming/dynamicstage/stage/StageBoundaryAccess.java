@@ -29,7 +29,12 @@ public final class StageBoundaryAccess {
     }
 
     public static void setClient(UUID instanceId, BlockPos origin, StageBoundary boundary) {
-        clientBoundary = new ClientBoundary(instanceId, null, origin, boundary);
+        ClientBoundary current = clientBoundary;
+        // Keep the bound player while a session update is applied. Clearing it
+        // creates a one-tick client collision hole exactly when commands update
+        // an otherwise unrelated client setting.
+        UUID playerId = current == null ? null : current.playerId;
+        clientBoundary = new ClientBoundary(instanceId, playerId, origin, boundary);
     }
 
     public static void bindClientPlayer(UUID playerId) {
