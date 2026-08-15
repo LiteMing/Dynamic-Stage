@@ -12,10 +12,11 @@ import vibe.liteming.dynamicstage.template.StageTemplateStore;
 import vibe.liteming.dynamicstage.template.StageTemplateSummary;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
 import vibe.liteming.dynamicstage.lod.LodDistributionStore;
+import vibe.liteming.dynamicstage.lod.LodServerTransferManager;
 
 import java.util.UUID;
 
-/** Small stage control protocol; LOD archives are offered by URL, never streamed over this channel. */
+/** Stage control protocol plus bounded server-hosted LOD archive transfers. */
 public final class DynamicStageNetwork {
 
     public static final net.minecraft.resources.ResourceLocation SESSION = DynamicStage.id("session");
@@ -27,6 +28,9 @@ public final class DynamicStageNetwork {
     public static final net.minecraft.resources.ResourceLocation TEMPLATE_REQUEST = DynamicStage.id("template_request");
     public static final net.minecraft.resources.ResourceLocation TEMPLATE_LIST = DynamicStage.id("template_list");
     public static final net.minecraft.resources.ResourceLocation TEMPLATE_EDIT = DynamicStage.id("template_edit");
+    public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_REQUEST = DynamicStage.id("lod_download_request");
+    public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_CHUNK = DynamicStage.id("lod_download_chunk");
+    public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_RESULT = DynamicStage.id("lod_download_result");
     private static boolean serverRegistered;
 
     private DynamicStageNetwork() {
@@ -64,6 +68,14 @@ public final class DynamicStageNetwork {
             context.queue(() -> {
                 if (context.getPlayer() instanceof ServerPlayer player && player.hasPermissions(2)) {
                     handleTemplateEdit(player, packet);
+                }
+            });
+        });
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, LOD_DOWNLOAD_REQUEST, (buf, context) -> {
+            LodDownloadRequestPacket packet = LodDownloadRequestPacket.decode(buf);
+            context.queue(() -> {
+                if (context.getPlayer() instanceof ServerPlayer player) {
+                    LodServerTransferManager.request(player, packet);
                 }
             });
         });
@@ -123,6 +135,24 @@ public final class DynamicStageNetwork {
         FriendlyByteBuf buf = buffer();
         StageTemplatePackets.encodeEdit(packet, buf);
         NetworkManager.sendToServer(TEMPLATE_EDIT, buf);
+    }
+
+    public static void requestLodDownload(LodDownloadRequestPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        LodDownloadRequestPacket.encode(packet, buf);
+        NetworkManager.sendToServer(LOD_DOWNLOAD_REQUEST, buf);
+    }
+
+    public static void sendLodDownloadChunk(ServerPlayer player, LodDownloadChunkPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        LodDownloadChunkPacket.encode(packet, buf);
+        NetworkManager.sendToPlayer(player, LOD_DOWNLOAD_CHUNK, buf);
+    }
+
+    public static void sendLodDownloadResult(ServerPlayer player, LodDownloadResultPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        LodDownloadResultPacket.encode(packet, buf);
+        NetworkManager.sendToPlayer(player, LOD_DOWNLOAD_RESULT, buf);
     }
 
     public static void sendTemplateList(ServerPlayer player) {

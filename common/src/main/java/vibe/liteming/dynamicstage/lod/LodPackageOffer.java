@@ -8,15 +8,20 @@ import java.net.URISyntaxException;
 import java.util.Locale;
 
 /** Server-provided metadata for an immutable client-side LOD archive. */
-public record LodPackageOffer(Delivery delivery, String url, long bytes, String sha256) {
+public record LodPackageOffer(Delivery delivery, String url, long bytes, String sha256,
+                              boolean serverHosted) {
     public static final int MAX_URL_LENGTH = 2048;
     public static final long MAX_BYTES = 512L * 1024L * 1024L;
+
+    public LodPackageOffer(Delivery delivery, String url, long bytes, String sha256) {
+        this(delivery, url, bytes, sha256, false);
+    }
 
     public LodPackageOffer {
         if (delivery == null || delivery == Delivery.LOCAL) {
             throw new IllegalArgumentException("LOD offer requires optional or required delivery");
         }
-        if (url == null || url.isBlank() || url.length() > MAX_URL_LENGTH) {
+        if (url == null || url.length() > MAX_URL_LENGTH) {
             throw new IllegalArgumentException("Invalid LOD offer URL");
         }
         if (bytes <= 0L || bytes > MAX_BYTES) {
@@ -26,16 +31,25 @@ public record LodPackageOffer(Delivery delivery, String url, long bytes, String 
         if (!ContentHash.isSha256(sha256)) {
             throw new IllegalArgumentException("LOD offer SHA-256 must be 64 lowercase hex characters");
         }
-        try {
-            URI parsed = new URI(url);
-            String scheme = parsed.getScheme();
-            if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
-                    || parsed.getHost() == null || parsed.getUserInfo() != null
-                    || parsed.getFragment() != null) {
-                throw new IllegalArgumentException("LOD offer URL must be an HTTP(S) URL without credentials");
+        if (serverHosted) {
+            if (!url.isBlank()) {
+                throw new IllegalArgumentException("Server-hosted LOD offers cannot include a URL");
             }
-        } catch (URISyntaxException e) {
-            throw new IllegalArgumentException("Invalid LOD offer URL", e);
+        } else {
+            if (url.isBlank()) {
+                throw new IllegalArgumentException("Invalid LOD offer URL");
+            }
+            try {
+                URI parsed = new URI(url);
+                String scheme = parsed.getScheme();
+                if (!("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))
+                        || parsed.getHost() == null || parsed.getUserInfo() != null
+                        || parsed.getFragment() != null) {
+                    throw new IllegalArgumentException("LOD offer URL must be an HTTP(S) URL without credentials");
+                }
+            } catch (URISyntaxException e) {
+                throw new IllegalArgumentException("Invalid LOD offer URL", e);
+            }
         }
     }
 
@@ -51,8 +65,12 @@ public record LodPackageOffer(Delivery delivery, String url, long bytes, String 
     }
 
     public static LodPackageOffer decode(FriendlyByteBuf buf) {
-        return new LodPackageOffer(buf.readEnum(Delivery.class), buf.readUtf(MAX_URL_LENGTH),
-                buf.readVarLong(), buf.readUtf(64));
+        Delivery delivery = buf.readEnum(Delivery.class);
+        String url = buf.readUtf(MAX_URL_LENGTH);
+        long bytes = buf.readVarLong();
+        String sha256 = buf.readUtf(64);
+        boolean serverHosted = url.isBlank();
+        return new LodPackageOffer(delivery, url, bytes, sha256, serverHosted);
     }
 
     public enum Delivery {

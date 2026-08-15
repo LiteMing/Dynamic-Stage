@@ -44,4 +44,17 @@ class StageSessionPacketTest {
         assertEquals(packet, StageSessionPacket.decode(buffer));
         buffer.release();
     }
+
+    @Test
+    void preservesAForwardedServerHostedOffer() {
+        LodPackageOffer offer = new LodPackageOffer(LodPackageOffer.Delivery.OPTIONAL,
+                "", 12_345L, "ab".repeat(32), true);
+        StageSessionPacket packet = new StageSessionPacket(true, UUID.randomUUID(), "boss",
+                new ResourceLocation("stages", "city"), BlockPos.ZERO, BlockPos.ZERO, 1,
+                StageBoundary.defaults(), StageClientScene.defaults(0L, 0L), "", 0, 0L, offer);
+        FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
+        StageSessionPacket.encode(packet, buffer);
+        assertEquals(packet, StageSessionPacket.decode(buffer));
+        buffer.release();
+    }
 }

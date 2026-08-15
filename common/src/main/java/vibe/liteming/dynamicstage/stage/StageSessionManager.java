@@ -14,6 +14,7 @@ import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
 import vibe.liteming.dynamicstage.lod.LodDistributionStore;
 import vibe.liteming.dynamicstage.lod.LodPackageOffer;
+import vibe.liteming.dynamicstage.lod.LodServerTransferManager;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageFlightPacket;
 import vibe.liteming.dynamicstage.network.StageBackdropSwitchPacket;
@@ -749,15 +750,18 @@ public final class StageSessionManager {
         PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
         removeBackdropSwitchWait(player.getServer(), player.getUUID());
+        LodServerTransferManager.cancel(player.getUUID());
     }
 
     public static void onServerStopped() {
         PENDING.clear();
         SENT_FLIGHTS.clear();
         BACKDROP_SWITCHES.clear();
+        LodServerTransferManager.clear();
     }
 
     public static void tick(MinecraftServer server) {
+        LodServerTransferManager.tick(server);
         long gameTime = server.overworld().getGameTime();
         for (var entry : BACKDROP_SWITCHES.entrySet()) {
             BackdropSwitchState state = entry.getValue();
@@ -803,6 +807,26 @@ public final class StageSessionManager {
     public static Optional<StageSession> get(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         return server == null ? Optional.empty() : StageSessionData.get(server).get(player.getUUID());
+    }
+
+    public static boolean canRequestLodDownload(ServerPlayer player, ResourceLocation lodPackId) {
+        if (player == null || lodPackId == null) {
+            return false;
+        }
+        PendingEntry pending = PENDING.get(player.getUUID());
+        if (pending != null && pending.session().lodPackId().equals(lodPackId)) {
+            return true;
+        }
+        StageSession current = get(player).orElse(null);
+        if (current == null) {
+            return false;
+        }
+        if (current.lodPackId().equals(lodPackId)) {
+            return true;
+        }
+        BackdropSwitchState switching = BACKDROP_SWITCHES.get(current.instanceId());
+        return switching != null && switching.awaiting().contains(player.getUUID())
+                && switching.target().equals(lodPackId);
     }
 
     private static boolean prepare(ServerPlayer player, StageSession session) {

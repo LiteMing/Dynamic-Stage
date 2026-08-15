@@ -297,7 +297,8 @@ public final class DynamicStageCommands {
 
     private static int distributionPath(CommandSourceStack source) {
         source.sendSuccess(() -> Component.literal("Dynamic Stage LOD distribution catalog: "
-                + LodDistributionStore.path(source.getServer())), false);
+                + LodDistributionStore.path(source.getServer()) + "\nServer-hosted LOD archive root: "
+                + LodDistributionStore.localArchiveRoot(source.getServer())), false);
         return 1;
     }
 

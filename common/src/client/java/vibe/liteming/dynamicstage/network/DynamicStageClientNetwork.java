@@ -5,6 +5,7 @@ import vibe.liteming.dynamicstage.client.StageSkySettings;
 import vibe.liteming.dynamicstage.client.flight.StageFlightController;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.client.editor.StageTemplateEditorState;
+import vibe.liteming.dynamicstage.client.lod.LodPackDownloadManager;
 
 public final class DynamicStageClientNetwork {
     private static boolean registered;
@@ -41,6 +42,16 @@ public final class DynamicStageClientNetwork {
                 (buf, context) -> {
                     StageTemplatePackets.ListPacket packet = StageTemplatePackets.decodeList(buf);
                     context.queue(() -> StageTemplateEditorState.accept(packet.templates()));
+                });
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.LOD_DOWNLOAD_CHUNK,
+                (buf, context) -> {
+                    LodDownloadChunkPacket packet = LodDownloadChunkPacket.decode(buf);
+                    context.queue(() -> LodPackDownloadManager.acceptServerChunk(packet));
+                });
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.LOD_DOWNLOAD_RESULT,
+                (buf, context) -> {
+                    LodDownloadResultPacket packet = LodDownloadResultPacket.decode(buf);
+                    context.queue(() -> LodPackDownloadManager.acceptServerResult(packet));
                 });
         registered = true;
     }

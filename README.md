@@ -92,6 +92,21 @@ are never sent to the server.
 
 ### Server LOD distribution
 
+For a server-owned archive, no HTTP service or in-game distribution command is
+required. Place the exported archive at the matching path inside the world:
+
+```text
+<world>/dynamicstage/lodpacks/<namespace>/<path>.dstlod
+```
+
+For example, `minecraft:gr` is discovered as
+`dynamicstage/lodpacks/minecraft/gr.dstlod`. When a stage uses that package ID,
+Dynamic Stage computes and caches its size and SHA-256, then streams missing
+bytes to the client in bounded packets. The client resumes an interrupted
+`.part` file and performs the same archive and package validation as an HTTP
+download. Convention-based server archives are optional by default; a missing
+or rejected archive therefore does not prevent stage entry.
+
 `/dstage lod export` creates an immutable `.dstlod` ZIP from a self-contained
 client package. It rejects linked packages, skips RocksDB lock and diagnostic
 log files, preserves WAL files, and prints the exact archive size and SHA-256.
@@ -116,7 +131,11 @@ validated packages under `.minecraft/dynamicstage/lodpacks`. Downloads use a
 `.part` file and HTTP Range resume when available. Size, SHA-256, ZIP paths,
 entry count, extracted size, and the native package manifest are checked before
 an atomic installation. The server transfers only offer metadata; the archive
-does not travel through the Minecraft tick/network channel.
+normally does not travel through the Minecraft tick/network channel. The
+exception is a convention-based server archive, which uses a bounded,
+tick-paced Dynamic Stage transfer and is intended for small and medium packs.
+Use HTTP/CDN for very large archives or many simultaneous clients so the game
+server does not become the file distribution bottleneck.
 
 DH 3.2 still requires the database file and its directory to be writable when opening it, and may apply its own schema migrations. "Read-only" here means DS asks DH to stop LOD updates, generation, and network retrieval while the stage is active; it is not a SQLite read-only connection. Distribute a writable package produced by the same supported DH version and keep an immutable source copy outside the live instance when exact byte preservation matters.
 

@@ -5,10 +5,15 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import vibe.liteming.dynamicstage.client.config.StageClientConfig;
 import vibe.liteming.dynamicstage.lod.LodPackageOffer;
+import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
+import vibe.liteming.dynamicstage.network.LodDownloadChunkPacket;
+import vibe.liteming.dynamicstage.network.LodDownloadRequestPacket;
+import vibe.liteming.dynamicstage.network.LodDownloadResultPacket;
 import vibe.liteming.dynamicstage.util.ContentHash;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -37,6 +42,7 @@ public final class LodPackDownloadManager {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
     private static final Map<ResourceLocation, CompletableFuture<Result>> ACTIVE = new ConcurrentHashMap<>();
+    private static final Map<ResourceLocation, ServerTransfer> SERVER_TRANSFERS = new ConcurrentHashMap<>();
 
     private LodPackDownloadManager() {
     }
@@ -60,13 +66,27 @@ public final class LodPackDownloadManager {
         if (existing != null) {
             return existing;
         }
-        CompletableFuture<Result> created = CompletableFuture.supplyAsync(() -> download(id, offer), EXECUTOR);
+        CompletableFuture<Result> created = new CompletableFuture<>();
         existing = ACTIVE.putIfAbsent(id, created);
         if (existing != null) {
             return existing;
         }
+        if (offer.serverHosted()) {
+            startServerDownload(id, offer, created);
+        } else {
+            CompletableFuture.supplyAsync(() -> download(id, offer), EXECUTOR)
+                    .whenComplete((result, error) -> complete(created, result, error));
+        }
         created.whenComplete((result, error) -> ACTIVE.remove(id, created));
         return created;
+    }
+
+    private static void complete(CompletableFuture<Result> target, Result result, Throwable error) {
+        if (error != null) {
+            target.complete(Result.failed(rootMessage(error)));
+        } else {
+            target.complete(result);
+        }
     }
 
     private static Result rejectByClientPolicy(LodPackageOffer offer) {
@@ -92,8 +112,7 @@ public final class LodPackDownloadManager {
         message("Downloading stage LOD package '" + id + "' ("
                 + String.format(java.util.Locale.ROOT, "%.1f", offer.bytes() / 1048576.0D) + " MiB)...");
         try {
-            Path downloadDirectory = Minecraft.getInstance().gameDirectory.toPath().resolve("dynamicstage")
-                    .resolve("downloads").toAbsolutePath().normalize();
+            Path downloadDirectory = downloadDirectory();
             Files.createDirectories(downloadDirectory);
             Path archive = downloadDirectory.resolve(offer.sha256() + ".dstlod");
             if (!validArchive(archive, offer)) {
@@ -109,16 +128,77 @@ public final class LodPackDownloadManager {
                 }
                 Files.move(partial, archive, StandardCopyOption.REPLACE_EXISTING);
             }
-            long extractionLimit = Math.min(2L * 1024L * 1024L * 1024L,
-                    Math.max(64L * 1024L * 1024L, offer.bytes() * 8L));
-            LodPackArchive.install(archive, LodPackRegistry.rootDirectory(), id, extractionLimit);
-            LodPackRegistry.load(id);
-            message("Installed stage LOD package '" + id + "'.");
-            return Result.ready();
+            return installArchive(id, offer, archive);
         } catch (Exception e) {
             String error = rootMessage(e);
             return offer.required() ? Result.failed(error) : Result.optional(error);
         }
+    }
+
+    private static void startServerDownload(ResourceLocation id, LodPackageOffer offer,
+                                            CompletableFuture<Result> result) {
+        try {
+            Path downloadDirectory = downloadDirectory();
+            Files.createDirectories(downloadDirectory);
+            Path archive = downloadDirectory.resolve(offer.sha256() + ".dstlod");
+            if (validArchive(archive, offer)) {
+                result.complete(installArchive(id, offer, archive));
+                return;
+            }
+            Path partial = downloadDirectory.resolve(offer.sha256() + ".dstlod.part");
+            long existing = Files.isRegularFile(partial, LinkOption.NOFOLLOW_LINKS) ? Files.size(partial) : 0L;
+            if (existing < 0L || existing > offer.bytes()) {
+                Files.deleteIfExists(partial);
+                existing = 0L;
+            }
+            ServerTransfer transfer = new ServerTransfer(id, offer, partial, result, existing);
+            ServerTransfer previous = SERVER_TRANSFERS.putIfAbsent(id, transfer);
+            if (previous != null) {
+                result.complete(Result.failed("Another server LOD transfer is already active"));
+                return;
+            }
+            message("Receiving stage LOD package '" + id + "' from the server ("
+                    + String.format(java.util.Locale.ROOT, "%.1f", offer.bytes() / 1048576.0D) + " MiB)...");
+            DynamicStageNetwork.requestLodDownload(new LodDownloadRequestPacket(id, offer.sha256(), existing));
+        } catch (Exception e) {
+            result.complete(offer.required() ? Result.failed(rootMessage(e)) : Result.optional(rootMessage(e)));
+        }
+    }
+
+    public static void acceptServerChunk(LodDownloadChunkPacket packet) {
+        ServerTransfer transfer = SERVER_TRANSFERS.get(packet.lodPackId());
+        if (transfer != null && transfer.offer.sha256().equals(packet.sha256())) {
+            EXECUTOR.execute(() -> transfer.acceptChunk(packet));
+        }
+    }
+
+    public static void acceptServerResult(LodDownloadResultPacket packet) {
+        ServerTransfer transfer = SERVER_TRANSFERS.get(packet.lodPackId());
+        if (transfer != null && transfer.offer.sha256().equals(packet.sha256())) {
+            EXECUTOR.execute(() -> transfer.acceptResult(packet));
+        }
+    }
+
+    public static void disconnect() {
+        SERVER_TRANSFERS.forEach((id, transfer) -> {
+            if (SERVER_TRANSFERS.remove(id, transfer)) {
+                EXECUTOR.execute(() -> transfer.fail("Disconnected from the server"));
+            }
+        });
+    }
+
+    private static Path downloadDirectory() {
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("dynamicstage")
+                .resolve("downloads").toAbsolutePath().normalize();
+    }
+
+    private static Result installArchive(ResourceLocation id, LodPackageOffer offer, Path archive) throws IOException {
+        long extractionLimit = Math.min(2L * 1024L * 1024L * 1024L,
+                Math.max(64L * 1024L * 1024L, offer.bytes() * 8L));
+        LodPackArchive.install(archive, LodPackRegistry.rootDirectory(), id, extractionLimit);
+        LodPackRegistry.load(id);
+        message("Installed stage LOD package '" + id + "'.");
+        return Result.ready();
     }
 
     private static boolean validArchive(Path archive, LodPackageOffer offer) throws IOException {
@@ -166,6 +246,101 @@ public final class LodPackDownloadManager {
                 }
                 output.write(buffer, 0, read);
             }
+        }
+    }
+
+    private static final class ServerTransfer {
+        private final ResourceLocation id;
+        private final LodPackageOffer offer;
+        private final Path partial;
+        private final CompletableFuture<Result> result;
+        private long expectedOffset;
+        private OutputStream output;
+
+        private ServerTransfer(ResourceLocation id, LodPackageOffer offer, Path partial,
+                               CompletableFuture<Result> result, long expectedOffset) {
+            this.id = id;
+            this.offer = offer;
+            this.partial = partial;
+            this.result = result;
+            this.expectedOffset = expectedOffset;
+        }
+
+        private void acceptChunk(LodDownloadChunkPacket packet) {
+            if (result.isDone()) {
+                return;
+            }
+            try {
+                if (packet.offset() != expectedOffset) {
+                    fail("Server LOD transfer offset mismatch");
+                    return;
+                }
+                if (output == null && packet.data().length > 0) {
+                    output = Files.newOutputStream(partial, StandardOpenOption.CREATE,
+                            expectedOffset == 0L ? StandardOpenOption.TRUNCATE_EXISTING : StandardOpenOption.APPEND);
+                }
+                byte[] data = packet.data();
+                if (output != null && data.length > 0) {
+                    output.write(data);
+                }
+                expectedOffset += data.length;
+                if (packet.complete()) {
+                    finish();
+                }
+            } catch (IOException | RuntimeException e) {
+                fail(rootMessage(e));
+            }
+        }
+
+        private void acceptResult(LodDownloadResultPacket packet) {
+            if (result.isDone()) {
+                return;
+            }
+            if (!packet.success()) {
+                fail(packet.error());
+            } else if (expectedOffset != offer.bytes()) {
+                fail("Server LOD transfer ended before its declared size");
+            } else {
+                finish();
+            }
+        }
+
+        private void finish() {
+            try {
+                closeOutput();
+                if (expectedOffset != offer.bytes()) {
+                    fail("Server LOD transfer ended before its declared size");
+                    return;
+                }
+                if (!offer.sha256().equals(ContentHash.sha256Hex(partial))) {
+                    Files.deleteIfExists(partial);
+                    fail("Downloaded SHA-256 does not match the server manifest");
+                    return;
+                }
+                Path archive = downloadDirectory().resolve(offer.sha256() + ".dstlod");
+                Files.move(partial, archive, StandardCopyOption.REPLACE_EXISTING);
+                result.complete(installArchive(id, offer, archive));
+                SERVER_TRANSFERS.remove(id, this);
+            } catch (IOException | RuntimeException e) {
+                fail(rootMessage(e));
+            }
+        }
+
+        private void fail(String error) {
+            closeOutput();
+            SERVER_TRANSFERS.remove(id, this);
+            result.complete(offer.required() ? Result.failed(error) : Result.optional(error));
+        }
+
+        private void closeOutput() {
+            if (output == null) {
+                return;
+            }
+            try {
+                output.close();
+            } catch (IOException ignored) {
+            }
+            output = null;
         }
     }
 

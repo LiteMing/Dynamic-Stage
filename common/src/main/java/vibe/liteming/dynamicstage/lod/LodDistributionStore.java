@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
+import vibe.liteming.dynamicstage.util.ContentHash;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -15,12 +16,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Server-side catalog of downloadable LOD archives. */
 public final class LodDistributionStore {
     private static final int FORMAT_VERSION = 1;
     private static final long MAX_FILE_BYTES = 2L * 1024L * 1024L;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Map<Path, LocalArchiveState> LOCAL_ARCHIVES = new ConcurrentHashMap<>();
 
     private LodDistributionStore() {
     }
@@ -30,7 +33,27 @@ public final class LodDistributionStore {
             return null;
         }
         try {
-            return read(server).get(id.toString());
+            LodPackageOffer configured = read(server).get(id.toString());
+            if (configured != null) {
+                return configured;
+            }
+            Path archive = localArchive(server, id);
+            if (!Files.isRegularFile(archive, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                return null;
+            }
+            long bytes = Files.size(archive);
+            if (bytes <= 0L || bytes > LodPackageOffer.MAX_BYTES) {
+                return null;
+            }
+            long modified = Files.getLastModifiedTime(archive,
+                    java.nio.file.LinkOption.NOFOLLOW_LINKS).toMillis();
+            LocalArchiveState cached = LOCAL_ARCHIVES.get(archive);
+            if (cached == null || cached.bytes() != bytes || cached.modified() != modified) {
+                cached = new LocalArchiveState(bytes, modified, ContentHash.sha256Hex(archive));
+                LOCAL_ARCHIVES.put(archive, cached);
+            }
+            return new LodPackageOffer(LodPackageOffer.Delivery.OPTIONAL, "", bytes,
+                    cached.sha256(), true);
         } catch (IOException | RuntimeException ignored) {
             return null;
         }
@@ -73,9 +96,10 @@ public final class LodDistributionStore {
             if (mode == LodPackageOffer.Delivery.LOCAL) {
                 continue;
             }
+            boolean serverHosted = value.has("serverHosted") && value.get("serverHosted").getAsBoolean();
             offers.put(id.toString(), new LodPackageOffer(mode,
-                    value.get("url").getAsString(), value.get("bytes").getAsLong(),
-                    value.get("sha256").getAsString()));
+                    serverHosted ? "" : value.get("url").getAsString(), value.get("bytes").getAsLong(),
+                    value.get("sha256").getAsString(), serverHosted));
         }
         return Map.copyOf(offers);
     }
@@ -100,6 +124,16 @@ public final class LodDistributionStore {
                 .resolve("lod-distribution.json").toAbsolutePath().normalize();
     }
 
+    /** Convention-based archive location that requires no server command or HTTP service. */
+    public static Path localArchive(MinecraftServer server, ResourceLocation id) {
+        return localArchiveRoot(server).resolve(id.getNamespace()).resolve(id.getPath() + ".dstlod").normalize();
+    }
+
+    public static Path localArchiveRoot(MinecraftServer server) {
+        return server.getWorldPath(LevelResource.ROOT).resolve("dynamicstage").resolve("lodpacks")
+                .toAbsolutePath().normalize();
+    }
+
     private static void write(MinecraftServer server, Map<String, LodPackageOffer> offers) throws IOException {
         Path target = path(server);
         Files.createDirectories(target.getParent());
@@ -110,9 +144,14 @@ public final class LodDistributionStore {
             LodPackageOffer offer = entry.getValue();
             JsonObject value = new JsonObject();
             value.addProperty("delivery", offer.delivery().name().toLowerCase(java.util.Locale.ROOT));
-            value.addProperty("url", offer.url());
+            if (!offer.serverHosted()) {
+                value.addProperty("url", offer.url());
+            }
             value.addProperty("bytes", offer.bytes());
             value.addProperty("sha256", offer.sha256());
+            if (offer.serverHosted()) {
+                value.addProperty("serverHosted", true);
+            }
             packs.add(entry.getKey(), value);
         });
         root.add("packs", packs);
@@ -127,5 +166,8 @@ public final class LodDistributionStore {
         } finally {
             Files.deleteIfExists(temporary);
         }
+    }
+
+    private record LocalArchiveState(long bytes, long modified, String sha256) {
     }
 }
