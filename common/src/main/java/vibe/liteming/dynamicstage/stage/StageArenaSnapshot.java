@@ -47,6 +47,7 @@ public final class StageArenaSnapshot {
             throw new IOException("arena structure size does not match the template boundary");
         }
         AABB bounds = boundary.bounds(origin);
+        LoquatArenaCompat.clearTargetAreas(level, bounds, snapshot);
         level.getEntities((Entity) null, bounds, entity -> !(entity instanceof Player)).forEach(Entity::discard);
         BlockPos minimum = minimum(origin, boundary);
         StructurePlaceSettings settings = new StructurePlaceSettings()
