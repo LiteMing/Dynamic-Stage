@@ -104,6 +104,25 @@ public final class StageSessionData extends SavedData {
         }
     }
 
+    public void updateInstanceTemplate(UUID instanceId, String stageId, ResourceLocation lodPackId,
+                                       BlockPos lodAnchor, int capacity, StageBoundary boundary,
+                                       StageClientScene scene, String flightHash, int flightBytes,
+                                       long flightDurationMillis, long flightStartGameTime) {
+        boolean changed = false;
+        for (StageSession session : List.copyOf(sessions.values())) {
+            if (session.instanceId().equals(instanceId)) {
+                StageSession updated = session.withTemplateSettings(stageId, lodPackId, lodAnchor,
+                        capacity, boundary, scene).withFlight(flightHash, flightBytes,
+                        flightDurationMillis, flightStartGameTime);
+                sessions.put(session.playerId(), updated);
+                changed = true;
+            }
+        }
+        if (changed) {
+            setDirty();
+        }
+    }
+
     public void updateInstanceBoundary(UUID instanceId, StageBoundary boundary) {
         boolean changed = false;
         for (StageSession session : List.copyOf(sessions.values())) {

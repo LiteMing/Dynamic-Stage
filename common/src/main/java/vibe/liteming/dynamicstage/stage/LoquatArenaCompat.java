@@ -19,6 +19,10 @@ final class LoquatArenaCompat {
         if (!hasAreas(snapshot)) {
             return;
         }
+        clearAreas(level, bounds);
+    }
+
+    static void clearAreas(ServerLevel level, AABB bounds) throws IOException {
         try {
             Class<?> managerClass = Class.forName(AREA_MANAGER);
             Object manager = managerClass.getMethod("of", ServerLevel.class).invoke(null, level);

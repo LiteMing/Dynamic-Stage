@@ -147,6 +147,11 @@ capacity changes take effect on the next instance. The editor sends only
 bounded template summaries and flight bind/clear actions; LOD databases, arena snapshots, and flight files
 remain local to their existing client/server stores.
 
+While inside a stage, select any saved template with the editor's arrow controls
+and press `Reload` to replace the current instance in place. The instance UUID,
+slot, members, and return locations remain stable while the selected arena,
+boundary, LOD binding, Flight, and client scene are applied to every member.
+
 Portable stage templates are stored under `config/dynamicstage/templates`, so
 they are shared by different saves in the same game or server instance. Saving
 a template captures the active LOD package ID and anchor, boundary, client time
@@ -156,7 +161,9 @@ is still referenced by its client-local package ID and is not copied into the
 template. Global imported flights are stored as one validated `<name>.dat` per
 animation under `.minecraft/dynamicstage`; `/dstage flight use <stage> [flight_name]`
 installs one into another save. `shared` reuses one live instance up to its capacity; `parallel`
-creates an isolated instance for every start. `on_create` restores the arena
+creates an isolated instance for every start. With capacity 1, `parallel` gives each player a
+separate instance, while a full `shared` instance rejects later entries instead of allocating
+another shared copy. `on_create` restores the arena
 snapshot when a new instance is allocated, while `manual` leaves the slot alone
 until `/dstage template reset` is run. Arena snapshots are limited to 256 x 256
 x 128 and 4,194,304 blocks. Mod state stored only in another mod's global

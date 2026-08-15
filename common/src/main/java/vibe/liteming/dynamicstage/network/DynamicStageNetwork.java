@@ -136,7 +136,17 @@ public final class DynamicStageNetwork {
         try {
             StageTemplateSummary summary = packet.template();
             StageTemplate template;
-            if (packet.action() == StageTemplatePackets.Action.CAPTURE_ACTIVE) {
+            if (packet.action() == StageTemplatePackets.Action.RELOAD_ACTIVE) {
+                template = StageTemplateStore.load(summary.id());
+                if (template == null) {
+                    throw new IllegalStateException("Unknown stage template '" + summary.id() + "'");
+                }
+                if (!StageSessionManager.reloadTemplate(player, template)) {
+                    return;
+                }
+                sendTemplateList(player);
+                return;
+            } else if (packet.action() == StageTemplatePackets.Action.CAPTURE_ACTIVE) {
                 StageSession session = StageSessionManager.get(player).orElseThrow(() ->
                         new IllegalStateException("No active stage instance to capture"));
                 template = StageTemplateStore.capture(player.getServer(), session, summary);

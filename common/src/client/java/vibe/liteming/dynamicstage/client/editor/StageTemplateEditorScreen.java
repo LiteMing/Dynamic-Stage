@@ -213,16 +213,19 @@ public final class StageTemplateEditorScreen extends Screen {
     private void buildActions(int left, int panelWidth) {
         int y = height - 26;
         int gap = 3;
-        int buttonWidth = (panelWidth - gap * 3) / 4;
+        int buttonWidth = (panelWidth - gap * 4) / 5;
         addButton(left, y, buttonWidth, text("action.save"), button -> submit(StageTemplatePackets.Action.SAVE));
         Button capture = addButton(left + buttonWidth + gap, y, buttonWidth, text("action.capture"),
                 button -> submit(StageTemplatePackets.Action.CAPTURE_ACTIVE));
         capture.active = ClientStageSession.active() != null;
-        Button enter = addButton(left + (buttonWidth + gap) * 2, y, buttonWidth, text("action.save_and_enter"),
+        Button reload = addButton(left + (buttonWidth + gap) * 2, y, buttonWidth, text("action.reload_active"),
+                button -> submit(StageTemplatePackets.Action.RELOAD_ACTIVE));
+        reload.active = ClientStageSession.active() != null;
+        Button enter = addButton(left + (buttonWidth + gap) * 3, y, buttonWidth, text("action.save_and_enter"),
                 button -> submit(StageTemplatePackets.Action.SAVE_AND_START));
         enter.active = ClientStageSession.active() == null;
-        addButton(left + (buttonWidth + gap) * 3, y,
-                panelWidth - (buttonWidth + gap) * 3, text("action.close"), button -> onClose());
+        addButton(left + (buttonWidth + gap) * 4, y,
+                panelWidth - (buttonWidth + gap) * 4, text("action.close"), button -> onClose());
     }
 
     private void switchTab(Tab next) {
@@ -283,6 +286,8 @@ public final class StageTemplateEditorScreen extends Screen {
             DynamicStageNetwork.editTemplate(new StageTemplatePackets.EditPacket(action, summary));
             setPendingStatus(action == StageTemplatePackets.Action.CAPTURE_ACTIVE
                     ? "status.capturing_stage"
+                    : action == StageTemplatePackets.Action.RELOAD_ACTIVE
+                    ? "status.reloading_stage"
                     : action == StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT
                     ? "status.binding_flight"
                     : action == StageTemplatePackets.Action.CLEAR_FLIGHT

@@ -118,6 +118,7 @@ public final class StageSessionManager {
         }
         ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
         if (stageLevel == null) {
+            player.sendSystemMessage(Component.literal("The Dynamic Stage dimension is unavailable."));
             return false;
         }
         try {
@@ -127,6 +128,132 @@ public final class StageSessionManager {
         } catch (java.io.IOException | RuntimeException e) {
             player.sendSystemMessage(Component.literal("Could not reset the template arena: " + e.getMessage()));
             return false;
+        }
+    }
+
+    /** Replaces the active instance with a saved template while keeping its slot and members. */
+    public static boolean reloadTemplate(ServerPlayer player, StageTemplate template) {
+        MinecraftServer server = player.getServer();
+        StageSession current = get(player).orElse(null);
+        if (server == null || current == null || template == null) {
+            player.sendSystemMessage(Component.literal("No active stage instance can be reloaded."));
+            return false;
+        }
+        if (BACKDROP_SWITCHES.containsKey(current.instanceId())) {
+            player.sendSystemMessage(Component.literal("That stage instance is already switching LOD packages."));
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        java.util.List<StageSession> members = data.members(current.instanceId());
+        long memberCount = members.size() + PENDING.values().stream()
+                .filter(entry -> entry.session.instanceId().equals(current.instanceId())).count();
+        if (memberCount > template.capacity()) {
+            player.sendSystemMessage(Component.literal("The selected template capacity is below the active member count."));
+            return false;
+        }
+        ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
+        if (stageLevel == null) {
+            player.sendSystemMessage(Component.literal("The Dynamic Stage dimension is unavailable."));
+            return false;
+        }
+        final StageFlightAssets.Asset flight;
+        try {
+            flight = StageTemplateStore.installFlight(server, template);
+            StageArenaSnapshot.validate(stageLevel, template.boundary(), template.arenaSnapshot());
+        } catch (java.io.IOException | RuntimeException e) {
+            player.sendSystemMessage(Component.literal("Could not reload stage template: " + e.getMessage()));
+            return false;
+        }
+        ReloadPlan plan = new ReloadPlan(template, flight, player.getUUID());
+        if (!current.lodPackId().equals(template.lodPackId())) {
+            player.sendSystemMessage(Component.literal("Checking the selected template's LOD package for every member..."));
+            return beginBackdropSwitch(player, current, template.lodPackId(),
+                    template.clientScene().lodTransition(), template.clientScene().lodTransitionTicks(), plan);
+        }
+        return applyReloadTemplate(server, current.instanceId(), plan);
+    }
+
+    private static boolean applyReloadTemplate(MinecraftServer server, UUID instanceId, ReloadPlan plan) {
+        StageSessionData data = StageSessionData.get(server);
+        StageSession current = data.findInstance(instanceId).orElse(null);
+        StageTemplate template = plan.template;
+        if (current == null) {
+            sendReloadMessage(server, plan, "Could not reload stage template: the instance is no longer active.");
+            return false;
+        }
+        long memberCount = data.members(instanceId).size() + PENDING.values().stream()
+                .filter(entry -> entry.session.instanceId().equals(instanceId)).count();
+        if (memberCount > template.capacity()) {
+            sendReloadMessage(server, plan,
+                    "Could not reload stage template: its capacity is below the active member count.");
+            return false;
+        }
+        ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
+        if (stageLevel == null) {
+            sendReloadMessage(server, plan, "Could not reload stage template: the stage dimension is unavailable.");
+            return false;
+        }
+        try {
+            StageArenaSnapshot.replace(stageLevel, current.stageOrigin(), current.boundary(),
+                    template.boundary(), template.arenaSnapshot());
+        } catch (java.io.IOException | RuntimeException e) {
+            sendReloadMessage(server, plan, "Could not reload stage template: " + e.getMessage());
+            return false;
+        }
+        long gameTime = server.overworld().getGameTime();
+        StageClientScene scene = template.sceneForNewInstance(server.overworld().getDayTime(), gameTime);
+        StageFlightAssets.Asset flight = plan.flight;
+        long flightStart = flight == null ? -1L : gameTime + 20L;
+        data.updateInstanceTemplate(instanceId, template.id(), template.lodPackId(),
+                template.lodAnchor(), template.capacity(), template.boundary(), scene,
+                flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
+                flight == null ? 0L : flight.durationMillis(), flightStart);
+        PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(instanceId)
+                ? new PendingEntry(entry.session.withTemplateSettings(template.id(), template.lodPackId(),
+                template.lodAnchor(), template.capacity(), template.boundary(), scene)
+                .withFlight(flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
+                        flight == null ? 0L : flight.durationMillis(), flightStart)) : entry);
+        for (StageSession member : data.members(instanceId)) {
+            ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
+            if (target == null) {
+                continue;
+            }
+            if (StageWorlds.isStageLevel(target.level())) {
+                Vec3 clamped = template.boundary().clampPlayer(member.stageOrigin(), target.position(),
+                        target.getBbWidth(), target.getBbHeight());
+                if (!clamped.equals(target.position())) {
+                    target.teleportTo(target.serverLevel(), clamped.x, clamped.y, clamped.z,
+                            target.getYRot(), target.getXRot());
+                }
+            }
+            SENT_FLIGHTS.remove(member.playerId());
+            DynamicStageNetwork.sendSession(target, member);
+            if (flight == null) {
+                DynamicStageNetwork.sendFlight(target,
+                        StageFlightPacket.clear(member.stageId(), scene.lodTransition(), scene.lodTransitionTicks()));
+            } else {
+                DynamicStageNetwork.sendFlight(target,
+                        StageFlightPacket.active(member, flight.sceneJson(), scene.lodTransition(),
+                                scene.lodTransitionTicks()));
+                SENT_FLIGHTS.add(member.playerId());
+            }
+        }
+        for (PendingEntry entry : PENDING.values()) {
+            if (entry.session.instanceId().equals(instanceId)) {
+                ServerPlayer target = server.getPlayerList().getPlayer(entry.session.playerId());
+                if (target != null) {
+                    DynamicStageNetwork.sendSession(target, entry.session);
+                }
+            }
+        }
+        sendReloadMessage(server, plan, "Reloaded stage template '" + template.id() + "'.");
+        return true;
+    }
+
+    private static void sendReloadMessage(MinecraftServer server, ReloadPlan plan, String message) {
+        ServerPlayer requester = server.getPlayerList().getPlayer(plan.requesterId);
+        if (requester != null) {
+            requester.sendSystemMessage(Component.literal(message));
         }
     }
 
@@ -147,6 +274,10 @@ public final class StageSessionManager {
     private static boolean joinExisting(ServerPlayer player, StageSession exemplar) {
         MinecraftServer server = player.getServer();
         if (!canPrepare(player, server)) {
+            return false;
+        }
+        if (BACKDROP_SWITCHES.containsKey(exemplar.instanceId())) {
+            player.sendSystemMessage(Component.literal("That Dynamic Stage instance is changing its backdrop."));
             return false;
         }
         StageSessionData data = StageSessionData.get(server);
@@ -209,10 +340,22 @@ public final class StageSessionManager {
         if (session.lodPackId().equals(lodPackId)) {
             return true;
         }
+        return beginBackdropSwitch(player, session, lodPackId, transition, transitionTicks, null);
+    }
+
+    private static boolean beginBackdropSwitch(ServerPlayer player, StageSession session,
+                                               ResourceLocation lodPackId,
+                                               StageClientScene.Transition transition,
+                                               int transitionTicks, ReloadPlan reloadPlan) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
         long deadline = server.overworld().getGameTime()
                 + transitionTicks / 2L + BACKDROP_SWITCH_TIMEOUT_MARGIN_TICKS;
         BackdropSwitchState state = new BackdropSwitchState(
-                session.lodPackId(), lodPackId, new HashSet<>(), deadline);
+                session.lodPackId(), lodPackId, new HashSet<>(), deadline, reloadPlan);
         if (BACKDROP_SWITCHES.putIfAbsent(session.instanceId(), state) != null) {
             player.sendSystemMessage(Component.literal("That stage instance is already switching LOD packages."));
             return false;
@@ -245,6 +388,10 @@ public final class StageSessionManager {
         }
         if (state.awaiting.isEmpty()) {
             BACKDROP_SWITCHES.remove(session.instanceId(), state);
+            if (reloadPlan != null && !applyReloadTemplate(server, session.instanceId(), reloadPlan)) {
+                rollbackBackdropSwitch(server, session.instanceId(), state, "stage template reload failed");
+                return false;
+            }
         }
         return true;
     }
@@ -264,7 +411,11 @@ public final class StageSessionManager {
             state.awaiting.remove(player.getUUID());
             warnMissingLod(player, packet.error());
             if (state.awaiting.isEmpty()) {
-                BACKDROP_SWITCHES.remove(packet.instanceId(), state);
+                if (BACKDROP_SWITCHES.remove(packet.instanceId(), state)
+                        && state.reloadPlan != null
+                        && !applyReloadTemplate(server, packet.instanceId(), state.reloadPlan)) {
+                    rollbackBackdropSwitch(server, packet.instanceId(), state, "stage template reload failed");
+                }
             }
             return;
         }
@@ -559,7 +710,7 @@ public final class StageSessionManager {
         boolean cancelled = PENDING.remove(player.getUUID()) != null;
         Optional<StageSession> removed = StageSessionData.get(server).remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
-        removeBackdropSwitchWait(player.getUUID());
+        removeBackdropSwitchWait(server, player.getUUID());
         clearPlayerMarker(player);
         if (removed.isEmpty()) {
             DynamicStageNetwork.clearSession(player);
@@ -587,7 +738,7 @@ public final class StageSessionManager {
         }
         PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
-        removeBackdropSwitchWait(player.getUUID());
+        removeBackdropSwitchWait(server, player.getUUID());
         clearPlayerMarker(player);
         DynamicStageNetwork.clearSession(player);
     }
@@ -595,7 +746,7 @@ public final class StageSessionManager {
     public static void onLogout(ServerPlayer player) {
         PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
-        removeBackdropSwitchWait(player.getUUID());
+        removeBackdropSwitchWait(player.getServer(), player.getUUID());
     }
 
     public static void onServerStopped() {
@@ -799,11 +950,18 @@ public final class StageSessionManager {
         StagePlatform.clearInstanceMarker(player);
     }
 
-    private static void removeBackdropSwitchWait(UUID playerId) {
-        BACKDROP_SWITCHES.entrySet().removeIf(entry -> {
-            entry.getValue().awaiting.remove(playerId);
-            return entry.getValue().awaiting.isEmpty();
-        });
+    private static void removeBackdropSwitchWait(MinecraftServer server, UUID playerId) {
+        if (server == null) {
+            return;
+        }
+        for (var entry : BACKDROP_SWITCHES.entrySet()) {
+            BackdropSwitchState state = entry.getValue();
+            if (state.awaiting.remove(playerId) && state.awaiting.isEmpty()
+                    && BACKDROP_SWITCHES.remove(entry.getKey(), state) && state.reloadPlan != null) {
+                rollbackBackdropSwitch(server, entry.getKey(), state,
+                        "stage template reload cancelled because a member left");
+            }
+        }
     }
 
     private static void rollbackBackdropSwitch(MinecraftServer server, UUID instanceId,
@@ -825,7 +983,10 @@ public final class StageSessionManager {
     private record PendingEntry(StageSession session) {
     }
 
+    private record ReloadPlan(StageTemplate template, StageFlightAssets.Asset flight, UUID requesterId) {
+    }
+
     private record BackdropSwitchState(ResourceLocation previous, ResourceLocation target,
-                                       Set<UUID> awaiting, long deadlineGameTime) {
+                                       Set<UUID> awaiting, long deadlineGameTime, ReloadPlan reloadPlan) {
     }
 }

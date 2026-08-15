@@ -34,7 +34,7 @@ public final class StageTemplatePackets {
         }
     }
 
-    public enum Action { SAVE, SAVE_AND_START, CAPTURE_ACTIVE, USE_CONFIGURED_FLIGHT, CLEAR_FLIGHT }
+    public enum Action { SAVE, SAVE_AND_START, CAPTURE_ACTIVE, RELOAD_ACTIVE, USE_CONFIGURED_FLIGHT, CLEAR_FLIGHT }
 
     public static void encodeList(ListPacket packet, FriendlyByteBuf buf) {
         buf.writeVarInt(packet.templates.size());

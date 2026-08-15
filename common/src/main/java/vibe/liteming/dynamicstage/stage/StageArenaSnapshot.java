@@ -8,6 +8,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.phys.AABB;
@@ -36,6 +37,40 @@ public final class StageArenaSnapshot {
         if (snapshot.isEmpty()) {
             return;
         }
+        StructureTemplate structure = read(level, boundary, snapshot);
+        AABB bounds = boundary.bounds(origin);
+        LoquatArenaCompat.clearTargetAreas(level, bounds, snapshot);
+        level.getEntities((Entity) null, bounds, entity -> !(entity instanceof Player)).forEach(Entity::discard);
+        place(level, origin, boundary, structure);
+    }
+
+    public static void validate(ServerLevel level, StageBoundary boundary, CompoundTag snapshot) throws IOException {
+        if (!snapshot.isEmpty()) {
+            read(level, boundary, snapshot);
+        }
+    }
+
+    /** Replaces a live arena and removes blocks left outside a smaller new boundary. */
+    public static void replace(ServerLevel level, BlockPos origin, StageBoundary previousBoundary,
+                               StageBoundary boundary, CompoundTag snapshot) throws IOException {
+        if (snapshot.isEmpty()) {
+            return;
+        }
+        StructureTemplate structure = read(level, boundary, snapshot);
+        AABB previousBounds = previousBoundary.bounds(origin);
+        AABB nextBounds = boundary.bounds(origin);
+        AABB affected = new AABB(Math.min(previousBounds.minX, nextBounds.minX),
+                Math.min(previousBounds.minY, nextBounds.minY), Math.min(previousBounds.minZ, nextBounds.minZ),
+                Math.max(previousBounds.maxX, nextBounds.maxX), Math.max(previousBounds.maxY, nextBounds.maxY),
+                Math.max(previousBounds.maxZ, nextBounds.maxZ));
+        LoquatArenaCompat.clearAreas(level, affected);
+        level.getEntities((Entity) null, affected, entity -> !(entity instanceof Player)).forEach(Entity::discard);
+        clearPreviousRemainder(level, origin, previousBoundary, boundary);
+        place(level, origin, boundary, structure);
+    }
+
+    private static StructureTemplate read(ServerLevel level, StageBoundary boundary,
+                                          CompoundTag snapshot) throws IOException {
         validateSize(boundary);
         StructureTemplate structure;
         try {
@@ -46,14 +81,50 @@ public final class StageArenaSnapshot {
         if (!structure.getSize().equals(size(boundary))) {
             throw new IOException("arena structure size does not match the template boundary");
         }
-        AABB bounds = boundary.bounds(origin);
-        LoquatArenaCompat.clearTargetAreas(level, bounds, snapshot);
-        level.getEntities((Entity) null, bounds, entity -> !(entity instanceof Player)).forEach(Entity::discard);
+        return structure;
+    }
+
+    private static void place(ServerLevel level, BlockPos origin, StageBoundary boundary,
+                              StructureTemplate structure) throws IOException {
         BlockPos minimum = minimum(origin, boundary);
         StructurePlaceSettings settings = new StructurePlaceSettings()
                 .setIgnoreEntities(false).setFinalizeEntities(true).setKeepLiquids(false);
         if (!structure.placeInWorld(level, minimum, minimum, settings, RandomSource.create(), Block.UPDATE_ALL)) {
             throw new IOException("the arena structure could not be placed");
+        }
+    }
+
+    private static void clearPreviousRemainder(ServerLevel level, BlockPos origin,
+                                               StageBoundary previousBoundary, StageBoundary boundary) {
+        BlockPos previousMinimum = minimum(origin, previousBoundary);
+        BlockPos nextMinimum = minimum(origin, boundary);
+        int nextMaxX = nextMinimum.getX() + boundary.width();
+        int nextMaxY = nextMinimum.getY() + boundary.height();
+        int nextMaxZ = nextMinimum.getZ() + boundary.depth();
+        int previousMaxX = previousMinimum.getX() + previousBoundary.width();
+        int previousMaxY = previousMinimum.getY() + previousBoundary.height();
+        int previousMaxZ = previousMinimum.getZ() + previousBoundary.depth();
+        if (previousMinimum.getX() >= nextMinimum.getX() && previousMaxX <= nextMaxX
+                && previousMinimum.getY() >= nextMinimum.getY() && previousMaxY <= nextMaxY
+                && previousMinimum.getZ() >= nextMinimum.getZ() && previousMaxZ <= nextMaxZ) {
+            return;
+        }
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        int flags = Block.UPDATE_CLIENTS | Block.UPDATE_SUPPRESS_DROPS;
+        for (int x = previousMinimum.getX(); x < previousMaxX; x++) {
+            for (int y = previousMinimum.getY(); y < previousMaxY; y++) {
+                for (int z = previousMinimum.getZ(); z < previousMaxZ; z++) {
+                    if (x >= nextMinimum.getX() && x < nextMaxX
+                            && y >= nextMinimum.getY() && y < nextMaxY
+                            && z >= nextMinimum.getZ() && z < nextMaxZ) {
+                        continue;
+                    }
+                    cursor.set(x, y, z);
+                    if (!level.isEmptyBlock(cursor)) {
+                        level.setBlock(cursor, Blocks.AIR.defaultBlockState(), flags);
+                    }
+                }
+            }
         }
     }
 

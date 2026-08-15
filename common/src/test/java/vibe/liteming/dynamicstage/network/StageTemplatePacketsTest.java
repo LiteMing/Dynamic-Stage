@@ -25,17 +25,17 @@ class StageTemplatePacketsTest {
                 StageClientScene.SkyMode.END), 4, StageTemplate.InstanceMode.SHARED,
                 StageTemplate.ResetPolicy.ON_CREATE, "scarlet");
         FriendlyByteBuf listBuffer = new FriendlyByteBuf(Unpooled.buffer());
-        FriendlyByteBuf editBuffer = new FriendlyByteBuf(Unpooled.buffer());
-
         StageTemplatePackets.ListPacket list = new StageTemplatePackets.ListPacket(List.of(summary));
         StageTemplatePackets.encodeList(list, listBuffer);
-        StageTemplatePackets.EditPacket edit = new StageTemplatePackets.EditPacket(
-                StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT, summary);
-        StageTemplatePackets.encodeEdit(edit, editBuffer);
-
         assertEquals(list, StageTemplatePackets.decodeList(listBuffer));
-        assertEquals(edit, StageTemplatePackets.decodeEdit(editBuffer));
         listBuffer.release();
-        editBuffer.release();
+
+        for (StageTemplatePackets.Action action : StageTemplatePackets.Action.values()) {
+            FriendlyByteBuf editBuffer = new FriendlyByteBuf(Unpooled.buffer());
+            StageTemplatePackets.EditPacket edit = new StageTemplatePackets.EditPacket(action, summary);
+            StageTemplatePackets.encodeEdit(edit, editBuffer);
+            assertEquals(edit, StageTemplatePackets.decodeEdit(editBuffer));
+            editBuffer.release();
+        }
     }
 }

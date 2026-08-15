@@ -104,6 +104,14 @@ public record StageSession(
                 flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
+    public StageSession withTemplateSettings(String newStageId, ResourceLocation pack, BlockPos anchor,
+                                             int newCapacity, StageBoundary newBoundary,
+                                             StageClientScene scene) {
+        return new StageSession(playerId, instanceId, newStageId, pack, anchor, slot, newCapacity,
+                newBoundary, scene, returnDimension, returnPosition, returnYRot, returnXRot,
+                flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+    }
+
     public StageSession withFlight(String hash, int bytes, long durationMillis, long startGameTime) {
         return new StageSession(playerId, instanceId, stageId, lodPackId, lodAnchor, slot, capacity, boundary,
                 clientScene, returnDimension, returnPosition, returnYRot, returnXRot,
