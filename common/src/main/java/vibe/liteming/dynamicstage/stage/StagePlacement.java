@@ -21,4 +21,11 @@ public final class StagePlacement {
         int gridZ = slot / REGIONS_PER_ROW;
         return new BlockPos(gridX * REGION_SPACING, STAGE_Y, gridZ * REGION_SPACING);
     }
+
+    /** Assigns a non-player entity to the isolated region surrounding an active slot. */
+    public static boolean containsRegion(BlockPos origin, double x, double z) {
+        double halfSpacing = REGION_SPACING * 0.5D;
+        return x >= origin.getX() - halfSpacing && x < origin.getX() + halfSpacing
+                && z >= origin.getZ() - halfSpacing && z < origin.getZ() + halfSpacing;
+    }
 }

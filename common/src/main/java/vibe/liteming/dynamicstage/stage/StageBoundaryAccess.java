@@ -1,6 +1,7 @@
 package vibe.liteming.dynamicstage.stage;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import vibe.liteming.dynamicstage.world.StageWorlds;
@@ -18,8 +19,11 @@ public final class StageBoundaryAccess {
         if (entity == null || entity.isSpectator() || !StageWorlds.isStageLevel(entity.level())) {
             return null;
         }
-        if (!entity.level().isClientSide && entity instanceof ServerPlayer player) {
-            StageSession session = StageSessionManager.get(player).orElse(null);
+        if (!entity.level().isClientSide && entity.level() instanceof ServerLevel serverLevel) {
+            StageSession session = entity instanceof ServerPlayer player
+                    ? StageSessionManager.get(player).orElse(null)
+                    : StageSessionData.get(serverLevel.getServer())
+                    .findRegion(entity.getX(), entity.getZ()).orElse(null);
             return session == null ? null : new Located(session.stageOrigin(), session.boundary());
         }
         ClientBoundary local = clientBoundary;

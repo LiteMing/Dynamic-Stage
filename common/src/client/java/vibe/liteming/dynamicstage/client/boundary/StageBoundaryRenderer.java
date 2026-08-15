@@ -44,6 +44,9 @@ public final class StageBoundaryRenderer {
             return;
         }
         AABB bounds = boundary.bounds(session.stageOrigin());
+        // Keep the virtual walls visible while an observer is just outside
+        // the play area; the normal distance fade is useful only from inside.
+        boolean outsideBoundary = !bounds.contains(player.position());
         Vec3 cameraPosition = camera.getPosition();
         int color = display.color(boundary.color());
         int red = color >> 16 & 255;
@@ -67,17 +70,23 @@ public final class StageBoundaryRenderer {
         double z1 = clamp(player.getZ() + SEGMENT_RADIUS, bounds.minZ, bounds.maxZ);
 
         drawYZ(matrix, bounds.minX, y0, y1, z0, z1,
-                fade(player.getX() - bounds.minX, display), red, green, blue, display.opacity());
+                outsideBoundary ? 1.0D : fade(player.getX() - bounds.minX, display),
+                red, green, blue, display.opacity());
         drawYZ(matrix, bounds.maxX, y0, y1, z0, z1,
-                fade(bounds.maxX - player.getX(), display), red, green, blue, display.opacity());
+                outsideBoundary ? 1.0D : fade(bounds.maxX - player.getX(), display),
+                red, green, blue, display.opacity());
         drawXY(matrix, bounds.minZ, x0, x1, y0, y1,
-                fade(player.getZ() - bounds.minZ, display), red, green, blue, display.opacity());
+                outsideBoundary ? 1.0D : fade(player.getZ() - bounds.minZ, display),
+                red, green, blue, display.opacity());
         drawXY(matrix, bounds.maxZ, x0, x1, y0, y1,
-                fade(bounds.maxZ - player.getZ(), display), red, green, blue, display.opacity());
+                outsideBoundary ? 1.0D : fade(bounds.maxZ - player.getZ(), display),
+                red, green, blue, display.opacity());
         drawXZ(matrix, bounds.minY, x0, x1, z0, z1,
-                fade(player.getY() - bounds.minY, display), red, green, blue, display.opacity());
+                outsideBoundary ? 1.0D : fade(player.getY() - bounds.minY, display),
+                red, green, blue, display.opacity());
         drawXZ(matrix, bounds.maxY, x0, x1, z0, z1,
-                fade(bounds.maxY - player.getY(), display), red, green, blue, display.opacity());
+                outsideBoundary ? 1.0D : fade(bounds.maxY - player.getY(), display),
+                red, green, blue, display.opacity());
 
         RenderSystem.lineWidth(1.0F);
         RenderSystem.depthMask(true);

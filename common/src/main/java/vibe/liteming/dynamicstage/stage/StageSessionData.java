@@ -63,6 +63,12 @@ public final class StageSessionData extends SavedData {
         return sessions.values().stream().filter(session -> session.instanceId().equals(instanceId)).findFirst();
     }
 
+    public Optional<StageSession> findRegion(double x, double z) {
+        return sessions.values().stream()
+                .filter(session -> StagePlacement.containsRegion(session.stageOrigin(), x, z))
+                .findFirst();
+    }
+
     public List<StageSession> members(UUID instanceId) {
         return sessions.values().stream().filter(session -> session.instanceId().equals(instanceId)).toList();
     }

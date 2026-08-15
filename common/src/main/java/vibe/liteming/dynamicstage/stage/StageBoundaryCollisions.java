@@ -1,6 +1,7 @@
 package vibe.liteming.dynamicstage.stage;
 
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -15,6 +16,12 @@ public final class StageBoundaryCollisions {
     }
 
     public static void collect(Entity entity, AABB expandedBox, Consumer<VoxelShape> consumer) {
+        // Projectiles are intentionally allowed to leave the arena. This is
+        // needed for bullets, arrows, and other scripted effects that travel
+        // through the backdrop or are cleaned up outside the play area.
+        if (entity instanceof Projectile) {
+            return;
+        }
         StageBoundaryAccess.Located located = StageBoundaryAccess.find(entity);
         if (located == null) {
             return;
