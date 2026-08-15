@@ -47,4 +47,15 @@ class StageCoordinateMapperTest {
                 StageCoordinateMapper.map(LOD_ANCHOR, new BlockPos(4096, 80, 0),
                         new Vec3(4108.5D, 83.0D, -2.5D), 2.0F));
     }
+
+    @Test
+    void doesNotScaleThirdPersonCameraOffset() {
+        BlockPos stageOrigin = new BlockPos(4096, 80, 0);
+        Vec3 player = new Vec3(4108.5D, 81.0D, -4.5D);
+        Vec3 thirdPersonCamera = new Vec3(4108.5D, 83.0D, -8.5D);
+
+        assertEquals(new Vec3(24.5D, 104.0D, -13.5D),
+                StageCoordinateMapper.mapCamera(LOD_ANCHOR, stageOrigin,
+                        player, thirdPersonCamera, true, 2.0F));
+    }
 }

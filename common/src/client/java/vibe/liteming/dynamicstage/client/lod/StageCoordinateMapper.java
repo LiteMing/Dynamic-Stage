@@ -17,7 +17,8 @@ public final class StageCoordinateMapper {
         if (minecraft.level == null || minecraft.player == null) {
             return null;
         }
-        return mapCamera(snapshot.lodAnchor(), snapshot.stageOrigin(), minecraft.player.position(),
+        float partialTick = minecraft.getFrameTime();
+        return mapCamera(snapshot.lodAnchor(), snapshot.stageOrigin(), minecraft.player.getPosition(partialTick),
                 minecraft.gameRenderer.getMainCamera().getPosition(), snapshot.clientScene().followPlayer(),
                 snapshot.clientScene().lodMovementScale());
     }
@@ -50,8 +51,11 @@ public final class StageCoordinateMapper {
 
     static Vec3 mapCamera(BlockPos lodAnchor, BlockPos stageOriginBlock, Vec3 playerPosition,
                           Vec3 cameraPosition, boolean followPlayer, float movementScale) {
-        return followPlayer ? map(lodAnchor, stageOriginBlock, cameraPosition, movementScale)
-                : anchor(lodAnchor).add(cameraPosition.subtract(playerPosition));
+        Vec3 cameraOffset = cameraPosition.subtract(playerPosition);
+        Vec3 mappedPlayer = followPlayer
+                ? map(lodAnchor, stageOriginBlock, playerPosition, movementScale)
+                : anchor(lodAnchor);
+        return mappedPlayer.add(cameraOffset);
     }
 
     private static Vec3 blockCenter(BlockPos position) {
