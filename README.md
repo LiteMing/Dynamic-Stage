@@ -196,7 +196,7 @@ Backdrop and time settings belong to the instance and are broadcast to all membe
 
 LOD visibility and live LOD package or Flight replacements can be instant, fade, or blur transitions. Persistent blur is independent from transitions and uses a `0..32` pixel radius; `0` disables it. DH near fade remains configurable. Voxy's stage projection always uses its depth-safe `0.1` near plane; `voxy-culling=false` preserves the LOD section containing the camera instead of changing projection depth. This Voxy override requires the matching HDRS Voxy build and leaves normal-world Voxy culling unchanged. Dynamic Stage filters only the native backend's intermediate LOD color texture before DH or Voxy performs its original depth-aware composite, so the sky, stage blocks, entities, and UI are not blurred.
 
-Version 1.2.1 intentionally exposes command-level runtime scheduling rather than an internal cue timeline. Repeated `/dstage backdrop switch`, `/dstage flight play`, and `/dstage flight stop` commands can combine any number of named LOD packages and global Flights during one instance. Each command applies to every member of that instance. KubeJS or another server script can issue them from music markers, player NBT, or timed events; Flight motion uses a shared server game-time epoch so all clients sample the same animation position.
+Version 1.2.2 exposes command-level runtime scheduling rather than an internal cue timeline. Repeated `/dstage backdrop switch`, `/dstage flight play`, and `/dstage flight stop` commands can combine any number of named LOD packages and global Flights during one instance. Each command applies to every member of that instance. KubeJS or another server script can issue them from music markers, player NBT, or timed events; Flight motion uses a shared server game-time epoch so all clients sample the same animation position.
 
 ## CMDCam and music
 
@@ -220,8 +220,8 @@ Build and run tests:
 .\gradlew.bat clean build
 ```
 
-The release outputs are `fabric/build/libs/dstage-fabric-1.2.1.jar` and
-`forge/build/libs/dstage-forge-1.2.1.jar`. They do not embed DH, Voxy, CMDCam,
+The release outputs are `fabric/build/libs/dstage-fabric-1.2.2.jar` and
+`forge/build/libs/dstage-forge-1.2.2.jar`. They do not embed DH, Voxy, CMDCam,
 SQLite, RocksDB, or compression libraries.
 
 Run the default Forge client with DH and Oculus shader compatibility:
