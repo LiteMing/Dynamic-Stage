@@ -22,11 +22,16 @@ public final class VoxyBackdropRuntime {
     private static final Logger LOGGER = LoggerFactory.getLogger(VoxyBackdropRuntime.class);
     private static final String VOXY_COMMON = "me.cortex.voxy.commonImpl.VoxyCommon";
     private static final String VOXY_RENDERER = "me.cortex.voxy.client.core.IGetVoxyRenderSystem";
+    private static final String VOXY_STAGE_COMPAT = "me.cortex.voxy.client.DynamicStageCompat";
 
     @Nullable private static volatile Mounted mounted;
+    @Nullable private static Method preserveCameraSectionMethod;
+    @Nullable private static Boolean lastPreserveCameraSection;
     private static boolean stageActivated;
     private static boolean normalInstanceSuspended;
     private static boolean externalInstanceActive;
+    private static boolean stageCompatResolved;
+    private static boolean stageCompatWarningLogged;
 
     private VoxyBackdropRuntime() {
     }
@@ -59,6 +64,7 @@ public final class VoxyBackdropRuntime {
         Mounted previous = mounted;
         mounted = null;
         stageActivated = false;
+        setPreserveCameraSection(false);
         if (previous == null || !normalInstanceSuspended) {
             return;
         }
@@ -156,19 +162,51 @@ public final class VoxyBackdropRuntime {
         return mounted != null && externalInstanceActive;
     }
 
-    public static float scaleNearClip(float original) {
-        if (!Float.isFinite(original) || !shouldOverrideCurrentStage()) {
-            return original;
-        }
+    public static void syncCameraSectionCulling() {
+        boolean preserve = false;
         ClientStageSession.Snapshot snapshot = ClientStageSession.active();
-        if (snapshot == null || !StageWorlds.isStageLevel(Minecraft.getInstance().level)
-                || !isMounted(snapshot.instanceId())) {
-            return original;
+        if (snapshot != null && shouldOverrideCurrentStage()
+                && StageWorlds.isStageLevel(Minecraft.getInstance().level)
+                && isMounted(snapshot.instanceId())) {
+            preserve = !snapshot.clientScene().voxyNearCulling();
         }
-        return original * snapshot.clientScene().voxyNearClipScale();
+        setPreserveCameraSection(preserve);
+    }
+
+    private static void setPreserveCameraSection(boolean preserve) {
+        if (!stageCompatResolved) {
+            stageCompatResolved = true;
+            try {
+                preserveCameraSectionMethod = Class.forName(VOXY_STAGE_COMPAT)
+                        .getMethod("setPreserveCameraSection", boolean.class);
+            } catch (ClassNotFoundException | NoSuchMethodException ignored) {
+                preserveCameraSectionMethod = null;
+            }
+        }
+        Method method = preserveCameraSectionMethod;
+        if (method == null) {
+            if (preserve && !stageCompatWarningLogged) {
+                stageCompatWarningLogged = true;
+                LOGGER.warn("Voxy camera-section culling cannot be disabled; install the Dynamic Stage HDRS Voxy build");
+            }
+            return;
+        }
+        if (lastPreserveCameraSection != null && lastPreserveCameraSection == preserve) {
+            return;
+        }
+        try {
+            method.invoke(null, preserve);
+            lastPreserveCameraSection = preserve;
+        } catch (ReflectiveOperationException e) {
+            if (!stageCompatWarningLogged) {
+                stageCompatWarningLogged = true;
+                LOGGER.warn("Could not configure Voxy camera-section culling: {}", rootMessage(e));
+            }
+        }
     }
 
     public static void leaveStageLevel() {
+        setPreserveCameraSection(false);
         if (mounted == null || !normalInstanceSuspended) {
             return;
         }

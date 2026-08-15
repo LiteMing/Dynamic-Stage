@@ -10,11 +10,17 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.joml.Matrix4f;
 import vibe.liteming.dynamicstage.client.lod.StageBackdropRuntime;
 import vibe.liteming.dynamicstage.client.lod.StageLodCamera;
+import vibe.liteming.dynamicstage.client.lod.VoxyBackdropRuntime;
 import vibe.liteming.dynamicstage.client.lod.VoxyVirtualCamera;
 
 @Pseudo
 @Mixin(targets = "me.cortex.voxy.client.core.VoxyRenderSystem", remap = false)
 public abstract class VoxyCameraMixin {
+    @Inject(method = "setupViewport", at = @At("HEAD"), require = 0, remap = false)
+    private void dynamicstage$configureCameraSectionCulling(CallbackInfoReturnable<Object> callback) {
+        VoxyBackdropRuntime.syncCameraSectionCulling();
+    }
+
     @ModifyVariable(method = "setupViewport", at = @At("HEAD"), argsOnly = true,
             ordinal = 0, require = 0, remap = false)
     private double dynamicstage$cameraX(double original) {

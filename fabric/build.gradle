@@ -31,7 +31,7 @@ configurations {
 
 def localVoxyDirectory = rootProject.file("../voxy-thirdparty-java17/build")
 def localVoxyDevJar = new File(localVoxyDirectory,
-        "devlibs/voxy-${rootProject.voxy_modrinth_version}-dev.jar")
+        "devlibs/voxy-${rootProject.voxy_modrinth_version}-HDRS-${rootProject.voxy_hdrs_version}-dev.jar")
 def localNamedSodium = fileTree(new File(localVoxyDirectory, "loom-cache/remapped_working")) {
     include "*maven.modrinth-sodium-mc1.20.1-0.5.13-fabric.jar"
 }

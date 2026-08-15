@@ -19,8 +19,14 @@ def forgeDhRun = requestedRunTasks.any { it == "runClient" || it == "runDhClient
 def forgeVoxyRun = requestedRunTasks.any {
     it == "runVoxyClient" || it == "prepareNamedConnector"
 }
-def localVoxyJar = rootProject.file(
-        "../voxy-thirdparty-java17/build/libs/voxy-${rootProject.voxy_modrinth_version}.jar")
+def localVoxyDirectory = rootProject.file("../voxy-thirdparty-java17/build/libs")
+def localVoxyCandidates = fileTree(localVoxyDirectory) {
+    include "voxy-${rootProject.voxy_modrinth_version}-HDRS-${rootProject.voxy_hdrs_version}-*.jar"
+    exclude "*-sources.jar"
+}.files.sort { it.lastModified() }
+def localVoxyJar = localVoxyCandidates.isEmpty()
+        ? rootProject.file("../voxy-thirdparty-java17/build/libs/voxy-${rootProject.voxy_modrinth_version}.jar")
+        : localVoxyCandidates.last()
 def connectorVersion = rootProject.connector_modrinth_version
 def connectorNestedPath = "META-INF/jarjar/Connector-${connectorVersion}-mod.jar"
 def oculusJar = layout.buildDirectory.file(

@@ -3,8 +3,6 @@ package vibe.liteming.dynamicstage.mixin;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Constant;
-import org.spongepowered.asm.mixin.injection.ModifyConstant;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import vibe.liteming.dynamicstage.client.lod.VoxyBackdropRuntime;
 
@@ -13,12 +11,6 @@ import vibe.liteming.dynamicstage.client.lod.VoxyBackdropRuntime;
 @Mixin(targets = "me.cortex.voxy.client.core.VoxyRenderSystem", remap = false)
 public abstract class VoxyNearClipMixin {
 
-    @ModifyConstant(method = "computeProjectionMat(Lorg/joml/Matrix4fc;)Lorg/joml/Matrix4f;",
-            constant = @Constant(floatValue = 0.1F), require = 0, remap = false)
-    private static float dynamicstage$scaleStageNearClip(float original) {
-        return VoxyBackdropRuntime.scaleNearClip(original);
-    }
-
     @Redirect(method = "computeProjectionMat(Lorg/joml/Matrix4fc;)Lorg/joml/Matrix4f;",
             at = @At(value = "INVOKE",
                     target = "Lme/cortex/voxy/client/VoxyClient;disableSodiumChunkRender()Z"),
@@ -26,7 +18,7 @@ public abstract class VoxyNearClipMixin {
             remap = false)
     private static boolean dynamicstage$renderUpToStageCamera() {
         // Voxy 0.2.14 normally returns false here. Returning true selects its
-        // 0.1 near plane without changing Sodium's own chunk renderer.
+        // fixed 0.1 near plane without changing Sodium's own chunk renderer.
         return VoxyBackdropRuntime.shouldOverrideCurrentStage();
     }
 

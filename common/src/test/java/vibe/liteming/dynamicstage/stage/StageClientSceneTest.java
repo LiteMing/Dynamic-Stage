@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class StageClientSceneTest {
     @Test
     void persistsAllClientSceneSettings() {
-        StageClientScene scene = new StageClientScene(false, 0.5F, 0.125F, 0.025F, false, 6.5F,
+        StageClientScene scene = new StageClientScene(false, 0.5F, 0.125F, true, false, 6.5F,
                 StageClientScene.Transition.BLUR, 40, 250L,
                 StageClientScene.TimeMode.CYCLE, 18_000L, 200L, 1_200L, StageClientScene.SkyMode.END);
 
@@ -17,12 +17,13 @@ class StageClientSceneTest {
     }
 
     @Test
-    void legacySceneTagsUseDefaultVoxyNearClipScale() {
+    void legacySceneTagsDisableVoxyNearCulling() {
         CompoundTag tag = StageClientScene.defaults(6000L, 20L).save();
-        tag.remove("VoxyNearClipScale");
+        tag.remove("VoxyNearCulling");
+        tag.putFloat("VoxyNearClipScale", 0.01F);
 
-        assertEquals(StageClientScene.DEFAULT_VOXY_NEAR_CLIP_SCALE,
-                StageClientScene.load(tag).voxyNearClipScale());
+        assertEquals(StageClientScene.DEFAULT_VOXY_NEAR_CULLING,
+                StageClientScene.load(tag).voxyNearCulling());
     }
 
     @Test
