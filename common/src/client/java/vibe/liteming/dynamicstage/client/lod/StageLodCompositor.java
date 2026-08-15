@@ -138,7 +138,7 @@ public final class StageLodCompositor {
                 || !StageBackdropRuntime.isMounted(snapshot.instanceId())) {
             return null;
         }
-        return StageBackdropEffects.sample(snapshot.clientScene(), minecraft.level.getGameTime(),
+        return ClientStageSession.backdropEffects(snapshot.clientScene(), minecraft.level.getGameTime(),
                 minecraft.getFrameTime());
     }
 

@@ -49,6 +49,7 @@ public final class FabricStageEvents {
             }
         });
         ServerTickEvents.END_SERVER_TICK.register(server -> {
+            StageSessionManager.tick(server);
             RESPAWN_EXITS.forEach((playerId, delay) -> {
                 if (delay > 0) {
                     RESPAWN_EXITS.replace(playerId, delay, delay - 1);

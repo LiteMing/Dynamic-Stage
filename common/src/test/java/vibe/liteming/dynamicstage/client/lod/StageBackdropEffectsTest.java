@@ -37,6 +37,37 @@ class StageBackdropEffectsTest {
         assertFalse(state.translucent());
     }
 
+    @Test
+    void lodSourceSwitchMeetsAtAHiddenBlurredMidpoint() {
+        StageClientScene scene = scene(true, 3.0F, StageClientScene.Transition.INSTANT, 0, 100L);
+
+        StageBackdropEffects.State outgoing = StageBackdropEffects.sampleSwitch(
+                scene, StageClientScene.Transition.BLUR, true, 0.5F);
+        StageBackdropEffects.State incoming = StageBackdropEffects.sampleSwitch(
+                scene, StageClientScene.Transition.BLUR, false, 0.0F);
+
+        assertEquals(0.5F, outgoing.opacity(), 0.0001F);
+        assertEquals(11.0F, outgoing.blurRadius(), 0.0001F);
+        assertTrue(incoming.hidden());
+        assertEquals(19.0F, incoming.blurRadius(), 0.0001F);
+    }
+
+    @Test
+    void flightSwapFadesOutThenBackIn() {
+        StageClientScene scene = scene(true, 0.0F, StageClientScene.Transition.INSTANT, 0, 100L);
+        try {
+            StageBackdropEffects.beginSwap(StageClientScene.Transition.FADE, 20, 100L);
+
+            assertEquals(1.0F, StageBackdropEffects.sample(scene, 100L, 0.0F).opacity(), 0.0001F);
+            assertEquals(0.5F, StageBackdropEffects.sample(scene, 105L, 0.0F).opacity(), 0.0001F);
+            assertTrue(StageBackdropEffects.sample(scene, 110L, 0.0F).hidden());
+            assertEquals(0.5F, StageBackdropEffects.sample(scene, 115L, 0.0F).opacity(), 0.0001F);
+            assertEquals(1.0F, StageBackdropEffects.sample(scene, 120L, 0.0F).opacity(), 0.0001F);
+        } finally {
+            StageBackdropEffects.clearSwap();
+        }
+    }
+
     private static StageClientScene scene(boolean visible, float blur, StageClientScene.Transition transition,
                                           int transitionTicks, long transitionStart) {
         return new StageClientScene(true, visible, blur, transition, transitionTicks, transitionStart,

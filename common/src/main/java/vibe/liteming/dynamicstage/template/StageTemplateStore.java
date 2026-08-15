@@ -69,7 +69,8 @@ public final class StageTemplateStore {
         CompoundTag arena = StageArenaSnapshot.capture(stageLevel, session.stageOrigin(), summary.boundary());
         return new StageTemplate(summary.id(), summary.lodPackId(), summary.lodAnchor(), summary.boundary(),
                 summary.clientScene(), summary.capacity(), summary.instanceMode(), summary.resetPolicy(),
-                flight == null ? new byte[0] : flight.sceneJson(), arena);
+                flight == null ? new byte[0] : flight.sceneJson(), arena,
+                flight == null ? "" : summary.flightName());
     }
 
     public static void save(StageTemplate template) throws IOException {

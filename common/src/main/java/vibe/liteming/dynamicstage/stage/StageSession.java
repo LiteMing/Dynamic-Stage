@@ -98,6 +98,22 @@ public record StageSession(
         return copy(anchor, boundary, flightStartGameTime);
     }
 
+    public StageSession withLodPack(ResourceLocation pack) {
+        return new StageSession(playerId, instanceId, stageId, pack, lodAnchor, slot, capacity, boundary,
+                clientScene, returnDimension, returnPosition, returnYRot, returnXRot,
+                flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+    }
+
+    public StageSession withFlight(String hash, int bytes, long durationMillis, long startGameTime) {
+        return new StageSession(playerId, instanceId, stageId, lodPackId, lodAnchor, slot, capacity, boundary,
+                clientScene, returnDimension, returnPosition, returnYRot, returnXRot,
+                hash, bytes, durationMillis, startGameTime);
+    }
+
+    public StageSession withoutFlight() {
+        return withFlight("", 0, 0L, -1L);
+    }
+
     public StageSession withBoundary(StageBoundary newBoundary) {
         return copy(lodAnchor, newBoundary, flightStartGameTime);
     }

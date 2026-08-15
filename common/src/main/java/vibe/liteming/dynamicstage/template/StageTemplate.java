@@ -16,7 +16,7 @@ import java.util.Arrays;
 public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
                             StageBoundary boundary, StageClientScene clientScene, int capacity,
                             InstanceMode instanceMode, ResetPolicy resetPolicy, byte[] flightJson,
-                            CompoundTag arenaSnapshot) {
+                            CompoundTag arenaSnapshot, String flightName) {
     public static final int FORMAT_VERSION = 1;
 
     public StageTemplate {
@@ -24,7 +24,8 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
             throw new IllegalArgumentException("Invalid template id");
         }
         if (lodPackId == null || lodAnchor == null || boundary == null || clientScene == null
-                || instanceMode == null || resetPolicy == null || flightJson == null || arenaSnapshot == null) {
+                || instanceMode == null || resetPolicy == null || flightJson == null || arenaSnapshot == null
+                || flightName == null) {
             throw new IllegalArgumentException("Stage template contains null state");
         }
         if (capacity < 1 || capacity > StageSession.MAX_CAPACITY) {
@@ -32,6 +33,12 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         }
         flightJson = flightJson.clone();
         arenaSnapshot = arenaSnapshot.copy();
+        if (!flightName.isEmpty() && !validFlightName(flightName)) {
+            throw new IllegalArgumentException("Invalid template flight name");
+        }
+        if (flightJson.length == 0 && !flightName.isEmpty()) {
+            throw new IllegalArgumentException("Template flight name requires Flight data");
+        }
         if (flightJson.length > 0) {
             try {
                 StageFlightCodec.readSingle(flightJson);
@@ -39,6 +46,18 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 throw new IllegalArgumentException("Invalid stage template flight", e);
             }
         }
+    }
+
+    public StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
+                         StageBoundary boundary, StageClientScene clientScene, int capacity,
+                         InstanceMode instanceMode, ResetPolicy resetPolicy, byte[] flightJson,
+                         CompoundTag arenaSnapshot) {
+        this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, resetPolicy,
+                flightJson, arenaSnapshot, "");
+    }
+
+    public static boolean validFlightName(String name) {
+        return name != null && name.matches("[A-Za-z0-9_-]{1,64}");
     }
 
     @Override
@@ -67,7 +86,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         long baseDayTime = clientScene.timeMode() == StageClientScene.TimeMode.FOLLOW
                 ? overworldDayTime : clientScene.timeBaseDayTime();
         return new StageClientScene(clientScene.followPlayer(), clientScene.lodMovementScale(),
-                clientScene.dhNearFadeScale(), clientScene.voxyNearClipScale(), clientScene.lodVisible(), clientScene.lodBlurRadius(), clientScene.lodTransition(),
+                clientScene.dhNearFadeScale(), clientScene.voxyNearCulling(), clientScene.lodVisible(), clientScene.lodBlurRadius(), clientScene.lodTransition(),
                 clientScene.lodTransitionTicks(), gameTime, clientScene.timeMode(), baseDayTime, gameTime,
                 clientScene.timeCycleTicks(), clientScene.skyMode());
     }
@@ -83,7 +102,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         return expected.followPlayer() == actual.followPlayer()
                 && Float.compare(expected.lodMovementScale(), actual.lodMovementScale()) == 0
                 && Float.compare(expected.dhNearFadeScale(), actual.dhNearFadeScale()) == 0
-                && Float.compare(expected.voxyNearClipScale(), actual.voxyNearClipScale()) == 0
+                && expected.voxyNearCulling() == actual.voxyNearCulling()
                 && expected.lodVisible() == actual.lodVisible()
                 && Float.compare(expected.lodBlurRadius(), actual.lodBlurRadius()) == 0
                 && expected.lodTransition() == actual.lodTransition()
@@ -108,6 +127,9 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         tag.putString("ResetPolicy", resetPolicy.name());
         if (hasFlight()) {
             tag.putByteArray("Flight", flightJson);
+            if (!flightName.isEmpty()) {
+                tag.putString("FlightName", flightName);
+            }
         }
         if (hasArenaSnapshot()) {
             tag.put("Arena", arenaSnapshot);
@@ -127,7 +149,8 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 StageClientScene.load(tag.getCompound("ClientScene")), tag.getInt("Capacity"),
                 InstanceMode.valueOf(tag.getString("InstanceMode")),
                 ResetPolicy.valueOf(tag.getString("ResetPolicy")), tag.getByteArray("Flight"),
-                tag.contains("Arena", Tag.TAG_COMPOUND) ? tag.getCompound("Arena") : new CompoundTag());
+                tag.contains("Arena", Tag.TAG_COMPOUND) ? tag.getCompound("Arena") : new CompoundTag(),
+                tag.contains("FlightName", Tag.TAG_STRING) ? tag.getString("FlightName") : "");
     }
 
     @Override
@@ -136,13 +159,14 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 && id.equals(that.id) && lodPackId.equals(that.lodPackId) && lodAnchor.equals(that.lodAnchor)
                 && boundary.equals(that.boundary) && clientScene.equals(that.clientScene) && capacity == that.capacity
                 && instanceMode == that.instanceMode && resetPolicy == that.resetPolicy
-                && Arrays.equals(flightJson, that.flightJson) && arenaSnapshot.equals(that.arenaSnapshot);
+                && Arrays.equals(flightJson, that.flightJson) && arenaSnapshot.equals(that.arenaSnapshot)
+                && flightName.equals(that.flightName);
     }
 
     @Override
     public int hashCode() {
         int result = java.util.Objects.hash(id, lodPackId, lodAnchor, boundary, clientScene,
-                capacity, instanceMode, resetPolicy);
+                capacity, instanceMode, resetPolicy, flightName);
         result = 31 * result + Arrays.hashCode(flightJson);
         return 31 * result + arenaSnapshot.hashCode();
     }

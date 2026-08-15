@@ -74,6 +74,7 @@ public final class StageTemplatePackets {
         buf.writeVarInt(template.capacity());
         buf.writeEnum(template.instanceMode());
         buf.writeEnum(template.resetPolicy());
+        buf.writeUtf(template.flightName(), 64);
     }
 
     private static StageTemplateSummary decodeSummary(FriendlyByteBuf buf) {
@@ -85,6 +86,6 @@ public final class StageTemplatePackets {
         return new StageTemplateSummary(id, lodPack, anchor, boundary,
                 StageSessionPacket.decodeClientScene(buf), buf.readVarInt(),
                 buf.readEnum(StageTemplate.InstanceMode.class),
-                buf.readEnum(StageTemplate.ResetPolicy.class));
+                buf.readEnum(StageTemplate.ResetPolicy.class), buf.readUtf(64));
     }
 }

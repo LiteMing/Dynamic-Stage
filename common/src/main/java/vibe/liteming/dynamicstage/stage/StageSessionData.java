@@ -4,6 +4,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.saveddata.SavedData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,6 +85,19 @@ public final class StageSessionData extends SavedData {
         }
     }
 
+    public void updateInstanceLodPack(UUID instanceId, ResourceLocation lodPackId) {
+        boolean changed = false;
+        for (StageSession session : List.copyOf(sessions.values())) {
+            if (session.instanceId().equals(instanceId)) {
+                sessions.put(session.playerId(), session.withLodPack(lodPackId));
+                changed = true;
+            }
+        }
+        if (changed) {
+            setDirty();
+        }
+    }
+
     public void updateInstanceBoundary(UUID instanceId, StageBoundary boundary) {
         boolean changed = false;
         for (StageSession session : List.copyOf(sessions.values())) {
@@ -114,6 +129,20 @@ public final class StageSessionData extends SavedData {
         for (StageSession session : List.copyOf(sessions.values())) {
             if (session.instanceId().equals(instanceId) && session.hasFlight()) {
                 sessions.put(session.playerId(), session.withFlightStart(startGameTime));
+                changed = true;
+            }
+        }
+        if (changed) {
+            setDirty();
+        }
+    }
+
+    public void updateInstanceFlight(UUID instanceId, String hash, int bytes,
+                                     long durationMillis, long startGameTime) {
+        boolean changed = false;
+        for (StageSession session : List.copyOf(sessions.values())) {
+            if (session.instanceId().equals(instanceId)) {
+                sessions.put(session.playerId(), session.withFlight(hash, bytes, durationMillis, startGameTime));
                 changed = true;
             }
         }

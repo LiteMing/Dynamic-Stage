@@ -23,6 +23,7 @@ public final class StageClientEvents {
         }
         StageBoundaryAccess.bindClientPlayer(mc.player.getUUID());
         if (StageWorlds.isStageLevel(mc.level)) {
+            ClientStageSession.tickBackdropSwitch();
             if (ClientStageSession.activateLodIfNeeded()) {
                 StageFlightController.tick();
             }

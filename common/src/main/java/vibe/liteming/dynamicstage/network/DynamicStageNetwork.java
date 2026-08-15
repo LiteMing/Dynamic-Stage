@@ -20,6 +20,8 @@ public final class DynamicStageNetwork {
     public static final net.minecraft.resources.ResourceLocation SESSION = DynamicStage.id("session");
     public static final net.minecraft.resources.ResourceLocation CLIENT_READY = DynamicStage.id("client_ready");
     public static final net.minecraft.resources.ResourceLocation FLIGHT = DynamicStage.id("flight");
+    public static final net.minecraft.resources.ResourceLocation BACKDROP_SWITCH = DynamicStage.id("backdrop_switch");
+    public static final net.minecraft.resources.ResourceLocation BACKDROP_SWITCH_RESULT = DynamicStage.id("backdrop_switch_result");
     public static final net.minecraft.resources.ResourceLocation SKY = DynamicStage.id("sky");
     public static final net.minecraft.resources.ResourceLocation TEMPLATE_REQUEST = DynamicStage.id("template_request");
     public static final net.minecraft.resources.ResourceLocation TEMPLATE_LIST = DynamicStage.id("template_list");
@@ -39,6 +41,14 @@ public final class DynamicStageNetwork {
                 if (context.getPlayer() instanceof ServerPlayer player) {
                     vibe.liteming.dynamicstage.stage.StageSessionManager.onClientReady(player,
                             packet.instanceId(), packet.ready(), packet.error());
+                }
+            });
+        });
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, BACKDROP_SWITCH_RESULT, (buf, context) -> {
+            StageBackdropSwitchResultPacket packet = StageBackdropSwitchResultPacket.decode(buf);
+            context.queue(() -> {
+                if (context.getPlayer() instanceof ServerPlayer player) {
+                    StageSessionManager.onBackdropSwitchResult(player, packet);
                 }
             });
         });
@@ -75,6 +85,22 @@ public final class DynamicStageNetwork {
 
     public static void sendFlight(ServerPlayer player, StageFlightPacket packet) {
         send(player, packet);
+    }
+
+    public static void sendBackdropSwitch(ServerPlayer player, StageBackdropSwitchPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        StageBackdropSwitchPacket.encode(packet, buf);
+        NetworkManager.sendToPlayer(player, BACKDROP_SWITCH, buf);
+    }
+
+    public static void backdropSwitchResult(java.util.UUID instanceId,
+                                             net.minecraft.resources.ResourceLocation lodPackId,
+                                             boolean ready, String error) {
+        FriendlyByteBuf buf = buffer();
+        StageBackdropSwitchResultPacket.encode(
+                new StageBackdropSwitchResultPacket(instanceId, lodPackId, ready,
+                        error == null ? "" : error.length() > 256 ? error.substring(0, 256) : error), buf);
+        NetworkManager.sendToServer(BACKDROP_SWITCH_RESULT, buf);
     }
 
     public static void sendSky(ServerPlayer player, StageSkyPacket.Mode mode) {
@@ -116,21 +142,15 @@ public final class DynamicStageNetwork {
                 template = StageTemplateStore.capture(player.getServer(), session, summary);
             } else if (packet.action() == StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT) {
                 StageTemplate existing = StageTemplateStore.load(summary.id());
-                StageFlightAssets.Asset asset = StageFlightAssets.findConfigured(
+                if (summary.flightName().isEmpty()) {
+                    throw new IllegalStateException("Select a Flight from the Dynamic Stage library");
+                }
+                StageFlightAssets.Asset asset = StageFlightAssets.importFromLibrary(
                         player.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT),
-                        summary.id());
-                if (asset == null) {
-                    StageSession session = StageSessionManager.get(player).orElse(null);
-                    if (session != null && session.stageId().equals(summary.id()) && session.hasFlight()) {
-                        asset = StageFlightAssets.load(player.getServer(), summary.id(), session.flightHash());
-                    }
-                }
-                if (asset == null) {
-                    throw new IllegalStateException("No configured CMDCam flight exists for '" + summary.id() + "'");
-                }
-                template = summary.applyTo(existing, asset.sceneJson());
+                        summary.id(), summary.flightName());
+                template = summary.applyTo(existing, asset.sceneJson(), summary.flightName());
             } else if (packet.action() == StageTemplatePackets.Action.CLEAR_FLIGHT) {
-                template = summary.applyTo(StageTemplateStore.load(summary.id()), new byte[0]);
+                template = summary.applyTo(StageTemplateStore.load(summary.id()), new byte[0], "");
             } else {
                 template = summary.applyTo(StageTemplateStore.load(summary.id()));
             }
@@ -165,6 +185,9 @@ public final class DynamicStageNetwork {
         } else if (packet instanceof StageFlightPacket flight) {
             StageFlightPacket.encode(flight, buf);
             NetworkManager.sendToPlayer(player, FLIGHT, buf);
+        } else if (packet instanceof StageBackdropSwitchPacket backdrop) {
+            StageBackdropSwitchPacket.encode(backdrop, buf);
+            NetworkManager.sendToPlayer(player, BACKDROP_SWITCH, buf);
         } else {
             throw new IllegalArgumentException("Unsupported Dynamic Stage packet " + packet.getClass().getName());
         }

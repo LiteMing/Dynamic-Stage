@@ -1,6 +1,7 @@
 package vibe.liteming.dynamicstage.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -137,12 +138,11 @@ public final class DynamicStageCommands {
                                         StageClientScene.MAX_DH_NEAR_FADE_SCALE))
                                 .executes(ctx -> dhNearFadeScale(ctx.getSource(),
                                         (float) DoubleArgumentType.getDouble(ctx, "scale")))))
-                .then(Commands.literal("voxy-clip")
-                        .then(Commands.argument("scale", DoubleArgumentType.doubleArg(
-                                        StageClientScene.MIN_VOXY_NEAR_CLIP_SCALE,
-                                        StageClientScene.MAX_VOXY_NEAR_CLIP_SCALE))
-                                .executes(ctx -> voxyNearClipScale(ctx.getSource(),
-                                        (float) DoubleArgumentType.getDouble(ctx, "scale")))))
+                .then(Commands.literal("voxy-culling")
+                        .then(Commands.argument("enabled", BoolArgumentType.bool())
+                                .executes(ctx -> voxyNearCulling(ctx.getSource(),
+                                        BoolArgumentType.getBool(ctx, "enabled")))))
+                .then(backdropSwitchCommand())
                 .then(backdropVisibility("show", true))
                 .then(backdropVisibility("hide", false))
                 .then(Commands.literal("blur")
@@ -194,6 +194,8 @@ public final class DynamicStageCommands {
                                 StringArgumentType.getString(ctx, "rgb")))));
         root.then(boundary);
         LiteralArgumentBuilder<CommandSourceStack> flight = Commands.literal("flight");
+        flight.then(flightPlayCommand());
+        flight.then(flightStopCommand());
         RequiredArgumentBuilder<CommandSourceStack, String> flightScene =
                 Commands.argument("scene", StringArgumentType.greedyString())
                         .suggests(DynamicStageCommands::suggestCMDCamScenes);
@@ -439,13 +441,14 @@ public final class DynamicStageCommands {
         return 1;
     }
 
-    private static int voxyNearClipScale(CommandSourceStack source, float scale) {
+    private static int voxyNearCulling(CommandSourceStack source, boolean enabled) {
         if (!(source.getEntity() instanceof ServerPlayer player)
-                || !StageSessionManager.setVoxyNearClipScale(player, scale)) {
+                || !StageSessionManager.setVoxyNearCulling(player, enabled)) {
             source.sendFailure(Component.literal("No active stage instance."));
             return 0;
         }
-        source.sendSuccess(() -> Component.literal("Voxy near clip scale: " + scale + '.'), true);
+        source.sendSuccess(() -> Component.literal("Voxy near-section culling: "
+                + (enabled ? "enabled." : "disabled.")), true);
         return 1;
     }
 
@@ -465,6 +468,40 @@ public final class DynamicStageCommands {
                                 .executes(ctx -> backdropVisibility(ctx.getSource(), visible,
                                         StageClientScene.Transition.BLUR,
                                         IntegerArgumentType.getInteger(ctx, "ticks")))));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> backdropSwitchCommand() {
+        RequiredArgumentBuilder<CommandSourceStack, ResourceLocation> pack =
+                Commands.argument("lod_pack", ResourceLocationArgument.id());
+        pack.executes(ctx -> switchBackdrop(ctx.getSource(), ResourceLocationArgument.getId(ctx, "lod_pack"),
+                StageClientScene.Transition.INSTANT, 0));
+        pack.then(Commands.literal("fade")
+                .then(Commands.argument("ticks", IntegerArgumentType.integer(
+                                2, StageClientScene.MAX_TRANSITION_TICKS))
+                        .executes(ctx -> switchBackdrop(ctx.getSource(),
+                                ResourceLocationArgument.getId(ctx, "lod_pack"),
+                                StageClientScene.Transition.FADE,
+                                IntegerArgumentType.getInteger(ctx, "ticks")))));
+        pack.then(Commands.literal("blur")
+                .then(Commands.argument("ticks", IntegerArgumentType.integer(
+                                2, StageClientScene.MAX_TRANSITION_TICKS))
+                        .executes(ctx -> switchBackdrop(ctx.getSource(),
+                                ResourceLocationArgument.getId(ctx, "lod_pack"),
+                                StageClientScene.Transition.BLUR,
+                                IntegerArgumentType.getInteger(ctx, "ticks")))));
+        return Commands.literal("switch").then(pack);
+    }
+
+    private static int switchBackdrop(CommandSourceStack source, ResourceLocation lodPack,
+                                      StageClientScene.Transition transition, int ticks) {
+        if (!(source.getEntity() instanceof ServerPlayer player)
+                || !StageSessionManager.switchLodPack(player, lodPack, transition, ticks)) {
+            source.sendFailure(Component.literal("Could not switch the active stage LOD package."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Switching the active stage LOD package to '"
+                + lodPack + "'" + transitionSuffix(transition, ticks)), true);
+        return 1;
     }
 
     private static int backdropVisibility(CommandSourceStack source, boolean visible,
@@ -504,10 +541,102 @@ public final class DynamicStageCommands {
         source.sendSuccess(() -> Component.literal("Stage backdrop: follow_player=" + scene.followPlayer()
                 + ", movement_scale=" + scene.lodMovementScale()
                 + ", dh_fade_scale=" + scene.dhNearFadeScale()
-                + ", voxy_clip_scale=" + scene.voxyNearClipScale()
+                + ", voxy_near_culling=" + scene.voxyNearCulling()
                 + ", visible=" + scene.lodVisible() + ", blur=" + scene.lodBlurRadius()
                 + ", transition=" + scene.lodTransition().name().toLowerCase(java.util.Locale.ROOT) + '.'), false);
         return 1;
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> flightPlayCommand() {
+        RequiredArgumentBuilder<CommandSourceStack, String> name =
+                Commands.argument("flight", StringArgumentType.word())
+                        .suggests((ctx, builder) -> {
+                            java.util.ArrayList<String> choices = new java.util.ArrayList<>();
+                            choices.add("configured");
+                            choices.addAll(StageFlightAssets.listLibraryFlights());
+                            return SharedSuggestionProvider.suggest(choices, builder);
+                        });
+        name.executes(ctx -> playFlight(ctx.getSource(), StringArgumentType.getString(ctx, "flight"),
+                StageClientScene.Transition.INSTANT, 0));
+        name.then(Commands.literal("fade")
+                .then(Commands.argument("ticks", IntegerArgumentType.integer(
+                                2, StageClientScene.MAX_TRANSITION_TICKS))
+                        .executes(ctx -> playFlight(ctx.getSource(),
+                                StringArgumentType.getString(ctx, "flight"),
+                                StageClientScene.Transition.FADE,
+                                IntegerArgumentType.getInteger(ctx, "ticks")))));
+        name.then(Commands.literal("blur")
+                .then(Commands.argument("ticks", IntegerArgumentType.integer(
+                                2, StageClientScene.MAX_TRANSITION_TICKS))
+                        .executes(ctx -> playFlight(ctx.getSource(),
+                                StringArgumentType.getString(ctx, "flight"),
+                                StageClientScene.Transition.BLUR,
+                                IntegerArgumentType.getInteger(ctx, "ticks")))));
+        return Commands.literal("play").then(name);
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> flightStopCommand() {
+        return Commands.literal("stop")
+                .executes(ctx -> stopFlight(ctx.getSource(), StageClientScene.Transition.INSTANT, 0))
+                .then(Commands.literal("fade")
+                        .then(Commands.argument("ticks", IntegerArgumentType.integer(
+                                        2, StageClientScene.MAX_TRANSITION_TICKS))
+                                .executes(ctx -> stopFlight(ctx.getSource(), StageClientScene.Transition.FADE,
+                                        IntegerArgumentType.getInteger(ctx, "ticks")))))
+                .then(Commands.literal("blur")
+                        .then(Commands.argument("ticks", IntegerArgumentType.integer(
+                                        2, StageClientScene.MAX_TRANSITION_TICKS))
+                                .executes(ctx -> stopFlight(ctx.getSource(), StageClientScene.Transition.BLUR,
+                                        IntegerArgumentType.getInteger(ctx, "ticks")))));
+    }
+
+    private static int playFlight(CommandSourceStack source, String name,
+                                  StageClientScene.Transition transition, int ticks) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        StageSession session = StageSessionManager.get(player).orElse(null);
+        if (session == null) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        Path worldRoot = source.getServer().getWorldPath(LevelResource.ROOT);
+        try {
+            StageFlightAssets.Asset asset = "configured".equals(name)
+                    ? StageFlightAssets.findConfigured(worldRoot, session.stageId())
+                    : StageFlightAssets.importFromLibrary(worldRoot, session.stageId(), name);
+            if (asset == null) {
+                source.sendFailure(Component.literal("No configured flight exists for '" + session.stageId() + "'."));
+                return 0;
+            }
+            if (!StageSessionManager.setFlight(player, asset, transition, ticks)) {
+                source.sendFailure(Component.literal("Could not change the active stage flight."));
+                return 0;
+            }
+            source.sendSuccess(() -> Component.literal("Playing stage flight '" + name + "'"
+                    + transitionSuffix(transition, ticks)), true);
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not play stage flight: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int stopFlight(CommandSourceStack source, StageClientScene.Transition transition, int ticks) {
+        if (!(source.getEntity() instanceof ServerPlayer player)
+                || !StageSessionManager.clearFlight(player, transition, ticks)) {
+            source.sendFailure(Component.literal("Could not stop the active stage flight."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Stopped the active stage flight"
+                + transitionSuffix(transition, ticks)), true);
+        return 1;
+    }
+
+    private static String transitionSuffix(StageClientScene.Transition transition, int ticks) {
+        return transition == StageClientScene.Transition.INSTANT ? "."
+                : " with " + transition.name().toLowerCase(java.util.Locale.ROOT)
+                + " over " + ticks + " ticks.";
     }
 
     private static int timeStatus(CommandSourceStack source) {

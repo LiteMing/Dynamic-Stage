@@ -14,6 +14,8 @@ import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageFlightPacket;
+import vibe.liteming.dynamicstage.network.StageBackdropSwitchPacket;
+import vibe.liteming.dynamicstage.network.StageBackdropSwitchResultPacket;
 import vibe.liteming.dynamicstage.platform.StagePlatform;
 import vibe.liteming.dynamicstage.template.StageTemplate;
 import vibe.liteming.dynamicstage.template.StageTemplateStore;
@@ -29,8 +31,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class StageSessionManager {
 
     public static final String INSTANCE_NBT = "DynamicStageInstance";
+    private static final int BACKDROP_SWITCH_TIMEOUT_MARGIN_TICKS = 20 * 15;
     private static final ConcurrentHashMap<UUID, PendingEntry> PENDING = new ConcurrentHashMap<>();
     private static final Set<UUID> SENT_FLIGHTS = ConcurrentHashMap.newKeySet();
+    private static final ConcurrentHashMap<UUID, BackdropSwitchState> BACKDROP_SWITCHES =
+            new ConcurrentHashMap<>();
 
     private StageSessionManager() {
     }
@@ -190,6 +195,148 @@ public final class StageSessionManager {
         return true;
     }
 
+    public static boolean switchLodPack(ServerPlayer player, ResourceLocation lodPackId,
+                                        StageClientScene.Transition transition, int transitionTicks) {
+        MinecraftServer server = player.getServer();
+        if (server == null || lodPackId == null || transition == null) {
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        StageSession session = data.get(player.getUUID()).orElse(null);
+        if (session == null) {
+            return false;
+        }
+        if (session.lodPackId().equals(lodPackId)) {
+            return true;
+        }
+        long deadline = server.overworld().getGameTime()
+                + transitionTicks / 2L + BACKDROP_SWITCH_TIMEOUT_MARGIN_TICKS;
+        BackdropSwitchState state = new BackdropSwitchState(
+                session.lodPackId(), lodPackId, new HashSet<>(), deadline);
+        if (BACKDROP_SWITCHES.putIfAbsent(session.instanceId(), state) != null) {
+            player.sendSystemMessage(Component.literal("That stage instance is already switching LOD packages."));
+            return false;
+        }
+
+        data.updateInstanceLodPack(session.instanceId(), lodPackId);
+        PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
+                ? new PendingEntry(entry.session.withLodPack(lodPackId)) : entry);
+        for (StageSession member : data.members(session.instanceId())) {
+            ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
+            if (target == null) {
+                continue;
+            }
+            if (!StageWorlds.isStageLevel(target.level())) {
+                DynamicStageNetwork.sendSession(target, member);
+                continue;
+            }
+            state.awaiting.add(member.playerId());
+            DynamicStageNetwork.sendBackdropSwitch(target, new StageBackdropSwitchPacket(
+                    vibe.liteming.dynamicstage.network.StageSessionPacket.active(member),
+                    transition, transitionTicks));
+        }
+        for (PendingEntry entry : PENDING.values()) {
+            if (entry.session.instanceId().equals(session.instanceId())) {
+                ServerPlayer target = server.getPlayerList().getPlayer(entry.session.playerId());
+                if (target != null) {
+                    DynamicStageNetwork.sendSession(target, entry.session);
+                }
+            }
+        }
+        if (state.awaiting.isEmpty()) {
+            BACKDROP_SWITCHES.remove(session.instanceId(), state);
+        }
+        return true;
+    }
+
+    public static void onBackdropSwitchResult(ServerPlayer player, StageBackdropSwitchResultPacket packet) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return;
+        }
+        BackdropSwitchState state = BACKDROP_SWITCHES.get(packet.instanceId());
+        StageSession session = StageSessionData.get(server).get(player.getUUID()).orElse(null);
+        if (state == null || session == null || !session.instanceId().equals(packet.instanceId())
+                || !state.target.equals(packet.lodPackId()) || !state.awaiting.contains(player.getUUID())) {
+            return;
+        }
+        if (packet.ready()) {
+            state.awaiting.remove(player.getUUID());
+            warnMissingLod(player, packet.error());
+            if (state.awaiting.isEmpty()) {
+                BACKDROP_SWITCHES.remove(packet.instanceId(), state);
+            }
+            return;
+        }
+        if (!BACKDROP_SWITCHES.remove(packet.instanceId(), state)) {
+            return;
+        }
+        rollbackBackdropSwitch(server, packet.instanceId(), state, packet.error());
+    }
+
+    public static boolean setFlight(ServerPlayer player, StageFlightAssets.Asset flight,
+                                    StageClientScene.Transition transition, int transitionTicks) {
+        MinecraftServer server = player.getServer();
+        StageSession session = get(player).orElse(null);
+        if (server == null || session == null || flight == null
+                || BACKDROP_SWITCHES.containsKey(session.instanceId())) {
+            return false;
+        }
+        long startDelay = transition == StageClientScene.Transition.INSTANT
+                ? 0L : Math.max(1, transitionTicks / 2);
+        long start = player.serverLevel().getGameTime() + startDelay;
+        StageSessionData data = StageSessionData.get(server);
+        data.updateInstanceFlight(session.instanceId(), flight.hash(), flight.bytes(),
+                flight.durationMillis(), start);
+        PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
+                ? new PendingEntry(entry.session.withFlight(flight.hash(), flight.bytes(),
+                flight.durationMillis(), start)) : entry);
+        for (StageSession member : data.members(session.instanceId())) {
+            ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
+            if (target != null) {
+                DynamicStageNetwork.sendFlight(target,
+                        StageFlightPacket.active(member, flight.sceneJson(), transition, transitionTicks));
+                DynamicStageNetwork.sendSession(target, member);
+                SENT_FLIGHTS.add(member.playerId());
+            }
+        }
+        for (PendingEntry entry : PENDING.values()) {
+            if (entry.session.instanceId().equals(session.instanceId())) {
+                ServerPlayer target = server.getPlayerList().getPlayer(entry.session.playerId());
+                if (target != null) {
+                    DynamicStageNetwork.sendSession(target, entry.session);
+                }
+            }
+        }
+        return true;
+    }
+
+    public static boolean clearFlight(ServerPlayer player, StageClientScene.Transition transition,
+                                      int transitionTicks) {
+        MinecraftServer server = player.getServer();
+        StageSession session = get(player).orElse(null);
+        if (server == null || session == null || BACKDROP_SWITCHES.containsKey(session.instanceId())) {
+            return false;
+        }
+        if (!session.hasFlight()) {
+            return true;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        data.updateInstanceFlight(session.instanceId(), "", 0, 0L, -1L);
+        PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
+                ? new PendingEntry(entry.session.withoutFlight()) : entry);
+        for (StageSession member : data.members(session.instanceId())) {
+            ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
+            if (target != null) {
+                DynamicStageNetwork.sendFlight(target,
+                        StageFlightPacket.clear(member.stageId(), transition, transitionTicks));
+                DynamicStageNetwork.sendSession(target, member);
+                SENT_FLIGHTS.remove(member.playerId());
+            }
+        }
+        return true;
+    }
+
     public static boolean setBoundary(ServerPlayer player, StageBoundary boundary) {
         MinecraftServer server = player.getServer();
         if (server == null) {
@@ -249,10 +396,10 @@ public final class StageSessionManager {
                 session.clientScene().withDhNearFadeScale(scale));
     }
 
-    public static boolean setVoxyNearClipScale(ServerPlayer player, float scale) {
+    public static boolean setVoxyNearCulling(ServerPlayer player, boolean enabled) {
         StageSession session = get(player).orElse(null);
         return session != null && updateClientScene(player,
-                session.clientScene().withVoxyNearClipScale(scale));
+                session.clientScene().withVoxyNearCulling(enabled));
     }
 
     public static boolean setLodVisible(ServerPlayer player, boolean visible,
@@ -412,6 +559,7 @@ public final class StageSessionManager {
         boolean cancelled = PENDING.remove(player.getUUID()) != null;
         Optional<StageSession> removed = StageSessionData.get(server).remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
+        removeBackdropSwitchWait(player.getUUID());
         clearPlayerMarker(player);
         if (removed.isEmpty()) {
             DynamicStageNetwork.clearSession(player);
@@ -439,6 +587,7 @@ public final class StageSessionManager {
         }
         PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
+        removeBackdropSwitchWait(player.getUUID());
         clearPlayerMarker(player);
         DynamicStageNetwork.clearSession(player);
     }
@@ -446,11 +595,25 @@ public final class StageSessionManager {
     public static void onLogout(ServerPlayer player) {
         PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
+        removeBackdropSwitchWait(player.getUUID());
     }
 
     public static void onServerStopped() {
         PENDING.clear();
         SENT_FLIGHTS.clear();
+        BACKDROP_SWITCHES.clear();
+    }
+
+    public static void tick(MinecraftServer server) {
+        long gameTime = server.overworld().getGameTime();
+        for (var entry : BACKDROP_SWITCHES.entrySet()) {
+            BackdropSwitchState state = entry.getValue();
+            if (gameTime >= state.deadlineGameTime
+                    && BACKDROP_SWITCHES.remove(entry.getKey(), state)) {
+                rollbackBackdropSwitch(server, entry.getKey(), state,
+                        "client LOD activation timed out");
+            }
+        }
     }
 
     public static void restore(ServerPlayer player) {
@@ -636,6 +799,33 @@ public final class StageSessionManager {
         StagePlatform.clearInstanceMarker(player);
     }
 
+    private static void removeBackdropSwitchWait(UUID playerId) {
+        BACKDROP_SWITCHES.entrySet().removeIf(entry -> {
+            entry.getValue().awaiting.remove(playerId);
+            return entry.getValue().awaiting.isEmpty();
+        });
+    }
+
+    private static void rollbackBackdropSwitch(MinecraftServer server, UUID instanceId,
+                                               BackdropSwitchState state, String error) {
+        StageSessionData data = StageSessionData.get(server);
+        data.updateInstanceLodPack(instanceId, state.previous);
+        PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(instanceId)
+                ? new PendingEntry(entry.session.withLodPack(state.previous)) : entry);
+        String message = boundedError(error);
+        for (StageSession member : data.members(instanceId)) {
+            ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
+            if (target != null) {
+                DynamicStageNetwork.sendSession(target, member);
+                target.sendSystemMessage(Component.literal("LOD switch rolled back: " + message));
+            }
+        }
+    }
+
     private record PendingEntry(StageSession session) {
+    }
+
+    private record BackdropSwitchState(ResourceLocation previous, ResourceLocation target,
+                                       Set<UUID> awaiting, long deadlineGameTime) {
     }
 }

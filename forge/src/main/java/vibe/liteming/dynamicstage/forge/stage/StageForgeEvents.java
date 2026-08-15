@@ -29,6 +29,7 @@ public final class StageForgeEvents {
     @SubscribeEvent
     public static void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
+            StageSessionManager.tick(event.getServer());
             event.getServer().getPlayerList().getPlayers().forEach(StageSessionManager::enforceBoundary);
         }
     }
