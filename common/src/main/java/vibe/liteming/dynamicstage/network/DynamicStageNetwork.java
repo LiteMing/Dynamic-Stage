@@ -136,6 +136,7 @@ public final class DynamicStageNetwork {
         try {
             StageTemplateSummary summary = packet.template();
             StageTemplate template;
+            boolean arenaCleared = false;
             if (packet.action() == StageTemplatePackets.Action.RELOAD_ACTIVE) {
                 template = StageTemplateStore.load(summary.id());
                 if (template == null) {
@@ -152,6 +153,7 @@ public final class DynamicStageNetwork {
                 template = StageTemplateStore.capture(player.getServer(), session, summary);
             } else if (packet.action() == StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT) {
                 StageTemplate existing = StageTemplateStore.load(summary.id());
+                arenaCleared = arenaWillBeCleared(existing, summary);
                 if (summary.flightName().isEmpty()) {
                     throw new IllegalStateException("Select a Flight from the Dynamic Stage library");
                 }
@@ -160,11 +162,19 @@ public final class DynamicStageNetwork {
                         summary.id(), summary.flightName());
                 template = summary.applyTo(existing, asset.sceneJson(), summary.flightName());
             } else if (packet.action() == StageTemplatePackets.Action.CLEAR_FLIGHT) {
-                template = summary.applyTo(StageTemplateStore.load(summary.id()), new byte[0], "");
+                StageTemplate existing = StageTemplateStore.load(summary.id());
+                arenaCleared = arenaWillBeCleared(existing, summary);
+                template = summary.applyTo(existing, new byte[0], "");
             } else {
-                template = summary.applyTo(StageTemplateStore.load(summary.id()));
+                StageTemplate existing = StageTemplateStore.load(summary.id());
+                arenaCleared = arenaWillBeCleared(existing, summary);
+                template = summary.applyTo(existing);
             }
             StageTemplateStore.save(template);
+            if (arenaCleared) {
+                player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                        "Boundary size changed; the old arena snapshot was cleared. Use Capture to save the new arena."));
+            }
             if (packet.action() == StageTemplatePackets.Action.CAPTURE_ACTIVE) {
                 StageSession active = StageSessionManager.get(player).orElseThrow();
                 StageSessionManager.setBoundary(player, template.boundary());
@@ -185,6 +195,11 @@ public final class DynamicStageNetwork {
             player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
                     "Could not edit stage template: " + e.getMessage()));
         }
+    }
+
+    private static boolean arenaWillBeCleared(StageTemplate existing, StageTemplateSummary summary) {
+        return existing != null && existing.hasArenaSnapshot()
+                && !StageTemplateSummary.sameBoundarySize(existing.boundary(), summary.boundary());
     }
 
     private static void send(ServerPlayer player, Object packet) {

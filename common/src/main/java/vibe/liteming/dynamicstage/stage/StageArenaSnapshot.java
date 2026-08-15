@@ -28,7 +28,7 @@ public final class StageArenaSnapshot {
         validateSize(boundary);
         StructureTemplate structure = new StructureTemplate();
         structure.setAuthor("dynamicstage");
-        structure.fillFromWorld(level, minimum(origin, boundary), size(boundary), true, null);
+        structure.fillFromWorld(level, minimum(origin, boundary), size(boundary), true, Blocks.AIR);
         return structure.save(new CompoundTag());
     }
 
@@ -41,6 +41,7 @@ public final class StageArenaSnapshot {
         AABB bounds = boundary.bounds(origin);
         LoquatArenaCompat.clearTargetAreas(level, bounds, snapshot);
         level.getEntities((Entity) null, bounds, entity -> !(entity instanceof Player)).forEach(Entity::discard);
+        clearBoundary(level, origin, boundary);
         place(level, origin, boundary, structure);
     }
 
@@ -66,6 +67,7 @@ public final class StageArenaSnapshot {
         LoquatArenaCompat.clearAreas(level, affected);
         level.getEntities((Entity) null, affected, entity -> !(entity instanceof Player)).forEach(Entity::discard);
         clearPreviousRemainder(level, origin, previousBoundary, boundary);
+        clearBoundary(level, origin, boundary);
         place(level, origin, boundary, structure);
     }
 
@@ -119,6 +121,27 @@ public final class StageArenaSnapshot {
                             && z >= nextMinimum.getZ() && z < nextMaxZ) {
                         continue;
                     }
+                    cursor.set(x, y, z);
+                    if (!level.isEmptyBlock(cursor)) {
+                        level.setBlock(cursor, Blocks.AIR.defaultBlockState(), flags);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void clearBoundary(ServerLevel level, BlockPos origin, StageBoundary boundary) {
+        BlockPos minimum = minimum(origin, boundary);
+        clearBox(level, minimum, minimum.getX() + boundary.width(),
+                minimum.getY() + boundary.height(), minimum.getZ() + boundary.depth());
+    }
+
+    private static void clearBox(ServerLevel level, BlockPos minimum, int maxX, int maxY, int maxZ) {
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        int flags = Block.UPDATE_CLIENTS | Block.UPDATE_SUPPRESS_DROPS;
+        for (int x = minimum.getX(); x < maxX; x++) {
+            for (int y = minimum.getY(); y < maxY; y++) {
+                for (int z = minimum.getZ(); z < maxZ; z++) {
                     cursor.set(x, y, z);
                     if (!level.isEmptyBlock(cursor)) {
                         level.setBlock(cursor, Blocks.AIR.defaultBlockState(), flags);

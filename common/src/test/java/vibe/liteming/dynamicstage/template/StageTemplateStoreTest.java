@@ -52,7 +52,7 @@ class StageTemplateStoreTest {
     }
 
     @Test
-    void editorSummaryPreservesServerOwnedAssets() {
+    void editorSummaryClearsArenaWhenBoundarySizeChanges() {
         CompoundTag arena = arenaSnapshot();
         StageTemplate existing = new StageTemplate("stage", new ResourceLocation("pack", "old"), BlockPos.ZERO,
                 StageBoundary.defaults(), StageClientScene.defaults(0L, 0L), 1,
@@ -65,10 +65,25 @@ class StageTemplateStoreTest {
 
         StageTemplate edited = summary.applyTo(existing);
 
-        assertEquals(arena, edited.arenaSnapshot());
+        assertEquals(new CompoundTag(), edited.arenaSnapshot());
         assertEquals(new ResourceLocation("pack", "new"), edited.lodPackId());
         assertEquals(4, edited.capacity());
         assertEquals("old-flight", edited.flightName());
+    }
+
+    @Test
+    void editorSummaryPreservesArenaWhenBoundaryIsUnchanged() {
+        CompoundTag arena = arenaSnapshot();
+        StageBoundary boundary = new StageBoundary(40, 44, 16, 0x112233);
+        StageTemplate existing = new StageTemplate("stage", new ResourceLocation("pack", "old"), BlockPos.ZERO,
+                boundary, StageClientScene.defaults(0L, 0L), 1,
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE,
+                flight(), arena, "old-flight");
+        StageTemplateSummary summary = new StageTemplateSummary("stage", new ResourceLocation("pack", "new"),
+                BlockPos.ZERO, boundary.withColor(0x445566), StageClientScene.defaults(0L, 0L), 1,
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE, "old-flight");
+
+        assertEquals(arena, summary.applyTo(existing).arenaSnapshot());
     }
 
     private static CompoundTag arenaSnapshot() {

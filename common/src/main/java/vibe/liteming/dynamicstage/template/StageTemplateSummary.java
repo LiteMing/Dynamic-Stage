@@ -34,15 +34,25 @@ public record StageTemplateSummary(String id, ResourceLocation lodPackId, BlockP
 
     public StageTemplate applyTo(StageTemplate existing) {
         byte[] flight = existing == null ? new byte[0] : existing.flightJson();
-        CompoundTag arena = existing == null ? new CompoundTag() : existing.arenaSnapshot();
+        CompoundTag arena = compatibleArena(existing);
         return new StageTemplate(id, lodPackId, lodAnchor, boundary, clientScene, capacity,
                 instanceMode, resetPolicy, flight, arena, existing == null ? "" : existing.flightName());
     }
 
     public StageTemplate applyTo(StageTemplate existing, byte[] flight, String selectedFlightName) {
-        CompoundTag arena = existing == null ? new CompoundTag() : existing.arenaSnapshot();
+        CompoundTag arena = compatibleArena(existing);
         return new StageTemplate(id, lodPackId, lodAnchor, boundary, clientScene, capacity,
                 instanceMode, resetPolicy, flight == null ? new byte[0] : flight, arena,
                 selectedFlightName == null ? "" : selectedFlightName);
+    }
+
+    private CompoundTag compatibleArena(StageTemplate existing) {
+        return existing == null || !sameBoundarySize(existing.boundary(), boundary)
+                ? new CompoundTag() : existing.arenaSnapshot();
+    }
+
+    public static boolean sameBoundarySize(StageBoundary first, StageBoundary second) {
+        return first != null && second != null && first.width() == second.width()
+                && first.depth() == second.depth() && first.height() == second.height();
     }
 }

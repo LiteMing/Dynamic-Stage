@@ -86,6 +86,11 @@ public final class StageTemplateStore {
                 NbtIo.writeCompressed(template.save(), output);
             }
             try {
+                readFile(temporary);
+            } catch (IOException e) {
+                throw new IOException("Stage template cannot be reloaded safely: " + e.getMessage(), e);
+            }
+            try {
                 Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
