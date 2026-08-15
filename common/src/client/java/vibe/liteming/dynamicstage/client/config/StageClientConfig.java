@@ -8,11 +8,13 @@ import net.minecraft.client.Minecraft;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import vibe.liteming.dynamicstage.stage.StageBoundary;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 
 /** Local-only render preferences; this file is never synchronized by the server. */
@@ -49,6 +51,16 @@ public final class StageClientConfig {
         loaded = true;
     }
 
+    public static BoundaryDisplay createBoundaryDisplay(double visibleDistance, float opacity, String color) {
+        return new BoundaryDisplay(visibleDistance, opacity, parseColor(color));
+    }
+
+    public static synchronized void saveBoundary(BoundaryDisplay display) throws IOException {
+        write(configPath(), display);
+        boundary = display;
+        loaded = true;
+    }
+
     static BoundaryDisplay read(Path path) throws IOException {
         JsonObject root;
         try {
@@ -63,17 +75,37 @@ public final class StageClientConfig {
                 ? root.get("boundary_visible_distance").getAsDouble() : DEFAULT_VISIBLE_DISTANCE;
         float opacity = root.has("boundary_opacity")
                 ? root.get("boundary_opacity").getAsFloat() : DEFAULT_OPACITY;
-        String color = root.has("boundary_color") ? root.get("boundary_color").getAsString() : "stage";
+        String color = root.has("boundary_fallback_color")
+                ? root.get("boundary_fallback_color").getAsString()
+                : root.has("boundary_color") ? root.get("boundary_color").getAsString() : "default";
         return new BoundaryDisplay(visibleDistance, opacity, parseColor(color));
     }
 
     private static void writeDefaults(Path path) throws IOException {
-        Files.createDirectories(path.getParent());
+        write(path, BoundaryDisplay.defaults());
+    }
+
+    static void write(Path path, BoundaryDisplay display) throws IOException {
+        Path parent = path.toAbsolutePath().normalize().getParent();
+        if (parent == null) {
+            throw new IOException("client config path has no parent");
+        }
+        Files.createDirectories(parent);
         JsonObject root = new JsonObject();
-        root.addProperty("boundary_visible_distance", DEFAULT_VISIBLE_DISTANCE);
-        root.addProperty("boundary_opacity", DEFAULT_OPACITY);
-        root.addProperty("boundary_color", "stage");
-        Files.writeString(path, GSON.toJson(root) + System.lineSeparator(), StandardCharsets.UTF_8);
+        root.addProperty("boundary_visible_distance", display.visibleDistance());
+        root.addProperty("boundary_opacity", display.opacity());
+        root.addProperty("boundary_fallback_color", display.colorSetting());
+        Path temporary = Files.createTempFile(parent, path.getFileName().toString(), ".tmp");
+        try {
+            Files.writeString(temporary, GSON.toJson(root) + System.lineSeparator(), StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     private static Path configPath() {
@@ -83,18 +115,18 @@ public final class StageClientConfig {
 
     @Nullable
     private static Integer parseColor(String value) {
-        if (value == null || value.equalsIgnoreCase("stage")) {
+        if (value == null || value.equalsIgnoreCase("default") || value.equalsIgnoreCase("stage")) {
             return null;
         }
         String digits = value.startsWith("#") ? value.substring(1)
                 : value.toLowerCase(Locale.ROOT).startsWith("0x") ? value.substring(2) : value;
         if (!digits.matches("[0-9A-Fa-f]{6}")) {
-            throw new IllegalArgumentException("boundary_color must be 'stage' or a six-digit RGB value");
+            throw new IllegalArgumentException("boundary_fallback_color must be 'default' or a six-digit RGB value");
         }
         return Integer.parseInt(digits, 16);
     }
 
-    public record BoundaryDisplay(double visibleDistance, float opacity, @Nullable Integer colorOverride) {
+    public record BoundaryDisplay(double visibleDistance, float opacity, @Nullable Integer fallbackColor) {
         public BoundaryDisplay {
             if (!Double.isFinite(visibleDistance) || visibleDistance < 0.0D || visibleDistance > 128.0D) {
                 throw new IllegalArgumentException("boundary_visible_distance must be between 0 and 128");
@@ -102,7 +134,7 @@ public final class StageClientConfig {
             if (!Float.isFinite(opacity) || opacity < 0.0F || opacity > 1.0F) {
                 throw new IllegalArgumentException("boundary_opacity must be between 0 and 1");
             }
-            if (colorOverride != null && (colorOverride < 0 || colorOverride > 0xFFFFFF)) {
+            if (fallbackColor != null && (fallbackColor < 0 || fallbackColor > 0xFFFFFF)) {
                 throw new IllegalArgumentException("invalid boundary color");
             }
         }
@@ -112,7 +144,14 @@ public final class StageClientConfig {
         }
 
         public int color(int stageColor) {
-            return colorOverride == null ? stageColor : colorOverride;
+            if (stageColor != StageBoundary.UNSET_COLOR) {
+                return stageColor;
+            }
+            return fallbackColor == null ? StageBoundary.DEFAULT_COLOR : fallbackColor;
+        }
+
+        public String colorSetting() {
+            return fallbackColor == null ? "default" : String.format(Locale.ROOT, "%06X", fallbackColor);
         }
     }
 }

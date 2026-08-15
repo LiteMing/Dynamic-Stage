@@ -6,6 +6,7 @@ import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class StageBoundaryTest {
@@ -34,5 +35,16 @@ class StageBoundaryTest {
                 () -> new StageBoundary(StagePlacement.REGION_SPACING, 60, 18, 0));
         assertThrows(IllegalArgumentException.class, () -> new StageBoundary(60, 60, 1, 0));
         assertThrows(IllegalArgumentException.class, () -> new StageBoundary(60, 60, 18, 0x1000000));
+        assertThrows(IllegalArgumentException.class, () -> new StageBoundary(60, 60, 18, -2));
+    }
+
+    @Test
+    void persistsAnUnsetServerColorAsClientFallback() {
+        StageBoundary boundary = StageBoundary.defaults();
+        var tag = boundary.save();
+
+        assertEquals(StageBoundary.UNSET_COLOR, boundary.color());
+        assertFalse(tag.contains("Color"));
+        assertEquals(boundary, StageBoundary.load(tag));
     }
 }

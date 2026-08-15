@@ -726,9 +726,10 @@ public final class DynamicStageCommands {
             return 0;
         }
         StageBoundary boundary = session.boundary();
+        String color = boundary.color() == StageBoundary.UNSET_COLOR ? "client fallback"
+                : '#' + String.format(java.util.Locale.ROOT, "%06X", boundary.color());
         source.sendSuccess(() -> Component.literal("Stage boundary: " + boundary.width() + " x "
-                + boundary.depth() + " x " + boundary.height() + ", color #"
-                + String.format(java.util.Locale.ROOT, "%06X", boundary.color()) + '.'), false);
+                + boundary.depth() + " x " + boundary.height() + ", color " + color + '.'), false);
         return 1;
     }
 
@@ -756,6 +757,15 @@ public final class DynamicStageCommands {
             source.sendFailure(Component.literal("No active stage instance."));
             return 0;
         }
+        if (value.equalsIgnoreCase("client")) {
+            if (!StageSessionManager.setBoundary(player,
+                    session.boundary().withColor(StageBoundary.UNSET_COLOR))) {
+                source.sendFailure(Component.literal("Could not update the stage boundary."));
+                return 0;
+            }
+            source.sendSuccess(() -> Component.literal("Stage boundary color now uses the client fallback."), true);
+            return 1;
+        }
         String digits = value.startsWith("#") ? value.substring(1)
                 : value.startsWith("0x") || value.startsWith("0X") ? value.substring(2) : value;
         final int color;
@@ -765,7 +775,8 @@ public final class DynamicStageCommands {
             }
             color = Integer.parseInt(digits, 16);
         } catch (NumberFormatException e) {
-            source.sendFailure(Component.literal("Boundary color must be a six-digit RGB value, for example FF4858."));
+            source.sendFailure(Component.literal(
+                    "Boundary color must be 'client' or a six-digit RGB value, for example FF4858."));
             return 0;
         }
         if (!StageSessionManager.setBoundary(player, session.boundary().withColor(color))) {

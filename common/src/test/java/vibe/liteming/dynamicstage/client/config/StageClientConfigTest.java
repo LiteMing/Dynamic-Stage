@@ -2,6 +2,7 @@ package vibe.liteming.dynamicstage.client.config;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import vibe.liteming.dynamicstage.stage.StageBoundary;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -26,7 +27,8 @@ class StageClientConfigTest {
 
         assertEquals(24.5D, display.visibleDistance());
         assertEquals(0.4F, display.opacity());
-        assertEquals(0x12ABEF, display.color(0));
+        assertEquals(0x334455, display.color(0x334455));
+        assertEquals(0x12ABEF, display.color(StageBoundary.UNSET_COLOR));
     }
 
     @Test
@@ -36,8 +38,9 @@ class StageClientConfigTest {
 
         StageClientConfig.BoundaryDisplay display = StageClientConfig.read(path);
 
-        assertNull(display.colorOverride());
+        assertNull(display.fallbackColor());
         assertEquals(0x334455, display.color(0x334455));
+        assertEquals(StageBoundary.DEFAULT_COLOR, display.color(StageBoundary.UNSET_COLOR));
     }
 
     @Test
@@ -46,5 +49,16 @@ class StageClientConfigTest {
         Files.writeString(path, "{\"boundary_opacity\": 2}");
 
         assertThrows(IllegalArgumentException.class, () -> StageClientConfig.read(path));
+    }
+
+    @Test
+    void writesBoundaryDisplayAtomically() throws IOException {
+        Path path = temporaryDirectory.resolve("client.json");
+        StageClientConfig.BoundaryDisplay expected =
+                StageClientConfig.createBoundaryDisplay(32.0D, 0.65F, "A1B2C3");
+
+        StageClientConfig.write(path, expected);
+
+        assertEquals(expected, StageClientConfig.read(path));
     }
 }

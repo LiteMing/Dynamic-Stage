@@ -165,8 +165,13 @@ creates an isolated instance for every start. With capacity 1, `parallel` gives 
 separate instance, while a full `shared` instance rejects later entries instead of allocating
 another shared copy. `on_create` restores the arena
 snapshot when a new instance is allocated, while `manual` leaves the slot alone
-until `/dstage template reset` is run. Arena snapshots are limited to 256 x 256
-x 128 and 4,194,304 blocks. Mod state stored only in another mod's global
+until `/dstage template reset` is run. Changing a saved template's boundary size
+clears its incompatible arena snapshot; use `Capture` to record the resized arena.
+Arena snapshots are sparse: air is omitted, while non-air blocks, block entities,
+entities, and the capture dimensions remain in vanilla structure data. Restore clears
+the target box before placing that sparse structure. Captures are limited to 256 x 256
+x 128 and 4,194,304 scanned blocks; the saved size now scales primarily with actual
+arena content rather than empty volume. Mod state stored only in another mod's global
 SavedData is outside the vanilla structure snapshot and requires an explicit
 compatibility adapter. Loquat areas are supported through its structure snapshot
 hook; Dynamic Stage clears matching target areas before restore so reused instance
@@ -176,7 +181,10 @@ The six virtual boundary walls constrain players, mobs, and other non-projectile
 entities without placing blocks. Projectiles intentionally pass through them.
 Each wall uses its own inward distance: crossing a wall keeps that entire wall
 fully visible, while walls still inside the boundary only render their nearby
-grid segment and fade over the configured client distance.
+grid segment and fade over the configured client distance. A server-recorded
+wall color takes priority; a boundary set to `client` uses the local fallback.
+The editor's `Local` tab applies distance, opacity, and fallback-color changes immediately and saves
+them only to this game instance's `config/dynamicstage-client.json`.
 
 `/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky and cloud rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Vanilla clouds additionally use the same virtual source position as the LOD backdrop, including the anchor, player-follow mode, and flight XYZ; the infinite-distance sky dome ignores translation.
 

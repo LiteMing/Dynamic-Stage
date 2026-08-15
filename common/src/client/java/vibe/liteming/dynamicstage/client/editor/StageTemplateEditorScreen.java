@@ -9,6 +9,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import vibe.liteming.dynamicstage.client.command.StageLodClientCommands;
+import vibe.liteming.dynamicstage.client.config.StageClientConfig;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageTemplatePackets;
@@ -35,6 +36,7 @@ public final class StageTemplateEditorScreen extends Screen {
     private boolean statusPending;
     private long observedRevision = -1L;
     private int selectedTemplate = -1;
+    private StageClientConfig.BoundaryDisplay clientBoundary;
 
     private EditBox templateId;
     private EditBox lodPack;
@@ -53,6 +55,9 @@ public final class StageTemplateEditorScreen extends Screen {
     private EditBox flightName;
     private EditBox dayTime;
     private EditBox cycleTicks;
+    private EditBox clientBoundaryDistance;
+    private EditBox clientBoundaryOpacity;
+    private EditBox clientBoundaryColor;
 
     public StageTemplateEditorScreen() {
         super(text("title"));
@@ -62,6 +67,9 @@ public final class StageTemplateEditorScreen extends Screen {
     protected void init() {
         if (draft == null) {
             draft = initialDraft();
+        }
+        if (clientBoundary == null) {
+            clientBoundary = StageClientConfig.boundary();
         }
         buildWidgets();
         DynamicStageNetwork.requestTemplates();
@@ -85,18 +93,21 @@ public final class StageTemplateEditorScreen extends Screen {
                 button -> DynamicStageNetwork.requestTemplates());
 
         int tabsY = top + 25;
-        int tabWidth = panelWidth / 3;
+        int tabWidth = panelWidth / 4;
         addButton(left, tabsY, tabWidth - 2, text("tab.stage"), button -> switchTab(Tab.STAGE));
         addButton(left + tabWidth, tabsY, tabWidth - 2, text("tab.backdrop"),
                 button -> switchTab(Tab.BACKDROP));
-        addButton(left + tabWidth * 2, tabsY, panelWidth - tabWidth * 2, text("tab.time"),
+        addButton(left + tabWidth * 2, tabsY, tabWidth - 2, text("tab.time"),
                 button -> switchTab(Tab.TIME));
+        addButton(left + tabWidth * 3, tabsY, panelWidth - tabWidth * 3, text("tab.client"),
+                button -> switchTab(Tab.CLIENT));
 
         int contentY = tabsY + 29;
         switch (tab) {
             case STAGE -> buildStageTab(left, contentY, panelWidth);
             case BACKDROP -> buildBackdropTab(left, contentY, panelWidth);
             case TIME -> buildTimeTab(left, contentY, panelWidth);
+            case CLIENT -> buildClientTab(left, contentY, panelWidth);
         }
         buildActions(left, panelWidth);
     }
@@ -118,7 +129,7 @@ public final class StageTemplateEditorScreen extends Screen {
         y += ROW_HEIGHT;
         int half = (panelWidth - 4) / 2;
         boundaryColor = labeledCompact("boundary_rgb", left, y, half,
-                String.format(Locale.ROOT, "%06X", draft.boundary.color()));
+                formatBoundaryColor(draft.boundary.color()));
         capacity = labeledCompact("capacity", left + half + 4, y, panelWidth - half - 4,
                 Integer.toString(draft.capacity));
         y += ROW_HEIGHT;
@@ -210,9 +221,25 @@ public final class StageTemplateEditorScreen extends Screen {
                 Long.toString(draft.cycleTicks));
     }
 
+    private void buildClientTab(int left, int top, int panelWidth) {
+        int half = (panelWidth - 4) / 2;
+        clientBoundaryDistance = labeledCompact("client_boundary_distance", left, top, half,
+                Double.toString(clientBoundary.visibleDistance()));
+        clientBoundaryOpacity = labeledCompact("client_boundary_opacity", left + half + 4, top,
+                panelWidth - half - 4, Float.toString(clientBoundary.opacity()));
+        clientBoundaryColor = labeledField("client_boundary_color", left, top + ROW_HEIGHT, panelWidth,
+                clientBoundary.colorSetting(), 16);
+    }
+
     private void buildActions(int left, int panelWidth) {
         int y = height - 26;
         int gap = 3;
+        if (tab == Tab.CLIENT) {
+            int half = (panelWidth - gap) / 2;
+            addButton(left, y, half, text("action.save_client_config"), button -> saveClientConfig());
+            addButton(left + half + gap, y, panelWidth - half - gap, text("action.close"), button -> onClose());
+            return;
+        }
         int buttonWidth = (panelWidth - gap * 4) / 5;
         addButton(left, y, buttonWidth, text("action.save"), button -> submit(StageTemplatePackets.Action.SAVE));
         Button capture = addButton(left + buttonWidth + gap, y, buttonWidth, text("action.capture"),
@@ -274,6 +301,18 @@ public final class StageTemplateEditorScreen extends Screen {
                 }));
     }
 
+    private void saveClientConfig() {
+        if (!captureVisible()) {
+            return;
+        }
+        try {
+            StageClientConfig.saveBoundary(clientBoundary);
+            setStatus("status.client_config_saved");
+        } catch (java.io.IOException e) {
+            setErrorStatus("status.operation_failed", rootMessage(e));
+        }
+    }
+
     private void submit(StageTemplatePackets.Action action) {
         if (!captureVisible()) {
             return;
@@ -324,6 +363,9 @@ public final class StageTemplateEditorScreen extends Screen {
                     draft.cycleTicks = draft.timeMode == StageClientScene.TimeMode.CYCLE
                             ? Long.parseLong(cycleTicks.getValue()) : 0L;
                 }
+                case CLIENT -> clientBoundary = StageClientConfig.createBoundaryDisplay(
+                        Double.parseDouble(clientBoundaryDistance.getValue()),
+                        Float.parseFloat(clientBoundaryOpacity.getValue()), clientBoundaryColor.getValue().trim());
             }
             clearStatus();
             return true;
@@ -425,11 +467,18 @@ public final class StageTemplateEditorScreen extends Screen {
     }
 
     private static int parseColor(String value) {
+        if (value.equalsIgnoreCase("client")) {
+            return StageBoundary.UNSET_COLOR;
+        }
         String digits = value.startsWith("#") ? value.substring(1) : value;
         if (!digits.matches("[0-9A-Fa-f]{6}")) {
             throw new IllegalArgumentException(text("validation.boundary_color").getString());
         }
         return Integer.parseInt(digits, 16);
+    }
+
+    private static String formatBoundaryColor(int color) {
+        return color == StageBoundary.UNSET_COLOR ? "client" : String.format(Locale.ROOT, "%06X", color);
     }
 
     private static String nonBlank(String value, String name) {
@@ -481,7 +530,7 @@ public final class StageTemplateEditorScreen extends Screen {
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
-    private enum Tab { STAGE, BACKDROP, TIME }
+    private enum Tab { STAGE, BACKDROP, TIME, CLIENT }
 
     private record Label(Component text, int x, int y) {
     }

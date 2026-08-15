@@ -2,6 +2,7 @@ package vibe.liteming.dynamicstage.stage;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -11,6 +12,7 @@ public record StageBoundary(int width, int depth, int height, int color) {
     public static final int DEFAULT_DEPTH = 60;
     public static final int DEFAULT_HEIGHT = 18;
     public static final int DEFAULT_COLOR = 0xFF4858;
+    public static final int UNSET_COLOR = -1;
     public static final int MIN_HORIZONTAL_SIZE = 4;
     public static final int MAX_HORIZONTAL_SIZE = StagePlacement.REGION_SPACING - 64;
     public static final int MIN_HEIGHT = 2;
@@ -26,13 +28,13 @@ public record StageBoundary(int width, int depth, int height, int color) {
         if (height < MIN_HEIGHT || height > MAX_HEIGHT) {
             throw new IllegalArgumentException("Invalid stage boundary height: " + height);
         }
-        if (color < 0 || color > 0xFFFFFF) {
+        if (color != UNSET_COLOR && (color < 0 || color > 0xFFFFFF)) {
             throw new IllegalArgumentException("Invalid stage boundary color: " + color);
         }
     }
 
     public static StageBoundary defaults() {
-        return new StageBoundary(DEFAULT_WIDTH, DEFAULT_DEPTH, DEFAULT_HEIGHT, DEFAULT_COLOR);
+        return new StageBoundary(DEFAULT_WIDTH, DEFAULT_DEPTH, DEFAULT_HEIGHT, UNSET_COLOR);
     }
 
     public StageBoundary withColor(int newColor) {
@@ -62,13 +64,15 @@ public record StageBoundary(int width, int depth, int height, int color) {
         tag.putInt("Width", width);
         tag.putInt("Depth", depth);
         tag.putInt("Height", height);
-        tag.putInt("Color", color);
+        if (color != UNSET_COLOR) {
+            tag.putInt("Color", color);
+        }
         return tag;
     }
 
     public static StageBoundary load(CompoundTag tag) {
         return new StageBoundary(tag.getInt("Width"), tag.getInt("Depth"), tag.getInt("Height"),
-                tag.getInt("Color"));
+                tag.contains("Color", Tag.TAG_INT) ? tag.getInt("Color") : UNSET_COLOR);
     }
 
     private static double clamp(double value, double min, double max) {
