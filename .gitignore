@@ -1,4 +1,5 @@
 .gradle/
+.architectury-transformer/
 build/
 **/run/
 run-data/
