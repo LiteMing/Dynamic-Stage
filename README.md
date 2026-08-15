@@ -139,7 +139,7 @@ one native backend is active, use the explicit form instead of guessing.
 
 `/dstage editor` opens the client editor. Before entry it can select or create a
 portable template, bind the current native LOD cache, select a global Flight by
-its `.minecraft/dynamicstage/<name>.dat` name, bind or clear that Flight, edit instance,
+its `.minecraft/dynamicstage/<name>.json` name, bind or clear that Flight, edit instance,
 boundary, backdrop, sky, and client-time settings, then save and start through the normal
 LOD readiness handshake. Inside a stage, `Capture` snapshots the edited arena
 and applies settings that can change on a live instance. LOD package and
@@ -158,8 +158,8 @@ a template captures the active LOD package ID and anchor, boundary, client time
 and backdrop settings, player movement scale, capacity, CMDCam flight data, and
 the boundary's blocks, block entities, and non-player entities. Native LOD data
 is still referenced by its client-local package ID and is not copied into the
-template. Global imported flights are stored as one validated `<name>.dat` per
-animation under `.minecraft/dynamicstage`; `/dstage flight use <stage> [flight_name]`
+template. Global imported flights are stored as one directly editable, validated
+`<name>.json` per animation under `.minecraft/dynamicstage`; `/dstage flight use <stage> [flight_name]`
 installs one into another save. `shared` reuses one live instance up to its capacity; `parallel`
 creates an isolated instance for every start. With capacity 1, `parallel` gives each player a
 separate instance, while a full `shared` instance rejects later entries instead of allocating
@@ -192,7 +192,7 @@ Stage flights do not replace Minecraft's main camera or a shader pack's shadow c
 
 `start` creates an instance, validates the local package, and then teleports. Once the target level wrapper exists, the client rebinds DH to the external database before flight playback begins; a failed rebind returns the player safely. `join` joins an active instance if capacity remains. `anchor` updates the shared virtual DH source position for every active or preparing member. `exit` restores the player's original dimension, position, and rotation.
 
-Backdrop and time settings belong to the instance and are broadcast to all members. Player movement following is enabled by default. Turning it off pins the native LOD camera to the source anchor while preserving first/third-person camera offsets and CMDCam flight motion. Stage time is evaluated only by the client: `follow` advances from a synchronized Overworld epoch, `fixed` holds a vanilla day-time value in the `0..23999` range, and `cycle` maps one visual Minecraft day onto the configured number of client ticks. These modes do not change server-side stage time or send per-tick network updates.
+Backdrop and time settings belong to the instance and are broadcast to all members. Player movement following is enabled by default. The movement multiplier applies only to player translation inside the stage; eye height and first/third-person camera offsets remain at 1x so changing perspective does not shift the LOD scene. Turning following off pins the native LOD camera to the source anchor while preserving those camera offsets and CMDCam flight motion. Stage time is evaluated only by the client: `follow` advances from a synchronized Overworld epoch, `fixed` holds a vanilla day-time value in the `0..23999` range, and `cycle` maps one visual Minecraft day onto the configured number of client ticks. These modes do not change server-side stage time or send per-tick network updates.
 
 LOD visibility and live LOD package or Flight replacements can be instant, fade, or blur transitions. Persistent blur is independent from transitions and uses a `0..32` pixel radius; `0` disables it. DH near fade remains configurable. Voxy's stage projection always uses its depth-safe `0.1` near plane; `voxy-culling=false` preserves the LOD section containing the camera instead of changing projection depth. This Voxy override requires the matching HDRS Voxy build and leaves normal-world Voxy culling unchanged. Dynamic Stage filters only the native backend's intermediate LOD color texture before DH or Voxy performs its original depth-aware composite, so the sky, stage blocks, entities, and UI are not blurred.
 
@@ -203,6 +203,12 @@ Version 1.2.1 intentionally exposes command-level runtime scheduling rather than
 A validated CMDCam scene can be attached to a stage. `/dstage flight import` first reads CMDCam's live server SavedData, so a freshly saved scene is immediately available for tab completion without `/save-all`. It checks the command's current dimension and then the Overworld. Modern 26.2 files under `dimensions/<namespace>/<dimension>/data/cmdcam/scenes.dat`, legacy `cmdcam_Scenes.dat`, and explicit external files are accepted. A single-scene external file can be imported without naming the scene; multi-scene files report the available names. Dynamic Stage sends the small scene JSON and a server game-time epoch, then samples it locally without starting CMDCam playback. The player keeps normal movement and camera control while XYZ animates the mounted LOD background and yaw, pitch, roll, and zoom animate both the LOD and selected sky. Every attribute is relative to the first path point, so playback starts without a jump. `loop -1` repeats forever; finite loops retain CMDCam's final normal pass.
 
 CMDCam and CreativeCore are included in the Forge development runtime for authoring and importing paths, but clients playing an already imported path do not need either mod. For a local compatibility test, author at least two visibly different points with `/cam add`; include changes to yaw, pitch, roll, and zoom as well as position. Set `/cam loops -1` for a continuously moving backdrop and save it with `/cam save <scene>`. Both `default` and `outside` modes are accepted, and Dynamic Stage ignores `smooth_start`. Type `/dstage flight import test ` and select the scene from tab completion, then import it before starting that same stage ID.
+
+Global Flight library files are plain UTF-8 JSON objects and can be edited
+directly in VS Code. They must contain one selected scene object rather than a
+CMDCam export array. Dynamic Stage validates the file whenever it is bound or
+played; no archive or NBT repacking step is required. Files using the retired
+`.dat` wrapper are intentionally ignored.
 
 Music remains the responsibility of `mob-battle-music`. KubeJS can combine its marker/state with `DynamicStageInstance` rather than requiring a second music protocol in Dynamic Stage.
 
