@@ -182,6 +182,11 @@ public final class StageTemplateEditorScreen extends Screen {
             };
             button.setMessage(text("setting.sky", value(draft.skyMode)));
         });
+        y += ROW_HEIGHT;
+        addButton(left, y, half, text("action.use_configured_flight"),
+                button -> submit(StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT));
+        addButton(left + half + 4, y, panelWidth - half - 4, text("action.clear_flight"),
+                button -> submit(StageTemplatePackets.Action.CLEAR_FLIGHT));
     }
 
     private void buildTimeTab(int left, int top, int panelWidth) {
@@ -269,7 +274,11 @@ public final class StageTemplateEditorScreen extends Screen {
             StageTemplateSummary summary = draft.toSummary(currentGameTime());
             DynamicStageNetwork.editTemplate(new StageTemplatePackets.EditPacket(action, summary));
             setPendingStatus(action == StageTemplatePackets.Action.CAPTURE_ACTIVE
-                    ? "status.capturing_stage" : "status.saving_template");
+                    ? "status.capturing_stage"
+                    : action == StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT
+                    ? "status.binding_flight"
+                    : action == StageTemplatePackets.Action.CLEAR_FLIGHT
+                    ? "status.clearing_flight" : "status.saving_template");
             if (action == StageTemplatePackets.Action.SAVE_AND_START) {
                 onClose();
             }

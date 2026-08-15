@@ -29,4 +29,10 @@ public record StageTemplateSummary(String id, ResourceLocation lodPackId, BlockP
         return new StageTemplate(id, lodPackId, lodAnchor, boundary, clientScene, capacity,
                 instanceMode, resetPolicy, flight, arena);
     }
+
+    public StageTemplate applyTo(StageTemplate existing, byte[] flight) {
+        CompoundTag arena = existing == null ? new CompoundTag() : existing.arenaSnapshot();
+        return new StageTemplate(id, lodPackId, lodAnchor, boundary, clientScene, capacity,
+                instanceMode, resetPolicy, flight == null ? new byte[0] : flight, arena);
+    }
 }

@@ -30,7 +30,7 @@ class StageTemplatePacketsTest {
         StageTemplatePackets.ListPacket list = new StageTemplatePackets.ListPacket(List.of(summary));
         StageTemplatePackets.encodeList(list, listBuffer);
         StageTemplatePackets.EditPacket edit = new StageTemplatePackets.EditPacket(
-                StageTemplatePackets.Action.SAVE_AND_START, summary);
+                StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT, summary);
         StageTemplatePackets.encodeEdit(edit, editBuffer);
 
         assertEquals(list, StageTemplatePackets.decodeList(listBuffer));

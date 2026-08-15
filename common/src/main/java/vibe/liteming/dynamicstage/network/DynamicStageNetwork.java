@@ -10,6 +10,7 @@ import vibe.liteming.dynamicstage.stage.StageSessionManager;
 import vibe.liteming.dynamicstage.template.StageTemplate;
 import vibe.liteming.dynamicstage.template.StageTemplateStore;
 import vibe.liteming.dynamicstage.template.StageTemplateSummary;
+import vibe.liteming.dynamicstage.flight.StageFlightAssets;
 
 import java.util.UUID;
 
@@ -113,6 +114,23 @@ public final class DynamicStageNetwork {
                 StageSession session = StageSessionManager.get(player).orElseThrow(() ->
                         new IllegalStateException("No active stage instance to capture"));
                 template = StageTemplateStore.capture(player.getServer(), session, summary);
+            } else if (packet.action() == StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT) {
+                StageTemplate existing = StageTemplateStore.load(summary.id());
+                StageFlightAssets.Asset asset = StageFlightAssets.findConfigured(
+                        player.getServer().getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT),
+                        summary.id());
+                if (asset == null) {
+                    StageSession session = StageSessionManager.get(player).orElse(null);
+                    if (session != null && session.stageId().equals(summary.id()) && session.hasFlight()) {
+                        asset = StageFlightAssets.load(player.getServer(), summary.id(), session.flightHash());
+                    }
+                }
+                if (asset == null) {
+                    throw new IllegalStateException("No configured CMDCam flight exists for '" + summary.id() + "'");
+                }
+                template = summary.applyTo(existing, asset.sceneJson());
+            } else if (packet.action() == StageTemplatePackets.Action.CLEAR_FLIGHT) {
+                template = summary.applyTo(StageTemplateStore.load(summary.id()), new byte[0]);
             } else {
                 template = summary.applyTo(StageTemplateStore.load(summary.id()));
             }
