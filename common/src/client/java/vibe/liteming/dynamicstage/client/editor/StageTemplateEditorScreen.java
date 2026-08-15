@@ -48,9 +48,9 @@ public final class StageTemplateEditorScreen extends Screen {
     private EditBox capacity;
     private EditBox movementScale;
     private EditBox dhNearFadeScale;
-    private EditBox voxyNearClipScale;
     private EditBox blurRadius;
     private EditBox transitionTicks;
+    private EditBox flightName;
     private EditBox dayTime;
     private EditBox cycleTicks;
 
@@ -155,8 +155,10 @@ public final class StageTemplateEditorScreen extends Screen {
         dhNearFadeScale = labeledCompact("dh_near_fade", left + half + 4, y, panelWidth - half - 4,
                 Float.toString(draft.dhNearFadeScale));
         y += ROW_HEIGHT;
-        voxyNearClipScale = labeledCompact("voxy_near_clip", left, y, half,
-                Float.toString(draft.voxyNearClipScale));
+        addButton(left, y, half, text("setting.voxy_near_culling", toggle(draft.voxyNearCulling)), button -> {
+            draft.voxyNearCulling = !draft.voxyNearCulling;
+            button.setMessage(text("setting.voxy_near_culling", toggle(draft.voxyNearCulling)));
+        });
         blurRadius = labeledCompact("persistent_blur", left + half + 4, y, panelWidth - half - 4,
                 Float.toString(draft.blurRadius));
         y += ROW_HEIGHT;
@@ -174,7 +176,7 @@ public final class StageTemplateEditorScreen extends Screen {
         transitionTicks = labeledCompact("transition_ticks", left + half + 4, y,
                 panelWidth - half - 4, Integer.toString(draft.transitionTicks));
         y += ROW_HEIGHT;
-        addButton(left, y, panelWidth, text("setting.sky", value(draft.skyMode)), button -> {
+        addButton(left, y, half, text("setting.sky", value(draft.skyMode)), button -> {
             draft.skyMode = switch (draft.skyMode) {
                 case OVERWORLD -> StageClientScene.SkyMode.END;
                 case END -> StageClientScene.SkyMode.OFF;
@@ -182,11 +184,14 @@ public final class StageTemplateEditorScreen extends Screen {
             };
             button.setMessage(text("setting.sky", value(draft.skyMode)));
         });
-        y += ROW_HEIGHT;
-        addButton(left, y, half, text("action.use_configured_flight"),
-                button -> submit(StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT));
         addButton(left + half + 4, y, panelWidth - half - 4, text("action.clear_flight"),
                 button -> submit(StageTemplatePackets.Action.CLEAR_FLIGHT));
+        y += ROW_HEIGHT;
+        int flightFieldWidth = (panelWidth - 4) * 3 / 5;
+        flightName = labeledField("flight_name", left, y, flightFieldWidth, draft.flightName, 64);
+        addButton(left + flightFieldWidth + 4, y, panelWidth - flightFieldWidth - 4,
+                text("action.bind_selected_flight"),
+                button -> submit(StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT));
     }
 
     private void buildTimeTab(int left, int top, int panelWidth) {
@@ -271,6 +276,9 @@ public final class StageTemplateEditorScreen extends Screen {
             return;
         }
         try {
+            if (action == StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT && draft.flightName.isEmpty()) {
+                throw new IllegalArgumentException(text("validation.empty", text("field.flight_name")).getString());
+            }
             StageTemplateSummary summary = draft.toSummary(currentGameTime());
             DynamicStageNetwork.editTemplate(new StageTemplatePackets.EditPacket(action, summary));
             setPendingStatus(action == StageTemplatePackets.Action.CAPTURE_ACTIVE
@@ -301,10 +309,10 @@ public final class StageTemplateEditorScreen extends Screen {
                 case BACKDROP -> {
                     draft.movementScale = decimal(movementScale);
                     draft.dhNearFadeScale = decimal(dhNearFadeScale);
-                    draft.voxyNearClipScale = decimal(voxyNearClipScale);
                     draft.blurRadius = decimal(blurRadius);
                     draft.transitionTicks = draft.transition == StageClientScene.Transition.INSTANT
                             ? 0 : integer(transitionTicks);
+                    draft.flightName = flightName.getValue().trim();
                 }
                 case TIME -> {
                     draft.baseDayTime = Long.parseLong(dayTime.getValue());
@@ -388,7 +396,7 @@ public final class StageTemplateEditorScreen extends Screen {
         if (active != null) {
             return Draft.from(new StageTemplateSummary(active.stageId(), active.lodPackId(), active.lodAnchor(),
                     active.boundary(), active.clientScene(), active.capacity(),
-                    StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE));
+                    StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE, ""));
         }
         Minecraft mc = Minecraft.getInstance();
         BlockPos anchor = mc.player == null ? BlockPos.ZERO : mc.player.blockPosition();
@@ -396,7 +404,7 @@ public final class StageTemplateEditorScreen extends Screen {
         long dayTime = mc.level == null ? 0L : mc.level.getDayTime();
         return Draft.from(new StageTemplateSummary("stage_1", new ResourceLocation("dynamicstage", "none"),
                 anchor, StageBoundary.defaults(), StageClientScene.defaults(dayTime, gameTime), 1,
-                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE));
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE, ""));
     }
 
     private long currentGameTime() {
@@ -484,7 +492,7 @@ public final class StageTemplateEditorScreen extends Screen {
         private boolean followPlayer;
         private float movementScale;
         private float dhNearFadeScale;
-        private float voxyNearClipScale;
+        private boolean voxyNearCulling;
         private boolean lodVisible;
         private float blurRadius;
         private StageClientScene.Transition transition;
@@ -493,6 +501,7 @@ public final class StageTemplateEditorScreen extends Screen {
         private long baseDayTime;
         private long cycleTicks;
         private StageClientScene.SkyMode skyMode;
+        private String flightName;
 
         private static Draft from(StageTemplateSummary summary) {
             Draft draft = new Draft();
@@ -507,7 +516,7 @@ public final class StageTemplateEditorScreen extends Screen {
             draft.followPlayer = scene.followPlayer();
             draft.movementScale = scene.lodMovementScale();
             draft.dhNearFadeScale = scene.dhNearFadeScale();
-            draft.voxyNearClipScale = scene.voxyNearClipScale();
+            draft.voxyNearCulling = scene.voxyNearCulling();
             draft.lodVisible = scene.lodVisible();
             draft.blurRadius = scene.lodBlurRadius();
             draft.transition = scene.lodTransition();
@@ -516,6 +525,7 @@ public final class StageTemplateEditorScreen extends Screen {
             draft.baseDayTime = scene.timeBaseDayTime();
             draft.cycleTicks = scene.timeCycleTicks();
             draft.skyMode = scene.skyMode();
+            draft.flightName = summary.flightName();
             return draft;
         }
 
@@ -525,11 +535,12 @@ public final class StageTemplateEditorScreen extends Screen {
                 throw new IllegalArgumentException(text("validation.invalid_lod_package").getString());
             }
             long normalizedDayTime = Math.floorMod(baseDayTime, 24_000L);
-            StageClientScene scene = new StageClientScene(followPlayer, movementScale, dhNearFadeScale, voxyNearClipScale, lodVisible, blurRadius,
+            StageClientScene scene = new StageClientScene(followPlayer, movementScale, dhNearFadeScale, voxyNearCulling, lodVisible, blurRadius,
                     transition, transition == StageClientScene.Transition.INSTANT ? 0 : transitionTicks,
                     gameTime, timeMode, normalizedDayTime, gameTime,
                     timeMode == StageClientScene.TimeMode.CYCLE ? cycleTicks : 0L, skyMode);
-            return new StageTemplateSummary(id, pack, anchor, boundary, scene, capacity, instanceMode, resetPolicy);
+            return new StageTemplateSummary(id, pack, anchor, boundary, scene, capacity, instanceMode, resetPolicy,
+                    flightName);
         }
     }
 }
