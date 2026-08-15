@@ -2,7 +2,7 @@
 
 Dynamic Stage is a Forge 1.20.1 prototype for isolated encounter and STG stage instances. Distant Horizons owns all LOD database access, caching, mesh generation, and rendering. Dynamic Stage only selects a client-local LOD package, supplies a virtual source position, and synchronizes small stage-control messages.
 
-There is no server-side LOD bake, LOD file transfer, or Dynamic Stage LOD renderer. Players must already have the selected package, normally distributed as part of a modpack.
+There is no server-side LOD bake or Dynamic Stage LOD renderer. Voxy/DH remains responsible for client-side LOD rendering. Since 1.3.0, a server may optionally publish a verified LOD archive offer; the client downloads and mounts it before entering the stage.
 
 ## Current scope
 
@@ -14,7 +14,7 @@ There is no server-side LOD bake, LOD file transfer, or Dynamic Stage LOD render
 - The client must mount and validate its LOD package before the server teleports it.
 - The persistent player marker `DynamicStageInstance` contains the active instance UUID for KubeJS or other orchestration.
 
-The implementation uses Architectury. Forge/Distant Horizons and Fabric/Voxy development paths are available; DH remains the primary compatibility target.
+The implementation uses Architectury. Forge/Distant Horizons and Fabric/Voxy development paths are available; Voxy is the preferred backend and DH remains a supported fallback.
 
 ## Client LOD packages
 
@@ -49,8 +49,20 @@ client-only command:
 /dstage lod import link <pack_id> <source_path>
 /dstage lod import link-relative <pack_id> <source_path>
 /dstage lod import copy <pack_id> <source_path>
+/dstage lod export <pack_id> <archive.dstlod>
 /dstage lod root
+/dstage lod downloads status
+/dstage lod downloads on|off
+/dstage lod downloads max <MiB>
 ```
+
+`/dstage lod downloads` controls the client-only server distribution policy.
+The default allows offered downloads up to `256 MiB`; the limit can be set from
+`1` to `512 MiB`. Turning downloads off rejects `required` offers and reports a
+warning for `optional` offers, while an already installed local package remains
+usable. The same settings are available on the editor's `Local` tab and are
+stored in `config/dynamicstage-client.json` as `allow_server_lod_downloads` and
+`max_server_lod_download_mib`.
 
 `source_path` can point at a `DistantHorizons.sqlite` file, a DH dimension
 directory, a Voxy `storage` directory, a Voxy world directory, a save
@@ -77,6 +89,34 @@ DH/Voxy may create locks or perform schema migration; DS only disables
 stage-time generation and network retrieval, it cannot turn the backend's file
 format into a true read-only connection. Source paths remain client-local and
 are never sent to the server.
+
+### Server LOD distribution
+
+`/dstage lod export` creates an immutable `.dstlod` ZIP from a self-contained
+client package. It rejects linked packages, skips RocksDB lock and diagnostic
+log files, preserves WAL files, and prints the exact archive size and SHA-256.
+Close the source Voxy/DH instance before exporting.
+
+Publish the archive from an HTTP(S) server or CDN, then configure the game
+server, for example:
+
+```text
+/dstage distribution set minecraft:gr optional 12585178 <sha256> https://cdn.example.invalid/gr.dstlod
+```
+
+The catalog is stored in the server world at
+`dynamicstage/lod-distribution.json`. `required` blocks stage entry or a live
+backdrop switch until the verified package is installed. `optional` allows the
+operation to continue without a backdrop and reports a warning when download
+or installation fails. With no catalog entry, the existing local-package
+behavior is unchanged.
+
+Clients keep archives under `.minecraft/dynamicstage/downloads` and install
+validated packages under `.minecraft/dynamicstage/lodpacks`. Downloads use a
+`.part` file and HTTP Range resume when available. Size, SHA-256, ZIP paths,
+entry count, extracted size, and the native package manifest are checked before
+an atomic installation. The server transfers only offer metadata; the archive
+does not travel through the Minecraft tick/network channel.
 
 DH 3.2 still requires the database file and its directory to be writable when opening it, and may apply its own schema migrations. "Read-only" here means DS asks DH to stop LOD updates, generation, and network retrieval while the stage is active; it is not a SQLite read-only connection. Distribute a writable package produced by the same supported DH version and keep an immutable source copy outside the live instance when exact byte preservation matters.
 
@@ -126,7 +166,11 @@ expanded command to the server:
 /dstage lod import link <pack_id> <source_path>
 /dstage lod import link-relative <pack_id> <source_path>
 /dstage lod import copy <pack_id> <source_path>
+/dstage lod export <pack_id> <archive.dstlod>
 /dstage lod root
+/dstage distribution list|path
+/dstage distribution set <pack_id> <optional|required> <bytes> <sha256> <url>
+/dstage distribution remove <pack_id>
 ```
 
 `/dstage start <stage>` is a client-side convenience shortcut. It captures the
@@ -196,7 +240,7 @@ Backdrop and time settings belong to the instance and are broadcast to all membe
 
 LOD visibility and live LOD package or Flight replacements can be instant, fade, or blur transitions. Persistent blur is independent from transitions and uses a `0..32` pixel radius; `0` disables it. DH near fade remains configurable. Voxy's stage projection always uses its depth-safe `0.1` near plane; `voxy-culling=false` preserves the LOD section containing the camera instead of changing projection depth. This Voxy override requires the matching HDRS Voxy build and leaves normal-world Voxy culling unchanged. Dynamic Stage filters only the native backend's intermediate LOD color texture before DH or Voxy performs its original depth-aware composite, so the sky, stage blocks, entities, and UI are not blurred.
 
-Version 1.2.2 exposes command-level runtime scheduling rather than an internal cue timeline. Repeated `/dstage backdrop switch`, `/dstage flight play`, and `/dstage flight stop` commands can combine any number of named LOD packages and global Flights during one instance. Each command applies to every member of that instance. KubeJS or another server script can issue them from music markers, player NBT, or timed events; Flight motion uses a shared server game-time epoch so all clients sample the same animation position.
+Version 1.3.0 adds server-offered LOD archives while retaining command-level runtime scheduling. Repeated `/dstage backdrop switch`, `/dstage flight play`, and `/dstage flight stop` commands can combine any number of named LOD packages and global Flights during one instance. Each command applies to every member of that instance. KubeJS or another server script can issue them from music markers, player NBT, or timed events; Flight motion uses a shared server game-time epoch so all clients sample the same animation position.
 
 ## CMDCam and music
 
@@ -220,8 +264,8 @@ Build and run tests:
 .\gradlew.bat clean build
 ```
 
-The release outputs are `fabric/build/libs/dstage-fabric-1.2.2.jar` and
-`forge/build/libs/dstage-forge-1.2.2.jar`. They do not embed DH, Voxy, CMDCam,
+The release outputs are `fabric/build/libs/dstage-fabric-1.3.0.jar` and
+`forge/build/libs/dstage-forge-1.3.0.jar`. They do not embed DH, Voxy, CMDCam,
 SQLite, RocksDB, or compression libraries.
 
 Run the default Forge client with DH and Oculus shader compatibility:
