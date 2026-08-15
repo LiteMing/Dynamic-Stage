@@ -1,11 +1,10 @@
 package vibe.liteming.dynamicstage.flight;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParser;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtAccounter;
-import net.minecraft.nbt.NbtIo;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
@@ -22,19 +21,14 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.LinkOption;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.zip.GZIPInputStream;
-import java.io.BufferedInputStream;
-import java.io.DataInputStream;
-import java.io.ByteArrayOutputStream;
 
 /** World-local, content-addressed storage for validated CMDCam stage flights. */
 public final class StageFlightAssets {
 
     private static final String ACTIVE_REF = "active.ref";
     private static final String CMDCAM_SAVED_DATA = "cmdcam_Scenes.dat";
-    private static final int LIBRARY_FORMAT = 1;
-    private static final long MAX_LIBRARY_BYTES = StageFlightCodec.MAX_BYTES + 4096L;
     private static final Gson GSON = new Gson();
+    private static final Gson PRETTY_GSON = new GsonBuilder().disableHtmlEscaping().setPrettyPrinting().create();
 
     private StageFlightAssets() {
     }
@@ -115,20 +109,23 @@ public final class StageFlightAssets {
 
     public static List<String> listLibraryFlights() {
         try {
-            Path root = libraryDirectory();
-            if (!Files.isDirectory(root)) {
-                return List.of();
-            }
-            try (var files = Files.list(root)) {
-                return files.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
-                        .map(path -> path.getFileName().toString())
-                        .filter(name -> name.endsWith(".dat"))
-                        .map(name -> name.substring(0, name.length() - 4))
-                        .filter(StageFlightAssets::validLibraryName)
-                        .sorted().toList();
-            }
+            return listLibraryFlights(libraryDirectory());
         } catch (IOException | RuntimeException | AssertionError | LinkageError e) {
             return List.of();
+        }
+    }
+
+    static List<String> listLibraryFlights(Path root) throws IOException {
+        if (!Files.isDirectory(root)) {
+            return List.of();
+        }
+        try (var files = Files.list(root)) {
+            return files.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                    .map(path -> path.getFileName().toString())
+                    .filter(name -> name.endsWith(".json"))
+                    .map(name -> name.substring(0, name.length() - ".json".length()))
+                    .filter(StageFlightAssets::validLibraryName)
+                    .sorted().toList();
         }
     }
 
@@ -291,44 +288,41 @@ public final class StageFlightAssets {
     }
 
     private static void writeLibrary(String name, StageFlightCodec.Scene scene) throws IOException {
-        Path root = libraryDirectory();
-        Files.createDirectories(root);
-        CompoundTag tag = new CompoundTag();
-        tag.putInt("Format", LIBRARY_FORMAT);
-        tag.putString("Name", name);
-        tag.putByteArray("Flight", scene.json());
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        NbtIo.writeCompressed(tag, output);
-        atomicWrite(root, libraryFile(name), output.toByteArray());
+        writeLibrary(libraryDirectory(), name, scene);
     }
 
-    private static StageFlightCodec.Scene readLibrary(String name) throws IOException {
-        Path file = libraryFile(name);
+    static void writeLibrary(Path root, String name, StageFlightCodec.Scene scene) throws IOException {
+        Path directory = root.toAbsolutePath().normalize();
+        Files.createDirectories(directory);
+        atomicWrite(directory, libraryFile(directory, name), prettyJson(scene));
+    }
+
+    static StageFlightCodec.Scene readLibrary(String name) throws IOException {
+        return readLibrary(libraryDirectory(), name);
+    }
+
+    static StageFlightCodec.Scene readLibrary(Path root, String name) throws IOException {
+        Path file = libraryFile(root, name);
         if (Files.isSymbolicLink(file) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("Unknown global flight '" + name + "' (checked " + file + ")");
         }
         long size = Files.size(file);
-        if (size <= 0L || size > MAX_LIBRARY_BYTES) {
+        if (size <= 0L || size > StageFlightCodec.MAX_BYTES) {
             throw new IOException("Global flight file exceeds the supported size");
         }
-        try (DataInputStream input = new DataInputStream(new BufferedInputStream(
-                new GZIPInputStream(Files.newInputStream(file))))) {
-            CompoundTag tag = NbtIo.read(input, new NbtAccounter(MAX_LIBRARY_BYTES * 4L));
-            if (tag == null || tag.getInt("Format") != LIBRARY_FORMAT || !name.equals(tag.getString("Name"))) {
-                throw new IOException("Invalid global flight file: " + name);
-            }
-            return StageFlightCodec.readSingle(tag.getByteArray("Flight"));
+        try {
+            return StageFlightCodec.readSingle(readBounded(file));
         } catch (RuntimeException e) {
             throw new IOException("Invalid global flight file: " + name, e);
         }
     }
 
-    private static Path libraryFile(String name) throws IOException {
+    private static Path libraryFile(Path root, String name) throws IOException {
         if (!validLibraryName(name)) {
             throw new IOException("Flight name must use 1-64 letters, digits, '_' or '-'");
         }
-        Path root = libraryDirectory();
-        Path file = root.resolve(name + ".dat").normalize();
+        root = root.toAbsolutePath().normalize();
+        Path file = root.resolve(name + ".json").normalize();
         if (!file.getParent().equals(root)) {
             throw new IOException("Invalid flight library path");
         }
@@ -337,6 +331,13 @@ public final class StageFlightAssets {
 
     private static boolean validLibraryName(String name) {
         return name != null && name.matches("[A-Za-z0-9_-]{1,64}");
+    }
+
+    private static byte[] prettyJson(StageFlightCodec.Scene scene) {
+        String compact = new String(scene.json(), StandardCharsets.UTF_8);
+        byte[] pretty = (PRETTY_GSON.toJson(JsonParser.parseString(compact)) + System.lineSeparator())
+                .getBytes(StandardCharsets.UTF_8);
+        return pretty.length <= StageFlightCodec.MAX_BYTES ? pretty : scene.json();
     }
 
     public static Asset install(Path worldRoot, String stageId, byte[] sceneJson) throws IOException {

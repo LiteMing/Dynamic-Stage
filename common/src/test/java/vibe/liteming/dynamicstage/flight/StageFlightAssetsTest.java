@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StageFlightAssetsTest {
@@ -89,6 +90,41 @@ class StageFlightAssetsTest {
         StageFlightAssets.Asset externalAsset = StageFlightAssets.importFromCMDCamFile(
                 external, worldRoot, "external", null);
         assertEquals(asset.sceneJson().length, externalAsset.sceneJson().length);
+    }
+
+    @Test
+    void storesGlobalFlightsAsDirectlyEditableJson() throws Exception {
+        Path library = worldRoot.resolve("dynamicstage-library");
+        StageFlightCodec.Scene initial = StageFlightCodec.readSingle(
+                StageFlightCodecTest.scene(3000, "default", -1, 2).getBytes(StandardCharsets.UTF_8));
+
+        StageFlightAssets.writeLibrary(library, "boss_intro", initial);
+
+        Path json = library.resolve("boss_intro.json");
+        assertTrue(Files.isRegularFile(json));
+        assertTrue(Files.readString(json).startsWith("{"));
+        assertTrue(Files.readAllLines(json).stream().anyMatch(line -> line.startsWith("  \"duration\"")));
+        assertFalse(Files.exists(library.resolve("boss_intro.dat")));
+        assertEquals(java.util.List.of("boss_intro"), StageFlightAssets.listLibraryFlights(library));
+        assertEquals(3000L, StageFlightAssets.readLibrary(library, "boss_intro").durationMillis());
+
+        Files.writeString(json, StageFlightCodecTest.scene(9000, "outside", 0, 3),
+                StandardCharsets.UTF_8);
+        assertEquals(9000L, StageFlightAssets.readLibrary(library, "boss_intro").durationMillis());
+        assertEquals(3, StageFlightAssets.readLibrary(library, "boss_intro").pointCount());
+    }
+
+    @Test
+    void ignoresRetiredDatFilesAndRejectsInvalidJson() throws Exception {
+        Path library = worldRoot.resolve("dynamicstage-library");
+        Files.createDirectories(library);
+        Files.writeString(library.resolve("legacy.dat"), "retired", StandardCharsets.UTF_8);
+        Files.writeString(library.resolve("broken.json"), "{}", StandardCharsets.UTF_8);
+
+        assertTrue(StageFlightAssets.listLibraryFlights(library).contains("broken"));
+        assertFalse(StageFlightAssets.listLibraryFlights(library).contains("legacy"));
+        assertThrows(java.io.IOException.class, () -> StageFlightAssets.readLibrary(library, "broken"));
+        assertThrows(java.io.IOException.class, () -> StageFlightAssets.readLibrary(library, "legacy"));
     }
 
     private static CompoundTag cmdcamScene() {
