@@ -39,6 +39,7 @@ public final class StageSessionManager {
     private static final Set<UUID> SENT_FLIGHTS = ConcurrentHashMap.newKeySet();
     private static final ConcurrentHashMap<UUID, BackdropSwitchState> BACKDROP_SWITCHES =
             new ConcurrentHashMap<>();
+    private static final Set<UUID> EDITING_PLAYERS = ConcurrentHashMap.newKeySet();
 
     private StageSessionManager() {
     }
@@ -713,6 +714,7 @@ public final class StageSessionManager {
         boolean cancelled = PENDING.remove(player.getUUID()) != null;
         Optional<StageSession> removed = StageSessionData.get(server).remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
+        EDITING_PLAYERS.remove(player.getUUID());
         removeBackdropSwitchWait(server, player.getUUID());
         clearPlayerMarker(player);
         if (removed.isEmpty()) {
@@ -741,6 +743,7 @@ public final class StageSessionManager {
         }
         PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
+        EDITING_PLAYERS.remove(player.getUUID());
         removeBackdropSwitchWait(server, player.getUUID());
         clearPlayerMarker(player);
         DynamicStageNetwork.clearSession(player);
@@ -749,6 +752,7 @@ public final class StageSessionManager {
     public static void onLogout(ServerPlayer player) {
         PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
+        EDITING_PLAYERS.remove(player.getUUID());
         removeBackdropSwitchWait(player.getServer(), player.getUUID());
         LodServerTransferManager.cancel(player.getUUID());
     }
@@ -756,6 +760,7 @@ public final class StageSessionManager {
     public static void onServerStopped() {
         PENDING.clear();
         SENT_FLIGHTS.clear();
+        EDITING_PLAYERS.clear();
         BACKDROP_SWITCHES.clear();
         LodServerTransferManager.clear();
     }
@@ -807,6 +812,30 @@ public final class StageSessionManager {
     public static Optional<StageSession> get(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         return server == null ? Optional.empty() : StageSessionData.get(server).get(player.getUUID());
+    }
+
+    /** Enables block editing for this player only while they are a creative member of a stage. */
+    public static boolean setEditing(ServerPlayer player, boolean enabled) {
+        if (!enabled) {
+            EDITING_PLAYERS.remove(player.getUUID());
+            return true;
+        }
+        if (!player.isCreative() || !StageWorlds.isStageLevel(player.level()) || get(player).isEmpty()) {
+            return false;
+        }
+        EDITING_PLAYERS.add(player.getUUID());
+        return true;
+    }
+
+    /** Returns whether this player may modify blocks in the current stage level. */
+    public static boolean isEditing(ServerPlayer player) {
+        return player != null && player.isCreative() && StageWorlds.isStageLevel(player.level())
+                && EDITING_PLAYERS.contains(player.getUUID()) && get(player).isPresent();
+    }
+
+    /** Platform callbacks may expose a generic player; only a server player can hold edit permission. */
+    public static boolean isEditing(net.minecraft.world.entity.player.Player player) {
+        return player instanceof ServerPlayer serverPlayer && isEditing(serverPlayer);
     }
 
     public static boolean canRequestLodDownload(ServerPlayer player, ResourceLocation lodPackId) {

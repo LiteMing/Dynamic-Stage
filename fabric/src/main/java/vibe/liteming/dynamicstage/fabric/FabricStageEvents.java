@@ -67,10 +67,12 @@ public final class FabricStageEvents {
         });
 
         AttackBlockCallback.EVENT.register((player, level, hand, pos, direction) ->
-                StageWorlds.isStageLevel(level) ? InteractionResult.FAIL : InteractionResult.PASS);
+                !level.isClientSide && StageWorlds.isStageLevel(level) && !StageSessionManager.isEditing(player)
+                        ? InteractionResult.FAIL : InteractionResult.PASS);
         UseBlockCallback.EVENT.register((player, level, hand, hit) ->
-                StageWorlds.isStageLevel(level) ? InteractionResult.FAIL : InteractionResult.PASS);
+                !level.isClientSide && StageWorlds.isStageLevel(level) && !StageSessionManager.isEditing(player)
+                        ? InteractionResult.FAIL : InteractionResult.PASS);
         PlayerBlockBreakEvents.BEFORE.register((level, player, pos, state, blockEntity) ->
-                !StageWorlds.isStageLevel(level));
+                level.isClientSide || !StageWorlds.isStageLevel(level) || StageSessionManager.isEditing(player));
     }
 }

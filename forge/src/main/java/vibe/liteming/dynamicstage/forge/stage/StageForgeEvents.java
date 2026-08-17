@@ -69,7 +69,10 @@ public final class StageForgeEvents {
 
     @SubscribeEvent
     public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
-        if (!StageWorlds.isStageLevel(event.getLevel())) {
+        if (event.getLevel().isClientSide()
+                || !StageWorlds.isStageLevel(event.getLevel())
+                || event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player
+                && StageSessionManager.isEditing(player)) {
             return;
         }
         event.setCancellationResult(InteractionResult.PASS);
@@ -80,14 +83,29 @@ public final class StageForgeEvents {
 
     @SubscribeEvent
     public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
-        if (StageWorlds.isStageLevel(event.getLevel())) {
+        if (!event.getLevel().isClientSide() && StageWorlds.isStageLevel(event.getLevel())
+                && !(event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player
+                && StageSessionManager.isEditing(player))) {
             event.setCanceled(true);
         }
     }
 
     @SubscribeEvent
     public static void onBlockBreak(BlockEvent.BreakEvent event) {
-        if (event.getLevel() instanceof Level level && StageWorlds.isStageLevel(level)) {
+        if (event.getLevel() instanceof Level level && !level.isClientSide
+                && StageWorlds.isStageLevel(level)
+                && !(event.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player
+                && StageSessionManager.isEditing(player))) {
+            event.setCanceled(true);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onBlockPlace(BlockEvent.EntityPlaceEvent event) {
+        if (event.getLevel() instanceof Level level && !level.isClientSide
+                && StageWorlds.isStageLevel(level)
+                && !(event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player
+                && StageSessionManager.isEditing(player))) {
             event.setCanceled(true);
         }
     }
