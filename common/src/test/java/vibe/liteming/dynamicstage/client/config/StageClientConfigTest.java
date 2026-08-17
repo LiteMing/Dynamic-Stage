@@ -75,6 +75,7 @@ class StageClientConfigTest {
 
         assertFalse(settings.allowServerLodDownloads());
         assertEquals(96, settings.maxServerLodDownloadMib());
+        assertFalse(settings.experimentalVoxyCollision());
     }
 
     @Test
@@ -86,6 +87,15 @@ class StageClientConfigTest {
 
         assertTrue(settings.allowServerLodDownloads());
         assertEquals(256, settings.maxServerLodDownloadMib());
+        assertFalse(settings.experimentalVoxyCollision());
+    }
+
+    @Test
+    void readsExperimentalVoxyCollisionOptIn() throws IOException {
+        Path path = temporaryDirectory.resolve("client.json");
+        Files.writeString(path, "{\"experimental_voxy_lod_collision\": true}");
+
+        assertTrue(StageClientConfig.readSettings(path).experimentalVoxyCollision());
     }
 
     @Test

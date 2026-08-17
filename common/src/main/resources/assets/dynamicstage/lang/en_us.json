@@ -44,6 +44,7 @@
   "screen.dynamicstage.editor.setting.sky": "Sky: %s",
   "screen.dynamicstage.editor.setting.time": "Time: %s",
   "screen.dynamicstage.editor.setting.server_lod_downloads": "Server LOD downloads: %s",
+  "screen.dynamicstage.editor.setting.experimental_voxy_collision": "Experimental Voxy collision reports: %s",
   "screen.dynamicstage.editor.value.on": "On",
   "screen.dynamicstage.editor.value.off": "Off",
   "screen.dynamicstage.editor.value.shared": "Shared",

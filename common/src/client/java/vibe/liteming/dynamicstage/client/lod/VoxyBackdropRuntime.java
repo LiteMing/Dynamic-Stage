@@ -12,6 +12,7 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +28,10 @@ public final class VoxyBackdropRuntime {
     @Nullable private static volatile Mounted mounted;
     @Nullable private static Method preserveCameraSectionMethod;
     @Nullable private static Boolean lastPreserveCameraSection;
+    @Nullable private static volatile Object stageWorldEngine;
+    @Nullable private static Method acquireSectionMethod;
+    @Nullable private static Method sectionDataMethod;
+    @Nullable private static Method releaseSectionMethod;
     private static boolean stageActivated;
     private static boolean normalInstanceSuspended;
     private static boolean externalInstanceActive;
@@ -64,6 +69,7 @@ public final class VoxyBackdropRuntime {
         Mounted previous = mounted;
         mounted = null;
         stageActivated = false;
+        stageWorldEngine = null;
         setPreserveCameraSection(false);
         if (previous == null || !normalInstanceSuspended) {
             return;
@@ -162,6 +168,20 @@ public final class VoxyBackdropRuntime {
         return mounted != null && externalInstanceActive;
     }
 
+    @Nullable
+    public static BlockLookup openBlockLookup() {
+        Object world = stageWorldEngine;
+        if (!stageActivated || world == null || !shouldOverrideCurrentStage()) {
+            return null;
+        }
+        try {
+            resolveBlockLookup(world);
+            return new BlockLookup(world, acquireSectionMethod, sectionDataMethod, releaseSectionMethod);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Could not query Voxy LOD blocks", e);
+        }
+    }
+
     public static void syncCameraSectionCulling() {
         boolean preserve = false;
         ClientStageSession.Snapshot snapshot = ClientStageSession.active();
@@ -207,6 +227,7 @@ public final class VoxyBackdropRuntime {
 
     public static void leaveStageLevel() {
         setPreserveCameraSection(false);
+        stageWorldEngine = null;
         if (mounted == null || !normalInstanceSuspended) {
             return;
         }
@@ -220,6 +241,7 @@ public final class VoxyBackdropRuntime {
     }
 
     private static void shutdownVoxyInstance() throws ReflectiveOperationException {
+        stageWorldEngine = null;
         Class<?> common = Class.forName(VOXY_COMMON);
         Object renderer = Minecraft.getInstance().levelRenderer;
         Class<?> rendererInterface = Class.forName(VOXY_RENDERER);
@@ -308,7 +330,21 @@ public final class VoxyBackdropRuntime {
         Object backend = backendField.get(storageField.get(world));
         Path actualStorage = findRocksDbPath(backend);
         samePath(actualStorage, current.pack.storageDirectory(), "Voxy opened a different RocksDB database");
+        resolveBlockLookup(world);
+        stageWorldEngine = world;
         LOGGER.info("Voxy opened stage LOD storage {}", current.pack.storageDirectory());
+    }
+
+    private static void resolveBlockLookup(Object world) throws ReflectiveOperationException {
+        if (acquireSectionMethod != null && acquireSectionMethod.getDeclaringClass().isInstance(world)) {
+            return;
+        }
+        Method acquire = world.getClass().getMethod("acquireIfExists",
+                int.class, int.class, int.class, int.class);
+        Class<?> section = acquire.getReturnType();
+        acquireSectionMethod = acquire;
+        sectionDataMethod = section.getMethod("_unsafeGetRawDataArray");
+        releaseSectionMethod = section.getMethod("release");
     }
 
     private static Path findRocksDbPath(Object backend) throws ReflectiveOperationException {
@@ -370,5 +406,87 @@ public final class VoxyBackdropRuntime {
     }
 
     public record CurrentSource(Path storage, String worldId) {
+    }
+
+    public static final class BlockLookup implements AutoCloseable {
+        private static final long BLOCK_ID_MASK = ((1L << 20) - 1L) << 27;
+        private static final long[] EMPTY = new long[0];
+
+        private final Object world;
+        private final Method acquire;
+        private final Method data;
+        private final Method release;
+        private final Map<SectionKey, long[]> sections = new HashMap<>();
+        private final List<Object> acquired = new ArrayList<>();
+        private boolean closed;
+
+        private BlockLookup(Object world, Method acquire, Method data, Method release) {
+            this.world = world;
+            this.acquire = acquire;
+            this.data = data;
+            this.release = release;
+        }
+
+        public boolean isSolid(int x, int y, int z) {
+            if (closed) {
+                throw new IllegalStateException("Voxy block lookup is closed");
+            }
+            SectionKey key = new SectionKey(Math.floorDiv(x, 32), Math.floorDiv(y, 32), Math.floorDiv(z, 32));
+            long[] blocks = sections.get(key);
+            if (blocks == null) {
+                blocks = acquire(key);
+                sections.put(key, blocks);
+            }
+            if (blocks == EMPTY) {
+                return false;
+            }
+            int index = ((y & 31) << 10) | ((z & 31) << 5) | (x & 31);
+            return (blocks[index] & BLOCK_ID_MASK) != 0L;
+        }
+
+        private long[] acquire(SectionKey key) {
+            try {
+                Object section = acquire.invoke(world, 0, key.x(), key.y(), key.z());
+                if (section == null) {
+                    return EMPTY;
+                }
+                acquired.add(section);
+                Object raw = data.invoke(section);
+                if (!(raw instanceof long[] blocks) || blocks.length != 32 * 32 * 32) {
+                    throw new IllegalStateException("Voxy returned invalid level-0 section data");
+                }
+                return blocks;
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException("Could not acquire a Voxy LOD section", e);
+            }
+        }
+
+        @Override
+        public void close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            RuntimeException failure = null;
+            for (int index = acquired.size() - 1; index >= 0; index--) {
+                try {
+                    release.invoke(acquired.get(index));
+                } catch (ReflectiveOperationException e) {
+                    if (failure == null) {
+                        failure = new IllegalStateException("Could not release a Voxy LOD section", e);
+                    } else {
+                        failure.addSuppressed(e);
+                    }
+                }
+            }
+            acquired.clear();
+            sections.clear();
+            if (failure != null) {
+                throw failure;
+            }
+        }
+    }
+
+    private record SectionKey(int x, int y, int z) {
     }
 }

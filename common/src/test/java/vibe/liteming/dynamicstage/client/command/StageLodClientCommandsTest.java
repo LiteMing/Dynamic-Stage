@@ -38,5 +38,8 @@ class StageLodClientCommandsTest {
         assertNotNull(root.getChild("lod").getChild("downloads").getChild("on"));
         assertNotNull(root.getChild("lod").getChild("downloads").getChild("off"));
         assertNotNull(root.getChild("lod").getChild("downloads").getChild("max"));
+        assertNotNull(root.getChild("lod").getChild("collision").getChild("status"));
+        assertNotNull(root.getChild("lod").getChild("collision").getChild("on"));
+        assertNotNull(root.getChild("lod").getChild("collision").getChild("off"));
     }
 }

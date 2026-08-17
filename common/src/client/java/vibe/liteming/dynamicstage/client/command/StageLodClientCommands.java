@@ -82,6 +82,14 @@ public final class StageLodClientCommands {
                 .then(RequiredArgumentBuilder.<S, Integer>argument("mib", IntegerArgumentType.integer(1, 512))
                         .executes(StageLodClientCommands::setDownloadLimit)));
         lod.then(downloads);
+        LiteralArgumentBuilder<S> collision = LiteralArgumentBuilder.literal("collision");
+        collision.then(LiteralArgumentBuilder.<S>literal("status")
+                .executes(context -> showCollisionPolicy()));
+        collision.then(LiteralArgumentBuilder.<S>literal("on")
+                .executes(context -> setCollisionPolicy(true)));
+        collision.then(LiteralArgumentBuilder.<S>literal("off")
+                .executes(context -> setCollisionPolicy(false)));
+        lod.then(collision);
         root.then(lod);
         return root;
     }
@@ -359,6 +367,24 @@ public final class StageLodClientCommands {
             message(Component.literal("Server LOD download maximum set to " + mib + " MiB."));
             return 1;
         } catch (IOException | IllegalArgumentException e) {
+            message(Component.literal("Could not save client config: " + rootMessage(e)));
+            return 0;
+        }
+    }
+
+    private static int showCollisionPolicy() {
+        message(Component.literal("Experimental Voxy LOD collision reports: "
+                + (StageClientConfig.experimentalVoxyCollision() ? "on" : "off") + '.'));
+        return 1;
+    }
+
+    private static int setCollisionPolicy(boolean enabled) {
+        try {
+            StageClientConfig.saveExperimentalVoxyCollision(enabled);
+            message(Component.literal("Experimental Voxy LOD collision reports "
+                    + (enabled ? "enabled" : "disabled") + '.'));
+            return 1;
+        } catch (IOException e) {
             message(Component.literal("Could not save client config: " + rootMessage(e)));
             return 0;
         }

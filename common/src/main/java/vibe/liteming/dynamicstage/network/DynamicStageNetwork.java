@@ -13,8 +13,12 @@ import vibe.liteming.dynamicstage.template.StageTemplateSummary;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
 import vibe.liteming.dynamicstage.lod.LodDistributionStore;
 import vibe.liteming.dynamicstage.lod.LodServerTransferManager;
+import vibe.liteming.dynamicstage.event.StageLodCollisionEvents;
+import vibe.liteming.dynamicstage.world.StageWorlds;
 
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Stage control protocol plus bounded server-hosted LOD archive transfers. */
 public final class DynamicStageNetwork {
@@ -31,6 +35,9 @@ public final class DynamicStageNetwork {
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_REQUEST = DynamicStage.id("lod_download_request");
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_CHUNK = DynamicStage.id("lod_download_chunk");
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_RESULT = DynamicStage.id("lod_download_result");
+    public static final net.minecraft.resources.ResourceLocation LOD_COLLISION_EVENT = DynamicStage.id("lod_collision_event");
+    private static final long LOD_COLLISION_REPORT_INTERVAL_TICKS = 5L;
+    private static final Map<UUID, Long> LAST_LOD_COLLISION_REPORT = new ConcurrentHashMap<>();
     private static boolean serverRegistered;
 
     private DynamicStageNetwork() {
@@ -76,6 +83,14 @@ public final class DynamicStageNetwork {
             context.queue(() -> {
                 if (context.getPlayer() instanceof ServerPlayer player) {
                     LodServerTransferManager.request(player, packet);
+                }
+            });
+        });
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, LOD_COLLISION_EVENT, (buf, context) -> {
+            StageLodCollisionPacket packet = StageLodCollisionPacket.decode(buf);
+            context.queue(() -> {
+                if (context.getPlayer() instanceof ServerPlayer player) {
+                    handleLodCollision(player, packet);
                 }
             });
         });
@@ -141,6 +156,22 @@ public final class DynamicStageNetwork {
         FriendlyByteBuf buf = buffer();
         LodDownloadRequestPacket.encode(packet, buf);
         NetworkManager.sendToServer(LOD_DOWNLOAD_REQUEST, buf);
+    }
+
+    public static void reportLodCollision(StageLodCollisionPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        StageLodCollisionPacket.encode(packet, buf);
+        NetworkManager.sendToServer(LOD_COLLISION_EVENT, buf);
+    }
+
+    public static void forgetLodCollisionReports(UUID playerId) {
+        if (playerId != null) {
+            LAST_LOD_COLLISION_REPORT.remove(playerId);
+        }
+    }
+
+    public static void clearLodCollisionReports() {
+        LAST_LOD_COLLISION_REPORT.clear();
     }
 
     public static void sendLodDownloadChunk(ServerPlayer player, LodDownloadChunkPacket packet) {
@@ -236,6 +267,21 @@ public final class DynamicStageNetwork {
     private static boolean arenaWillBeCleared(StageTemplate existing, StageTemplateSummary summary) {
         return existing != null && existing.hasArenaSnapshot()
                 && !StageTemplateSummary.sameBoundarySize(existing.boundary(), summary.boundary());
+    }
+
+    private static void handleLodCollision(ServerPlayer player, StageLodCollisionPacket packet) {
+        StageSession session = StageSessionManager.get(player).orElse(null);
+        if (session == null || !StageWorlds.isStageLevel(player.level()) || player.isSpectator()
+                || !player.isAlive() || !session.instanceId().equals(packet.instanceId())) {
+            return;
+        }
+        long gameTime = player.level().getGameTime();
+        Long previous = LAST_LOD_COLLISION_REPORT.put(player.getUUID(), gameTime);
+        if (previous != null && gameTime >= previous
+                && gameTime - previous < LOD_COLLISION_REPORT_INTERVAL_TICKS) {
+            return;
+        }
+        StageLodCollisionEvents.post(player, session, packet.direction(), packet.penetration(), gameTime);
     }
 
     private static void send(ServerPlayer player, Object packet) {

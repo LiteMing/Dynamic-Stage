@@ -44,6 +44,7 @@
   "screen.dynamicstage.editor.setting.sky": "天空：%s",
   "screen.dynamicstage.editor.setting.time": "时间模式：%s",
   "screen.dynamicstage.editor.setting.server_lod_downloads": "服务器 LOD 下载：%s",
+  "screen.dynamicstage.editor.setting.experimental_voxy_collision": "实验性 Voxy 碰撞事件：%s",
   "screen.dynamicstage.editor.value.on": "开启",
   "screen.dynamicstage.editor.value.off": "关闭",
   "screen.dynamicstage.editor.value.shared": "共享",

@@ -737,6 +737,7 @@ public final class StageSessionManager {
         Optional<StageSession> removed = StageSessionData.get(server).remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
         EDITING_PLAYERS.remove(player.getUUID());
+        DynamicStageNetwork.forgetLodCollisionReports(player.getUUID());
         removeBackdropSwitchWait(server, player.getUUID());
         clearPlayerMarker(player);
         if (removed.isEmpty()) {
@@ -766,6 +767,7 @@ public final class StageSessionManager {
         PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
         EDITING_PLAYERS.remove(player.getUUID());
+        DynamicStageNetwork.forgetLodCollisionReports(player.getUUID());
         removeBackdropSwitchWait(server, player.getUUID());
         clearPlayerMarker(player);
         DynamicStageNetwork.clearSession(player);
@@ -775,6 +777,7 @@ public final class StageSessionManager {
         PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
         EDITING_PLAYERS.remove(player.getUUID());
+        DynamicStageNetwork.forgetLodCollisionReports(player.getUUID());
         removeBackdropSwitchWait(player.getServer(), player.getUUID());
         LodServerTransferManager.cancel(player.getUUID());
     }
@@ -784,6 +787,7 @@ public final class StageSessionManager {
         SENT_FLIGHTS.clear();
         EDITING_PLAYERS.clear();
         BACKDROP_SWITCHES.clear();
+        DynamicStageNetwork.clearLodCollisionReports();
         LodServerTransferManager.clear();
     }
 

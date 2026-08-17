@@ -61,6 +61,7 @@ public final class StageTemplateEditorScreen extends Screen {
     private EditBox clientMaxServerLodMib;
     private boolean clientAllowServerLodDownloads;
     private int clientMaxServerLodDownloadMib;
+    private boolean clientExperimentalVoxyCollision;
 
     public StageTemplateEditorScreen() {
         super(text("title"));
@@ -75,6 +76,7 @@ public final class StageTemplateEditorScreen extends Screen {
             clientBoundary = StageClientConfig.boundary();
             clientAllowServerLodDownloads = StageClientConfig.allowServerLodDownloads();
             clientMaxServerLodDownloadMib = StageClientConfig.maxServerLodDownloadMib();
+            clientExperimentalVoxyCollision = StageClientConfig.experimentalVoxyCollision();
         }
         buildWidgets();
         DynamicStageNetwork.requestTemplates();
@@ -242,6 +244,14 @@ public final class StageTemplateEditorScreen extends Screen {
                 });
         clientMaxServerLodMib = labeledCompact("server_lod_max_mib", left + half + 4, y,
                 panelWidth - half - 4, Integer.toString(clientMaxServerLodDownloadMib));
+        y += ROW_HEIGHT;
+        addButton(left, y, panelWidth,
+                text("setting.experimental_voxy_collision", toggle(clientExperimentalVoxyCollision)),
+                button -> {
+                    clientExperimentalVoxyCollision = !clientExperimentalVoxyCollision;
+                    button.setMessage(text("setting.experimental_voxy_collision",
+                            toggle(clientExperimentalVoxyCollision)));
+                });
     }
 
     private void buildActions(int left, int panelWidth) {
@@ -320,7 +330,7 @@ public final class StageTemplateEditorScreen extends Screen {
         }
         try {
             StageClientConfig.save(clientBoundary, clientAllowServerLodDownloads,
-                    clientMaxServerLodDownloadMib);
+                    clientMaxServerLodDownloadMib, clientExperimentalVoxyCollision);
             setStatus("status.client_config_saved");
         } catch (java.io.IOException | IllegalArgumentException e) {
             setErrorStatus("status.operation_failed", rootMessage(e));

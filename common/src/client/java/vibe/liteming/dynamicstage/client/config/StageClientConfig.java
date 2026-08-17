@@ -26,10 +26,12 @@ public final class StageClientConfig {
     private static final boolean DEFAULT_ALLOW_SERVER_LOD_DOWNLOADS = true;
     private static final int DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB = 256;
     private static final int MAX_SERVER_LOD_DOWNLOAD_MIB = 512;
+    private static final boolean DEFAULT_EXPERIMENTAL_VOXY_LOD_COLLISION = false;
 
     private static volatile BoundaryDisplay boundary = BoundaryDisplay.defaults();
     private static volatile boolean allowServerLodDownloads = DEFAULT_ALLOW_SERVER_LOD_DOWNLOADS;
     private static volatile int maxServerLodDownloadMib = DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB;
+    private static volatile boolean experimentalVoxyCollision = DEFAULT_EXPERIMENTAL_VOXY_LOD_COLLISION;
     private static boolean loaded;
 
     private StageClientConfig() {
@@ -60,6 +62,13 @@ public final class StageClientConfig {
         return maxServerLodDownloadMib() * 1024L * 1024L;
     }
 
+    public static boolean experimentalVoxyCollision() {
+        if (!loaded) {
+            reload();
+        }
+        return experimentalVoxyCollision;
+    }
+
     public static synchronized void reload() {
         Path path = configPath();
         try {
@@ -70,10 +79,12 @@ public final class StageClientConfig {
             boundary = settings.boundary();
             allowServerLodDownloads = settings.allowServerLodDownloads();
             maxServerLodDownloadMib = settings.maxServerLodDownloadMib();
+            experimentalVoxyCollision = settings.experimentalVoxyCollision();
         } catch (IOException | RuntimeException e) {
             boundary = BoundaryDisplay.defaults();
             allowServerLodDownloads = DEFAULT_ALLOW_SERVER_LOD_DOWNLOADS;
             maxServerLodDownloadMib = DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB;
+            experimentalVoxyCollision = DEFAULT_EXPERIMENTAL_VOXY_LOD_COLLISION;
             LOGGER.warn("Could not load Dynamic Stage client config {}: {}", path, e.getMessage());
         }
         loaded = true;
@@ -92,11 +103,21 @@ public final class StageClientConfig {
     }
 
     public static synchronized void save(BoundaryDisplay display, boolean allow, int maxMib) throws IOException {
-        Settings settings = new Settings(display, allow, maxMib);
+        save(display, allow, maxMib, experimentalVoxyCollision());
+    }
+
+    public static synchronized void saveExperimentalVoxyCollision(boolean enabled) throws IOException {
+        save(boundary(), allowServerLodDownloads(), maxServerLodDownloadMib(), enabled);
+    }
+
+    public static synchronized void save(BoundaryDisplay display, boolean allow, int maxMib,
+                                         boolean voxyCollision) throws IOException {
+        Settings settings = new Settings(display, allow, maxMib, voxyCollision);
         writeSettings(configPath(), settings);
         boundary = settings.boundary();
         allowServerLodDownloads = settings.allowServerLodDownloads();
         maxServerLodDownloadMib = settings.maxServerLodDownloadMib();
+        experimentalVoxyCollision = settings.experimentalVoxyCollision();
         loaded = true;
     }
 
@@ -127,8 +148,11 @@ public final class StageClientConfig {
         int maxDownloads = root.has("max_server_lod_download_mib")
                 ? root.get("max_server_lod_download_mib").getAsInt()
                 : DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB;
+        boolean voxyCollision = root.has("experimental_voxy_lod_collision")
+                ? root.get("experimental_voxy_lod_collision").getAsBoolean()
+                : DEFAULT_EXPERIMENTAL_VOXY_LOD_COLLISION;
         return new Settings(new BoundaryDisplay(visibleDistance, opacity, parseColor(color)),
-                allowDownloads, maxDownloads);
+                allowDownloads, maxDownloads, voxyCollision);
     }
 
     private static void writeDefaults(Path path) throws IOException {
@@ -137,7 +161,7 @@ public final class StageClientConfig {
 
     static void write(Path path, BoundaryDisplay display) throws IOException {
         writeSettings(path, new Settings(display, DEFAULT_ALLOW_SERVER_LOD_DOWNLOADS,
-                DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB));
+                DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB, DEFAULT_EXPERIMENTAL_VOXY_LOD_COLLISION));
     }
 
     static void writeSettings(Path path, Settings settings) throws IOException {
@@ -152,6 +176,7 @@ public final class StageClientConfig {
         root.addProperty("boundary_fallback_color", settings.boundary().colorSetting());
         root.addProperty("allow_server_lod_downloads", settings.allowServerLodDownloads());
         root.addProperty("max_server_lod_download_mib", settings.maxServerLodDownloadMib());
+        root.addProperty("experimental_voxy_lod_collision", settings.experimentalVoxyCollision());
         Path temporary = Files.createTempFile(parent, path.getFileName().toString(), ".tmp");
         try {
             Files.writeString(temporary, GSON.toJson(root) + System.lineSeparator(), StandardCharsets.UTF_8);
@@ -212,7 +237,8 @@ public final class StageClientConfig {
         }
     }
 
-    record Settings(BoundaryDisplay boundary, boolean allowServerLodDownloads, int maxServerLodDownloadMib) {
+    record Settings(BoundaryDisplay boundary, boolean allowServerLodDownloads, int maxServerLodDownloadMib,
+                    boolean experimentalVoxyCollision) {
         Settings {
             if (boundary == null) {
                 throw new IllegalArgumentException("boundary settings are required");
