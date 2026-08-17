@@ -3,6 +3,7 @@ package vibe.liteming.dynamicstage.client.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
@@ -19,6 +20,7 @@ import vibe.liteming.dynamicstage.client.lod.CurrentLodCache;
 import vibe.liteming.dynamicstage.client.lod.LodPackArchive;
 import vibe.liteming.dynamicstage.client.lod.LodPackImporter;
 import vibe.liteming.dynamicstage.client.lod.LodPackRegistry;
+import vibe.liteming.dynamicstage.client.lod.VoxyPackOptimizer;
 import vibe.liteming.dynamicstage.client.config.StageClientConfig;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 import vibe.liteming.dynamicstage.client.editor.StageTemplateEditorScreen;
@@ -71,6 +73,7 @@ public final class StageLodClientCommands {
                         .then(RequiredArgumentBuilder.<S, String>argument("output", StringArgumentType.greedyString())
                                 .suggests(StageLodClientCommands::suggestArchivePath)
                                 .executes(StageLodClientCommands::exportPack))));
+        lod.then(optimizationCommand());
         LiteralArgumentBuilder<S> downloads = LiteralArgumentBuilder.literal("downloads");
         downloads.then(LiteralArgumentBuilder.<S>literal("status")
                 .executes(context -> showDownloadPolicy()));
@@ -92,6 +95,48 @@ public final class StageLodClientCommands {
         lod.then(collision);
         root.then(lod);
         return root;
+    }
+
+    private static <S> LiteralArgumentBuilder<S> optimizationCommand() {
+        LiteralArgumentBuilder<S> voxy = LiteralArgumentBuilder.literal("voxy");
+        voxy.then(LiteralArgumentBuilder.<S>literal("crop").then(optimizationPacks(false, false)));
+        voxy.then(LiteralArgumentBuilder.<S>literal("shell").then(optimizationPacks(true, false)));
+        voxy.then(LiteralArgumentBuilder.<S>literal("radius").then(optimizationPacks(false, true)));
+        voxy.then(LiteralArgumentBuilder.<S>literal("radius-shell").then(optimizationPacks(true, true)));
+        return LiteralArgumentBuilder.<S>literal("optimize").then(voxy);
+    }
+
+    private static <S> RequiredArgumentBuilder<S, String> optimizationPacks(boolean includeShellDepth,
+                                                                               boolean includeRadius) {
+        RequiredArgumentBuilder<S, Integer> maxY = RequiredArgumentBuilder
+                .<S, Integer>argument("max_y", IntegerArgumentType.integer(-2048, 2048))
+                .executes(StageLodClientCommands::optimizeVoxyPack);
+        RequiredArgumentBuilder<S, Integer> minY = RequiredArgumentBuilder
+                .<S, Integer>argument("min_y", IntegerArgumentType.integer(-2048, 2048))
+                .executes(StageLodClientCommands::optimizeVoxyPack)
+                .then(maxY);
+        ArgumentBuilder<S, ?> settings = includeShellDepth
+                ? RequiredArgumentBuilder.<S, Integer>argument("shell_depth",
+                                IntegerArgumentType.integer(1, 16))
+                        .then(minY)
+                : minY;
+        if (includeRadius) {
+            settings = RequiredArgumentBuilder.<S, Integer>argument("anchor_x",
+                            IntegerArgumentType.integer(-30_000_000, 30_000_000))
+                    .then(RequiredArgumentBuilder.<S, Integer>argument("anchor_z",
+                                    IntegerArgumentType.integer(-30_000_000, 30_000_000))
+                            .then(RequiredArgumentBuilder.<S, Integer>argument("radius",
+                                            IntegerArgumentType.integer(1, 30_000_000))
+                                    .then(settings)));
+        }
+        RequiredArgumentBuilder<S, String> output = RequiredArgumentBuilder
+                .<S, String>argument("output_pack", StringArgumentType.word())
+                .then(settings);
+        RequiredArgumentBuilder<S, String> source = RequiredArgumentBuilder
+                .<S, String>argument("source_pack", StringArgumentType.word())
+                .suggests(StageLodClientCommands::suggestVoxyPackIds)
+                .then(output);
+        return source;
     }
 
     private static <S> LiteralArgumentBuilder<S> importMode(String name, LodPackImporter.Mode mode) {
@@ -342,6 +387,77 @@ public final class StageLodClientCommands {
         }
     }
 
+    private static <S> int optimizeVoxyPack(CommandContext<S> context) {
+        ResourceLocation sourceId = ResourceLocation.tryParse(StringArgumentType.getString(context, "source_pack"));
+        ResourceLocation outputId = ResourceLocation.tryParse(StringArgumentType.getString(context, "output_pack"));
+        if (sourceId == null || outputId == null) {
+            message(Component.literal("Source and output must be valid LOD package IDs."));
+            return 0;
+        }
+        if (sourceId.equals(outputId)) {
+            message(Component.literal("Optimized Voxy output must use a new package ID."));
+            return 0;
+        }
+        int minY = IntegerArgumentType.getInteger(context, "min_y");
+        int maxY = context.getNodes().stream().anyMatch(node -> "max_y".equals(node.getNode().getName()))
+                ? IntegerArgumentType.getInteger(context, "max_y") : Integer.MAX_VALUE;
+        int shellDepth = context.getNodes().stream().anyMatch(node -> "shell_depth".equals(node.getNode().getName()))
+                ? IntegerArgumentType.getInteger(context, "shell_depth") : 0;
+        boolean hasRadius = context.getNodes().stream()
+                .anyMatch(node -> "radius".equals(node.getNode().getName()));
+        int anchorX = hasRadius ? IntegerArgumentType.getInteger(context, "anchor_x") : 0;
+        int anchorZ = hasRadius ? IntegerArgumentType.getInteger(context, "anchor_z") : 0;
+        int radius = hasRadius ? IntegerArgumentType.getInteger(context, "radius") : -1;
+        if (minY > maxY) {
+            message(Component.literal("Minimum Y must not exceed maximum Y."));
+            return 0;
+        }
+        final LodPackRegistry.VoxyPack source;
+        try {
+            source = (LodPackRegistry.VoxyPack) LodPackRegistry.load(sourceId);
+        } catch (ClassCastException e) {
+            message(Component.literal("LOD package '" + sourceId + "' is not a Voxy package."));
+            return 0;
+        } catch (Exception e) {
+            message(Component.literal("Could not open Voxy LOD package '" + sourceId + "': " + rootMessage(e)));
+            return 0;
+        }
+        if (!ACTIVE_IMPORTS.add(outputId)) {
+            message(Component.literal("LOD optimization is already running for: " + outputId));
+            return 0;
+        }
+        message(Component.literal("Optimizing Voxy package '" + sourceId + "' into '" + outputId
+                + "' for Y " + minY + (maxY == Integer.MAX_VALUE ? "+" : " to " + maxY)
+                + (hasRadius ? ", within " + radius + " blocks of " + anchorX + ", " + anchorZ : "")
+                + (shellDepth == 0 ? " without interior collapse" : " with a " + shellDepth + "-block solid shell")
+                + ". Keep the source cache closed."));
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                return VoxyPackOptimizer.crop(source, outputId, minY, maxY, shellDepth,
+                        anchorX, anchorZ, radius);
+            } catch (IOException e) {
+                throw new java.util.concurrent.CompletionException(e);
+            }
+        }, IMPORT_EXECUTOR).whenComplete((result, error) -> {
+            ACTIVE_IMPORTS.remove(outputId);
+            Minecraft.getInstance().execute(() -> {
+                if (error != null) {
+                    message(Component.literal("Could not optimize Voxy package '" + sourceId + "': "
+                            + rootMessage(error)));
+                    return;
+                }
+                double mebibytes = result.outputBytes() / 1048576.0D;
+                message(Component.literal("Optimized Voxy package '" + outputId + "': "
+                        + result.removedNonAirBlocks() + " blocks cropped, "
+                        + result.radiusRemovedNonAirBlocks() + " outside the horizontal radius, "
+                        + result.collapsedNonAirBlocks() + " solid interior blocks merged, "
+                        + result.outputVoxelizedSections() + " retained sections, "
+                        + String.format(Locale.ROOT, "%.1f", mebibytes) + " MiB."));
+            });
+        });
+        return 1;
+    }
+
     private static int showDownloadPolicy() {
         message(Component.literal("Server LOD downloads: "
                 + (StageClientConfig.allowServerLodDownloads() ? "on" : "off")
@@ -460,6 +576,37 @@ public final class StageLodClientCommands {
                                 + (Files.isDirectory(path) ? java.io.File.separator : "")));
             }
         } catch (Exception ignored) {
+        }
+        return builder.buildFuture();
+    }
+
+    private static <S> CompletableFuture<Suggestions> suggestVoxyPackIds(CommandContext<S> context,
+                                                                           SuggestionsBuilder builder) {
+        Path root = LodPackRegistry.rootDirectory();
+        if (!Files.isDirectory(root)) {
+            return builder.buildFuture();
+        }
+        String prefix = builder.getRemainingLowerCase();
+        try (var paths = Files.walk(root, 4)) {
+            paths.filter(path -> "manifest.json".equals(path.getFileName().toString()))
+                    .map(Path::getParent)
+                    .filter(directory -> directory != null && directory.startsWith(root))
+                    .map(directory -> root.relativize(directory))
+                    .filter(relative -> relative.getNameCount() >= 2)
+                    .map(relative -> new ResourceLocation(relative.getName(0).toString(),
+                            relative.subpath(1, relative.getNameCount()).toString().replace('\\', '/')))
+                    .sorted(Comparator.comparing(ResourceLocation::toString))
+                    .limit(80)
+                    .forEach(id -> {
+                        try {
+                            if (id.toString().startsWith(prefix)
+                                    && LodPackRegistry.load(root, id) instanceof LodPackRegistry.VoxyPack) {
+                                builder.suggest(id.toString());
+                            }
+                        } catch (IOException ignored) {
+                        }
+                    });
+        } catch (IOException | RuntimeException ignored) {
         }
         return builder.buildFuture();
     }
