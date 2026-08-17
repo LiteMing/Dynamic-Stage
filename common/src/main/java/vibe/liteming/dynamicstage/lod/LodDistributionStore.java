@@ -7,6 +7,7 @@ import com.google.gson.JsonParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
+import vibe.liteming.dynamicstage.platform.StagePlatform;
 import vibe.liteming.dynamicstage.util.ContentHash;
 
 import java.io.IOException;
@@ -14,8 +15,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Server-side catalog of downloadable LOD archives. */
@@ -24,6 +29,7 @@ public final class LodDistributionStore {
     private static final long MAX_FILE_BYTES = 2L * 1024L * 1024L;
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Map<Path, LocalArchiveState> LOCAL_ARCHIVES = new ConcurrentHashMap<>();
+    private static final Map<Path, HostedArchive> GENERATED_ARCHIVES = new ConcurrentHashMap<>();
 
     private LodDistributionStore() {
     }
@@ -34,29 +40,84 @@ public final class LodDistributionStore {
         }
         try {
             LodPackageOffer configured = read(server).get(id.toString());
-            if (configured != null) {
+            if (configured != null && !configured.serverHosted()) {
                 return configured;
             }
-            Path archive = localArchive(server, id);
-            if (!Files.isRegularFile(archive, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            HostedArchive hosted = hostedArchive(server, id);
+            if (hosted == null) {
+                return configured;
+            }
+            if (configured != null && (configured.bytes() != hosted.offer().bytes()
+                    || !configured.sha256().equals(hosted.offer().sha256()))) {
                 return null;
             }
-            long bytes = Files.size(archive);
-            if (bytes <= 0L || bytes > LodPackageOffer.MAX_BYTES) {
-                return null;
-            }
-            long modified = Files.getLastModifiedTime(archive,
-                    java.nio.file.LinkOption.NOFOLLOW_LINKS).toMillis();
-            LocalArchiveState cached = LOCAL_ARCHIVES.get(archive);
-            if (cached == null || cached.bytes() != bytes || cached.modified() != modified) {
-                cached = new LocalArchiveState(bytes, modified, ContentHash.sha256Hex(archive));
-                LOCAL_ARCHIVES.put(archive, cached);
-            }
-            return new LodPackageOffer(LodPackageOffer.Delivery.OPTIONAL, "", bytes,
-                    cached.sha256(), true);
+            return configured == null ? hosted.offer() : configured;
         } catch (IOException | RuntimeException ignored) {
             return null;
         }
+    }
+
+    /** Resolves a direct archive or lazily archives an unpacked server package directory. */
+    public static HostedArchive hostedArchive(MinecraftServer server, ResourceLocation id) throws IOException {
+        if (server == null || id == null) {
+            return null;
+        }
+        return hostedArchive(resourceRoots(server), id);
+    }
+
+    static HostedArchive hostedArchive(List<ResourceRoot> resources, ResourceLocation id) throws IOException {
+        for (ResourceRoot resource : resources) {
+            Path archive = archivePath(resource.packages(), id);
+            if (Files.isRegularFile(archive, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                return describeArchive(archive, false);
+            }
+            Path directory = packageDirectory(resource.packages(), id);
+            if (!Files.isDirectory(directory, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                continue;
+            }
+            HostedArchive cached = GENERATED_ARCHIVES.get(directory);
+            if (cached != null && Files.isRegularFile(cached.path(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                return cached;
+            }
+            Path output = resource.generatedArchives().resolve(id.getNamespace())
+                    .resolve(id.getPath() + ".dstlod").normalize();
+            LodArchiveWriter.ArchiveInfo info = LodArchiveWriter.create(directory, output, true);
+            HostedArchive generated = new HostedArchive(info.path(),
+                    new LodPackageOffer(LodPackageOffer.Delivery.OPTIONAL, "", info.bytes(), info.sha256(), true),
+                    true);
+            GENERATED_ARCHIVES.put(directory, generated);
+            LOCAL_ARCHIVES.put(info.path(), new LocalArchiveState(info.bytes(),
+                    Files.getLastModifiedTime(info.path()).toMillis(), info.sha256()));
+            return generated;
+        }
+        return null;
+    }
+
+    /** Clears cached archive metadata and validates all discoverable server packages. */
+    public static ReloadResult reload(MinecraftServer server) throws IOException {
+        LOCAL_ARCHIVES.clear();
+        GENERATED_ARCHIVES.clear();
+        Set<ResourceLocation> ids = new LinkedHashSet<>();
+        List<String> errors = new ArrayList<>();
+        for (ResourceRoot resource : resourceRoots(server)) {
+            discover(resource.packages(), ids, errors);
+        }
+        int hosted = 0;
+        int generated = 0;
+        for (ResourceLocation id : ids) {
+            try {
+                HostedArchive archive = hostedArchive(server, id);
+                if (archive != null) {
+                    hosted++;
+                    if (archive.generated()) {
+                        generated++;
+                    }
+                }
+            } catch (IOException | RuntimeException e) {
+                errors.add(id + ": " + rootMessage(e));
+            }
+        }
+        return new ReloadResult(hosted, generated, List.copyOf(errors));
     }
 
     public static Map<String, LodPackageOffer> read(MinecraftServer server) throws IOException {
@@ -134,6 +195,104 @@ public final class LodDistributionStore {
                 .toAbsolutePath().normalize();
     }
 
+    /** Portable server-level resource root that can be copied as one dynamicstage directory. */
+    public static Path serverResourceRoot() {
+        return StagePlatform.gameDirectory().resolve("dynamicstage").resolve("lodpacks")
+                .toAbsolutePath().normalize();
+    }
+
+    private static List<ResourceRoot> resourceRoots(MinecraftServer server) {
+        Path serverRoot = serverResourceRoot();
+        Path worldRoot = localArchiveRoot(server);
+        Path serverGenerated = StagePlatform.gameDirectory().resolve("dynamicstage").resolve(".cache")
+                .resolve("lodarchives").toAbsolutePath().normalize();
+        ResourceRoot portable = new ResourceRoot(serverRoot, serverGenerated);
+        if (serverRoot.equals(worldRoot)) {
+            return List.of(portable);
+        }
+        Path worldGenerated = worldRoot.getParent().resolve(".cache").resolve("lodarchives").normalize();
+        return List.of(portable, new ResourceRoot(worldRoot, worldGenerated));
+    }
+
+    private static Path archivePath(Path root, ResourceLocation id) {
+        return root.resolve(id.getNamespace()).resolve(id.getPath() + ".dstlod").normalize();
+    }
+
+    private static Path packageDirectory(Path root, ResourceLocation id) {
+        return root.resolve(id.getNamespace()).resolve(id.getPath()).normalize();
+    }
+
+    private static HostedArchive describeArchive(Path archive, boolean generated) throws IOException {
+        Path normalized = archive.toAbsolutePath().normalize();
+        long bytes = Files.size(normalized);
+        if (bytes <= 0L || bytes > LodPackageOffer.MAX_BYTES) {
+            throw new IOException("LOD archive has an invalid size: " + normalized);
+        }
+        long modified = Files.getLastModifiedTime(normalized,
+                java.nio.file.LinkOption.NOFOLLOW_LINKS).toMillis();
+        LocalArchiveState cached = LOCAL_ARCHIVES.get(normalized);
+        if (cached == null || cached.bytes() != bytes || cached.modified() != modified) {
+            cached = new LocalArchiveState(bytes, modified, ContentHash.sha256Hex(normalized));
+            LOCAL_ARCHIVES.put(normalized, cached);
+        }
+        return new HostedArchive(normalized,
+                new LodPackageOffer(LodPackageOffer.Delivery.OPTIONAL, "", bytes, cached.sha256(), true),
+                generated);
+    }
+
+    private static void discover(Path root, Set<ResourceLocation> ids, List<String> errors) {
+        if (!Files.isDirectory(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        try (var files = Files.walk(root)) {
+            for (Path file : files.filter(Files::isRegularFile).toList()) {
+                String name = file.getFileName().toString();
+                Path relative;
+                if ("manifest.json".equals(name)) {
+                    relative = root.relativize(file.getParent());
+                } else if (name.endsWith(".dstlod")) {
+                    relative = root.relativize(file);
+                    String leaf = relative.getFileName().toString();
+                    relative = relative.resolveSibling(leaf.substring(0, leaf.length() - ".dstlod".length()));
+                } else {
+                    continue;
+                }
+                ResourceLocation id = resourceId(relative);
+                if (id == null) {
+                    errors.add("Invalid LOD package path: " + file);
+                } else {
+                    ids.add(id);
+                }
+            }
+        } catch (IOException e) {
+            errors.add("Could not scan " + root + ": " + rootMessage(e));
+        }
+    }
+
+    private static ResourceLocation resourceId(Path relative) {
+        if (relative.getNameCount() < 2) {
+            return null;
+        }
+        String namespace = relative.getName(0).toString();
+        StringBuilder path = new StringBuilder();
+        for (int index = 1; index < relative.getNameCount(); index++) {
+            if (!path.isEmpty()) {
+                path.append('/');
+            }
+            path.append(relative.getName(index));
+        }
+        return ResourceLocation.tryParse(namespace + ':' + path);
+    }
+
+    private static String rootMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null || current.getMessage().isBlank()
+                ? current.getClass().getSimpleName() : current.getMessage();
+    }
+
     private static void write(MinecraftServer server, Map<String, LodPackageOffer> offers) throws IOException {
         Path target = path(server);
         Files.createDirectories(target.getParent());
@@ -169,5 +328,18 @@ public final class LodDistributionStore {
     }
 
     private record LocalArchiveState(long bytes, long modified, String sha256) {
+    }
+
+    public record HostedArchive(Path path, LodPackageOffer offer, boolean generated) {
+    }
+
+    public record ReloadResult(int hostedPacks, int generatedArchives, List<String> errors) {
+    }
+
+    record ResourceRoot(Path packages, Path generatedArchives) {
+        ResourceRoot {
+            packages = packages.toAbsolutePath().normalize();
+            generatedArchives = generatedArchives.toAbsolutePath().normalize();
+        }
     }
 }

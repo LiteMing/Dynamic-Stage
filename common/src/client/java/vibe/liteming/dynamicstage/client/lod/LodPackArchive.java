@@ -1,7 +1,7 @@
 package vibe.liteming.dynamicstage.client.lod;
 
 import net.minecraft.resources.ResourceLocation;
-import vibe.liteming.dynamicstage.util.ContentHash;
+import vibe.liteming.dynamicstage.lod.LodArchiveWriter;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -14,75 +14,22 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-import java.util.zip.ZipOutputStream;
 
 /** Creates and installs immutable .dstlod ZIP archives. */
 public final class LodPackArchive {
-    public static final int MAX_ENTRIES = 16_384;
+    public static final int MAX_ENTRIES = LodArchiveWriter.MAX_ENTRIES;
 
     private LodPackArchive() {
     }
 
     public static ArchiveInfo create(Path packageDirectory, Path output) throws IOException {
-        Path source = packageDirectory.toAbsolutePath().normalize();
-        Path target = output.toAbsolutePath().normalize();
-        if (!Files.isDirectory(source, LinkOption.NOFOLLOW_LINKS)
-                || !Files.isRegularFile(source.resolve("manifest.json"), LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("LOD package directory is incomplete: " + source);
-        }
-        if (Files.readString(source.resolve("manifest.json")).contains("\"sourcePath\"")) {
-            throw new IOException("Linked LOD packages must be copied before they can be exported");
-        }
-        if (target.startsWith(source)) {
-            throw new IOException("LOD archive cannot be written inside its source package");
-        }
-        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException("LOD archive already exists: " + target);
-        }
-        Path parent = target.getParent();
-        if (parent == null) {
-            throw new IOException("LOD archive has no parent directory");
-        }
-        Files.createDirectories(parent);
-        Path temporary = Files.createTempFile(parent, target.getFileName().toString(), ".tmp");
-        int files = 0;
-        try {
-            try (ZipOutputStream zip = new ZipOutputStream(new BufferedOutputStream(Files.newOutputStream(temporary)))) {
-                zip.setLevel(9);
-                try (var filesStream = Files.walk(source)) {
-                    for (Path file : filesStream.filter(Files::isRegularFile)
-                            .sorted(Comparator.comparing(path -> source.relativize(path).toString())).toList()) {
-                        if (Files.isSymbolicLink(file)) {
-                            throw new IOException("LOD package contains a symbolic link: " + file);
-                        }
-                        Path relative = source.relativize(file);
-                        if (skipRuntimeFile(relative)) {
-                            continue;
-                        }
-                        ZipEntry entry = new ZipEntry(relative.toString().replace('\\', '/'));
-                        entry.setTime(0L);
-                        zip.putNextEntry(entry);
-                        Files.copy(file, zip);
-                        zip.closeEntry();
-                        files++;
-                    }
-                }
-            }
-            try {
-                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException e) {
-                Files.move(temporary, target);
-            }
-            return new ArchiveInfo(target, Files.size(target), ContentHash.sha256Hex(target), files);
-        } finally {
-            Files.deleteIfExists(temporary);
-        }
+        LodArchiveWriter.ArchiveInfo info = LodArchiveWriter.create(packageDirectory, output, false);
+        return new ArchiveInfo(info.path(), info.bytes(), info.sha256(), info.files());
     }
 
     public static void install(Path archive, Path packageRoot, ResourceLocation id,
@@ -154,11 +101,6 @@ public final class LodPackArchive {
         } finally {
             deleteTree(stagingRoot);
         }
-    }
-
-    private static boolean skipRuntimeFile(Path relative) {
-        String name = relative.getFileName().toString();
-        return "LOCK".equals(name) || "LOG".equals(name) || name.startsWith("LOG.old.");
     }
 
     static void deleteTree(Path root) {

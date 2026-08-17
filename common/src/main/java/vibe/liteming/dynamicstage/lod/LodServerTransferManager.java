@@ -35,8 +35,13 @@ public final class LodServerTransferManager {
             sendFailure(player, request.lodPackId(), request.sha256(), "Server LOD package is unavailable");
             return;
         }
-        Path archive = LodDistributionStore.localArchive(server, request.lodPackId());
         try {
+            LodDistributionStore.HostedArchive hosted = LodDistributionStore.hostedArchive(
+                    server, request.lodPackId());
+            if (hosted == null || !hosted.offer().sha256().equals(offer.sha256())) {
+                throw new IOException("Server LOD archive changed or is missing");
+            }
+            Path archive = hosted.path();
             if (!Files.isRegularFile(archive, LinkOption.NOFOLLOW_LINKS)
                     || Files.size(archive) != offer.bytes()) {
                 throw new IOException("Server LOD archive changed or is missing");

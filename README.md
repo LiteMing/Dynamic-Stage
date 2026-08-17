@@ -40,7 +40,7 @@ Example `.minecraft/dynamicstage/lodpacks/stages/forest/manifest.json`:
 }
 ```
 
-The package is selected as `stages:forest`. Dynamic Stage validates the manifest, rejects symbolic-link paths, checks the SQLite header, mounts the directory through DH's save-structure override, and forces DH read-only while the stage is active. The database is never sent over the Dynamic Stage network channel.
+The package is selected as `stages:forest`. Dynamic Stage validates the manifest, rejects symbolic-link paths, checks the SQLite header, mounts the directory through DH's save-structure override, and forces DH read-only while the stage is active. A local package stays client-only unless a server administrator places it in the server's portable `dynamicstage/lodpacks` resource tree for automatic distribution.
 
 Packages can also be created from another save or another game instance with the
 client-only command:
@@ -92,20 +92,26 @@ are never sent to the server.
 
 ### Server LOD distribution
 
-For a server-owned archive, no HTTP service or in-game distribution command is
-required. Place the exported archive at the matching path inside the world:
+No HTTP service, export command, or distribution command is required for a
+server-owned package. Copy the same unpacked package directory into the server
+instance root:
 
 ```text
-<world>/dynamicstage/lodpacks/<namespace>/<path>.dstlod
+<server>/dynamicstage/lodpacks/<namespace>/<path>/
+  manifest.json
+  voxy/ or dh/
 ```
 
-For example, `minecraft:gr` is discovered as
-`dynamicstage/lodpacks/minecraft/gr.dstlod`. When a stage uses that package ID,
-Dynamic Stage computes and caches its size and SHA-256, then streams missing
-bytes to the client in bounded packets. The client resumes an interrupted
-`.part` file and performs the same archive and package validation as an HTTP
-download. Convention-based server archives are optional by default; a missing
-or rejected archive therefore does not prevent stage entry.
+For example, `minecraft:gr` is discovered from
+`dynamicstage/lodpacks/minecraft/gr`. Dynamic Stage creates and caches a
+`.dstlod` under `dynamicstage/.cache/lodarchives`, computes its SHA-256, and
+streams missing bytes to the client in bounded packets. The generated cache is
+not part of the distributable resource tree. An already exported archive at
+`<server>/dynamicstage/lodpacks/minecraft/gr.dstlod` is also accepted, as is the
+legacy `<world>/dynamicstage/lodpacks` archive location. The client resumes an
+interrupted `.part` file and performs the same archive and package validation
+as an HTTP download. Convention-based server packages are optional by default;
+a missing or rejected package therefore does not prevent stage entry.
 
 `/dstage lod export` creates an immutable `.dstlod` ZIP from a self-contained
 client package. It rejects linked packages, skips RocksDB lock and diagnostic
@@ -190,6 +196,7 @@ expanded command to the server:
 /dstage distribution list|path
 /dstage distribution set <pack_id> <optional|required> <bytes> <sha256> <url>
 /dstage distribution remove <pack_id>
+/dstage reload
 ```
 
 `/dstage start <stage>` is a client-side convenience shortcut. It captures the
@@ -215,8 +222,10 @@ and press `Reload` to replace the current instance in place. The instance UUID,
 slot, members, and return locations remain stable while the selected arena,
 boundary, LOD binding, Flight, and client scene are applied to every member.
 
-Portable stage templates are stored under `config/dynamicstage/templates`, so
-they are shared by different saves in the same game or server instance. Saving
+Portable stage templates are stored under `dynamicstage/templates` beside the
+LOD and Flight resources, so copying one `dynamicstage` directory to another
+game or server instance makes the same authored stages available there. Existing
+templates under `config/dynamicstage/templates` are migrated automatically. Saving
 a template captures the active LOD package ID and anchor, boundary, client time
 and backdrop settings, player movement scale, capacity, CMDCam flight data, and
 the boundary's blocks, block entities, and non-player entities. Native LOD data
@@ -250,6 +259,14 @@ The editor's `Local` tab applies distance, opacity, and fallback-color changes i
 them only to this game instance's `config/dynamicstage-client.json`.
 
 `/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky and cloud rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Vanilla clouds additionally use the same virtual source position as the LOD backdrop, including the anchor, player-follow mode, and flight XYZ; the infinite-distance sky dome ignores translation.
+
+`/dstage reload` rescans and validates portable templates, global Flight JSON,
+and server LOD packages without restarting the server. It invalidates generated
+archive hashes, rebuilds archives for unpacked packages, migrates legacy
+templates, reports invalid resources, and refreshes the Editor template list
+for online operators. It does not mutate an already running stage instance;
+use the Editor's Reload action when the updated template should be applied to
+that instance.
 
 Stage flights do not replace Minecraft's main camera or a shader pack's shadow camera. Stage blocks, entities, particles, and shadow-map movement therefore remain attached to the player; only the mounted LOD viewport and the local vanilla sky/cloud passes receive the flight transform. Iris/Oculus shader packs that retain those vanilla passes can render them through their normal pipeline. A pack that disables vanilla sky or clouds and draws its own procedural replacement requires a pack-specific integration before that replacement can follow stage flights. Client stage time is intentionally visible to the rendering pipeline, so shader packs may move their sun, ambient lighting, and time-derived shadows when `/dstage time` changes.
 

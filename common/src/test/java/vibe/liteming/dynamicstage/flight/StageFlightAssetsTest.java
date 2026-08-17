@@ -125,6 +125,9 @@ class StageFlightAssetsTest {
         assertFalse(StageFlightAssets.listLibraryFlights(library).contains("legacy"));
         assertThrows(java.io.IOException.class, () -> StageFlightAssets.readLibrary(library, "broken"));
         assertThrows(java.io.IOException.class, () -> StageFlightAssets.readLibrary(library, "legacy"));
+        StageFlightAssets.LibraryReloadResult reload = StageFlightAssets.reloadLibrary(library);
+        assertEquals(0, reload.flights());
+        assertEquals(1, reload.errors().size());
     }
 
     private static CompoundTag cmdcamScene() {

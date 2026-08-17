@@ -279,7 +279,39 @@ public final class DynamicStageCommands {
                 .then(Commands.argument("lod_pack", ResourceLocationArgument.id())
                         .then(distributionDelivery)));
         root.then(distribution);
+        root.then(Commands.literal("reload").executes(ctx -> reload(ctx.getSource())));
         return root;
+    }
+
+    private static int reload(CommandSourceStack source) {
+        try {
+            StageTemplateStore.ReloadResult templates = StageTemplateStore.reload();
+            LodDistributionStore.ReloadResult lods = LodDistributionStore.reload(source.getServer());
+            StageFlightAssets.LibraryReloadResult flights = StageFlightAssets.reloadLibrary();
+            for (String error : templates.errors()) {
+                source.sendFailure(Component.literal("Template reload warning: " + error));
+            }
+            for (String error : lods.errors()) {
+                source.sendFailure(Component.literal("LOD reload warning: " + error));
+            }
+            for (String error : flights.errors()) {
+                source.sendFailure(Component.literal("Flight reload warning: " + error));
+            }
+            for (ServerPlayer player : source.getServer().getPlayerList().getPlayers()) {
+                if (player.hasPermissions(2)) {
+                    DynamicStageNetwork.sendTemplateList(player);
+                }
+            }
+            int warnings = templates.errors().size() + lods.errors().size() + flights.errors().size();
+            source.sendSuccess(() -> Component.literal("Reloaded Dynamic Stage resources: "
+                    + templates.templates() + " templates (" + templates.migratedTemplates() + " migrated), "
+                    + lods.hostedPacks() + " server LOD packages (" + lods.generatedArchives()
+                    + " archives generated), " + flights.flights() + " Flights, " + warnings + " warnings."), true);
+            return 1;
+        } catch (IOException | RuntimeException e) {
+            source.sendFailure(Component.literal("Could not reload Dynamic Stage resources: " + e.getMessage()));
+            return 0;
+        }
     }
 
     private static int distributionList(CommandSourceStack source) {
@@ -297,8 +329,10 @@ public final class DynamicStageCommands {
 
     private static int distributionPath(CommandSourceStack source) {
         source.sendSuccess(() -> Component.literal("Dynamic Stage LOD distribution catalog: "
-                + LodDistributionStore.path(source.getServer()) + "\nServer-hosted LOD archive root: "
-                + LodDistributionStore.localArchiveRoot(source.getServer())), false);
+                + LodDistributionStore.path(source.getServer()) + "\nPortable server resource root: "
+                + LodDistributionStore.serverResourceRoot() + "\nLegacy world archive root: "
+                + LodDistributionStore.localArchiveRoot(source.getServer()) + "\nPortable template root: "
+                + StageTemplateStore.rootDirectory()), false);
         return 1;
     }
 

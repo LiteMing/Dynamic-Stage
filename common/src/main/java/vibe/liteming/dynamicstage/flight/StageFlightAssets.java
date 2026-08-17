@@ -19,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.LinkOption;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 
@@ -113,6 +114,25 @@ public final class StageFlightAssets {
         } catch (IOException | RuntimeException | AssertionError | LinkageError e) {
             return List.of();
         }
+    }
+
+    public static LibraryReloadResult reloadLibrary() throws IOException {
+        return reloadLibrary(libraryDirectory());
+    }
+
+    static LibraryReloadResult reloadLibrary(Path root) throws IOException {
+        List<String> names = listLibraryFlights(root);
+        List<String> errors = new ArrayList<>();
+        int valid = 0;
+        for (String name : names) {
+            try {
+                readLibrary(root, name);
+                valid++;
+            } catch (IOException | RuntimeException e) {
+                errors.add(name + ".json: " + rootMessage(e));
+            }
+        }
+        return new LibraryReloadResult(valid, List.copyOf(errors));
     }
 
     static List<String> listLibraryFlights(Path root) throws IOException {
@@ -329,6 +349,15 @@ public final class StageFlightAssets {
         return file;
     }
 
+    private static String rootMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null || current.getMessage().isBlank()
+                ? current.getClass().getSimpleName() : current.getMessage();
+    }
+
     private static boolean validLibraryName(String name) {
         return name != null && name.matches("[A-Za-z0-9_-]{1,64}");
     }
@@ -450,6 +479,9 @@ public final class StageFlightAssets {
         public byte[] sceneJson() {
             return sceneJson.clone();
         }
+    }
+
+    public record LibraryReloadResult(int flights, List<String> errors) {
     }
 
     private record JsonObjectHolder(com.google.gson.JsonObject value) { }

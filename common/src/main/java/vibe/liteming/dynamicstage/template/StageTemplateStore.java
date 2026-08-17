@@ -21,10 +21,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.zip.GZIPInputStream;
 
-/** Atomic storage for portable stage templates under the game/server config directory. */
+/** Atomic storage for portable stage templates in the copyable Dynamic Stage resource directory. */
 public final class StageTemplateStore {
     private static final long MAX_COMPRESSED_BYTES = 32L * 1024L * 1024L;
     private static final long MAX_NBT_BYTES = 128L * 1024L * 1024L;
@@ -33,6 +35,11 @@ public final class StageTemplateStore {
     }
 
     public static Path rootDirectory() {
+        return StagePlatform.gameDirectory().resolve("dynamicstage").resolve("templates")
+                .toAbsolutePath().normalize();
+    }
+
+    public static Path legacyRootDirectory() {
         return StagePlatform.configDirectory().resolve("dynamicstage").resolve("templates")
                 .toAbsolutePath().normalize();
     }
@@ -102,7 +109,9 @@ public final class StageTemplateStore {
 
     @Nullable
     public static StageTemplate load(String id) throws IOException {
-        return load(rootDirectory(), id);
+        migrateLegacyTemplates();
+        StageTemplate template = load(rootDirectory(), id);
+        return template != null ? template : load(legacyRootDirectory(), id);
     }
 
     @Nullable
@@ -136,6 +145,7 @@ public final class StageTemplateStore {
     }
 
     public static List<StageTemplate> listTemplates() throws IOException {
+        migrateLegacyTemplates();
         Path root = rootDirectory();
         if (!Files.isDirectory(root)) {
             return List.of();
@@ -156,7 +166,67 @@ public final class StageTemplateStore {
     }
 
     public static boolean delete(String id) throws IOException {
-        return Files.deleteIfExists(file(rootDirectory(), id));
+        boolean deleted = Files.deleteIfExists(file(rootDirectory(), id));
+        Path legacy = legacyRootDirectory();
+        if (!legacy.equals(rootDirectory())) {
+            deleted |= Files.deleteIfExists(file(legacy, id));
+        }
+        return deleted;
+    }
+
+    /** Re-runs legacy migration and reports invalid portable template files. */
+    public static ReloadResult reload() throws IOException {
+        int migrated = migrateLegacyTemplates();
+        Path root = rootDirectory();
+        if (!Files.isDirectory(root)) {
+            return new ReloadResult(0, migrated, List.of());
+        }
+        int valid = 0;
+        List<String> errors = new ArrayList<>();
+        try (var files = Files.list(root)) {
+            for (Path path : files.filter(Files::isRegularFile).filter(file -> file.getFileName().toString()
+                    .endsWith(".dat")).sorted().toList()) {
+                try {
+                    readFile(path);
+                    valid++;
+                } catch (IOException e) {
+                    errors.add(path.getFileName() + ": " + e.getMessage());
+                }
+            }
+        }
+        return new ReloadResult(valid, migrated, List.copyOf(errors));
+    }
+
+    private static synchronized int migrateLegacyTemplates() throws IOException {
+        return migrate(legacyRootDirectory(), rootDirectory());
+    }
+
+    static int migrate(Path legacyRoot, Path targetRoot) throws IOException {
+        Path legacy = legacyRoot.toAbsolutePath().normalize();
+        Path target = targetRoot.toAbsolutePath().normalize();
+        if (legacy.equals(target) || !Files.isDirectory(legacy)) {
+            return 0;
+        }
+        Map<String, StageTemplate> templates = new LinkedHashMap<>();
+        try (var files = Files.list(legacy)) {
+            for (Path path : files.filter(Files::isRegularFile).filter(file -> file.getFileName().toString()
+                    .endsWith(".dat")).sorted().toList()) {
+                try {
+                    StageTemplate template = readFile(path);
+                    templates.putIfAbsent(template.id(), template);
+                } catch (IOException ignored) {
+                    // Invalid legacy files remain untouched and are not migrated.
+                }
+            }
+        }
+        int migrated = 0;
+        for (StageTemplate template : templates.values()) {
+            if (!Files.isRegularFile(file(target, template.id()))) {
+                save(target, template);
+                migrated++;
+            }
+        }
+        return migrated;
     }
 
     public static StageFlightAssets.Asset installFlight(MinecraftServer server, StageTemplate template)
@@ -191,5 +261,8 @@ public final class StageTemplateStore {
         }
         String hash = ContentHash.sha256Hex(id.getBytes(StandardCharsets.UTF_8)).substring(0, 32);
         return root.toAbsolutePath().normalize().resolve(hash + ".dat");
+    }
+
+    public record ReloadResult(int templates, int migratedTemplates, List<String> errors) {
     }
 }

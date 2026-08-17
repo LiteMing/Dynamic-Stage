@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class StageTemplateStoreTest {
@@ -32,6 +33,21 @@ class StageTemplateStoreTest {
 
         assertEquals(template, StageTemplateStore.load(temporaryDirectory, "boss_1"));
         assertNull(StageTemplateStore.load(temporaryDirectory, "missing"));
+    }
+
+    @Test
+    void migratesLegacyConfigTemplatesIntoPortableResourceDirectory() throws Exception {
+        Path legacy = temporaryDirectory.resolve("config/dynamicstage/templates");
+        Path portable = temporaryDirectory.resolve("dynamicstage/templates");
+        StageTemplate template = new StageTemplate("gr1", new ResourceLocation("minecraft", "gr"),
+                BlockPos.ZERO, StageBoundary.defaults(), StageClientScene.defaults(0L, 0L), 1,
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE,
+                new byte[0], new CompoundTag());
+        StageTemplateStore.save(legacy, template);
+
+        assertEquals(1, StageTemplateStore.migrate(legacy, portable));
+        assertNotNull(StageTemplateStore.load(portable, "gr1"));
+        assertEquals(0, StageTemplateStore.migrate(legacy, portable));
     }
 
     @Test
