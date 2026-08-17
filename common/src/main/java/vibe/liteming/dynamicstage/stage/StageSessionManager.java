@@ -25,6 +25,9 @@ import vibe.liteming.dynamicstage.template.StageTemplateStore;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -267,12 +270,33 @@ public final class StageSessionManager {
             return false;
         }
         StageSessionData data = StageSessionData.get(server);
-        StageSession exemplar = data.findInstance(instanceId).orElse(null);
+        StageSession exemplar = data.findInstance(instanceId).orElseGet(() -> PENDING.values().stream()
+                .map(PendingEntry::session).filter(session -> session.instanceId().equals(instanceId))
+                .findFirst().orElse(null));
         if (exemplar == null) {
             player.sendSystemMessage(Component.literal("Unknown or inactive Dynamic Stage instance."));
             return false;
         }
         return joinExisting(player, exemplar);
+    }
+
+    /** Lists active or preparing stage instances the given player can currently join. */
+    public static List<UUID> joinableInstances(ServerPlayer player) {
+        MinecraftServer server = player == null ? null : player.getServer();
+        if (!canPrepare(player, server, false)) {
+            return List.of();
+        }
+        StageSessionData data = StageSessionData.get(server);
+        Map<UUID, StageSession> instances = new LinkedHashMap<>();
+        data.all().forEach(session -> instances.putIfAbsent(session.instanceId(), session));
+        PENDING.values().forEach(entry -> instances.putIfAbsent(entry.session.instanceId(), entry.session));
+        return instances.values().stream()
+                .filter(session -> !BACKDROP_SWITCHES.containsKey(session.instanceId()))
+                .filter(session -> memberCount(data, session.instanceId()) < session.capacity())
+                .filter(session -> !session.hasFlight() || validFlight(server, session))
+                .map(StageSession::instanceId)
+                .sorted(java.util.Comparator.comparing(UUID::toString))
+                .toList();
     }
 
     private static boolean joinExisting(ServerPlayer player, StageSession exemplar) {
@@ -285,9 +309,7 @@ public final class StageSessionManager {
             return false;
         }
         StageSessionData data = StageSessionData.get(server);
-        long members = data.members(exemplar.instanceId()).size()
-                + PENDING.values().stream()
-                .filter(entry -> entry.session.instanceId().equals(exemplar.instanceId())).count();
+        long members = memberCount(data, exemplar.instanceId());
         if (members >= exemplar.capacity()) {
             player.sendSystemMessage(Component.literal("That Dynamic Stage instance is full."));
             return false;
@@ -833,9 +855,24 @@ public final class StageSessionManager {
                 && EDITING_PLAYERS.contains(player.getUUID()) && get(player).isPresent();
     }
 
+    /** Returns whether the requested block belongs to this editor's active stage instance. */
+    public static boolean isEditing(ServerPlayer player, BlockPos position) {
+        if (position == null || !isEditing(player)) {
+            return false;
+        }
+        StageSession session = get(player).orElse(null);
+        return session != null && session.boundary().bounds(session.stageOrigin())
+                .contains(position.getX() + 0.5D, position.getY() + 0.5D, position.getZ() + 0.5D);
+    }
+
     /** Platform callbacks may expose a generic player; only a server player can hold edit permission. */
     public static boolean isEditing(net.minecraft.world.entity.player.Player player) {
         return player instanceof ServerPlayer serverPlayer && isEditing(serverPlayer);
+    }
+
+    /** Generic platform callback variant of the instance-local edit check. */
+    public static boolean isEditing(net.minecraft.world.entity.player.Player player, BlockPos position) {
+        return player instanceof ServerPlayer serverPlayer && isEditing(serverPlayer, position);
     }
 
     public static boolean canRequestLodDownload(ServerPlayer player, ResourceLocation lodPackId) {
@@ -952,11 +989,17 @@ public final class StageSessionManager {
     }
 
     private static boolean canPrepare(ServerPlayer player, MinecraftServer server) {
-        if (server == null || PENDING.containsKey(player.getUUID())) {
+        return canPrepare(player, server, true);
+    }
+
+    private static boolean canPrepare(ServerPlayer player, MinecraftServer server, boolean reportFailure) {
+        if (player == null || server == null || PENDING.containsKey(player.getUUID())) {
             return false;
         }
         if (StageSessionData.get(server).get(player.getUUID()).isPresent()) {
-            player.sendSystemMessage(Component.literal("A Dynamic Stage session is already active."));
+            if (reportFailure) {
+                player.sendSystemMessage(Component.literal("A Dynamic Stage session is already active."));
+            }
             return false;
         }
         return true;
@@ -972,6 +1015,11 @@ public final class StageSessionManager {
             }
         }
         return -1;
+    }
+
+    private static long memberCount(StageSessionData data, UUID instanceId) {
+        return data.members(instanceId).size() + PENDING.values().stream()
+                .filter(entry -> entry.session.instanceId().equals(instanceId)).count();
     }
 
     private static boolean slotClaimedByOtherInstance(StageSessionData data, StageSession candidate) {

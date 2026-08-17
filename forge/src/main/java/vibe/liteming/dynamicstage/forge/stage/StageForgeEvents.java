@@ -72,7 +72,7 @@ public final class StageForgeEvents {
         if (event.getLevel().isClientSide()
                 || !StageWorlds.isStageLevel(event.getLevel())
                 || event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player
-                && StageSessionManager.isEditing(player)) {
+                && StageSessionManager.isEditing(player, event.getPos())) {
             return;
         }
         event.setCancellationResult(InteractionResult.PASS);
@@ -85,7 +85,7 @@ public final class StageForgeEvents {
     public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
         if (!event.getLevel().isClientSide() && StageWorlds.isStageLevel(event.getLevel())
                 && !(event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player
-                && StageSessionManager.isEditing(player))) {
+                && StageSessionManager.isEditing(player, event.getPos()))) {
             event.setCanceled(true);
         }
     }
@@ -95,7 +95,7 @@ public final class StageForgeEvents {
         if (event.getLevel() instanceof Level level && !level.isClientSide
                 && StageWorlds.isStageLevel(level)
                 && !(event.getPlayer() instanceof net.minecraft.server.level.ServerPlayer player
-                && StageSessionManager.isEditing(player))) {
+                && StageSessionManager.isEditing(player, event.getPos()))) {
             event.setCanceled(true);
         }
     }
@@ -105,7 +105,7 @@ public final class StageForgeEvents {
         if (event.getLevel() instanceof Level level && !level.isClientSide
                 && StageWorlds.isStageLevel(level)
                 && !(event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player
-                && StageSessionManager.isEditing(player))) {
+                && StageSessionManager.isEditing(player, event.getPos()))) {
             event.setCanceled(true);
         }
     }

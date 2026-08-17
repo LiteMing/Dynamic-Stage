@@ -50,8 +50,7 @@ public final class DynamicStageCommands {
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildRoot(String name) {
         LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal(name);
-        root.requires(source -> source.hasPermission(2));
-        root.then(Commands.literal("start")
+        root.then(Commands.literal("start").requires(source -> source.hasPermission(2))
                         .then(Commands.argument("stage", StringArgumentType.string())
                                 .then(Commands.argument("lod_pack", ResourceLocationArgument.id())
                                         .then(Commands.argument("x", IntegerArgumentType.integer())
@@ -73,9 +72,11 @@ public final class DynamicStageCommands {
                                                                                 IntegerArgumentType.getInteger(ctx, "z"),
                                                                                 IntegerArgumentType.getInteger(ctx, "capacity"))))))))));
         root.then(Commands.literal("join")
-                        .then(Commands.argument("instance", StringArgumentType.word())
+                .then(Commands.argument("instance", StringArgumentType.word())
+                        .suggests(DynamicStageCommands::suggestJoinableInstances)
                                 .executes(ctx -> join(ctx.getSource(), StringArgumentType.getString(ctx, "instance")))));
-        LiteralArgumentBuilder<CommandSourceStack> templates = Commands.literal("template");
+        LiteralArgumentBuilder<CommandSourceStack> templates = Commands.literal("template")
+                .requires(source -> source.hasPermission(2));
         templates.then(Commands.literal("list").executes(ctx -> templateList(ctx.getSource())));
         templates.then(Commands.literal("reset").executes(ctx -> templateReset(ctx.getSource())));
         templates.then(Commands.literal("start")
@@ -123,8 +124,8 @@ public final class DynamicStageCommands {
         RequiredArgumentBuilder<CommandSourceStack, Integer> anchorX =
                 Commands.argument("x", IntegerArgumentType.integer());
         anchorX.then(anchorY);
-        root.then(Commands.literal("anchor").then(anchorX));
-        root.then(Commands.literal("backdrop")
+        root.then(Commands.literal("anchor").requires(source -> source.hasPermission(2)).then(anchorX));
+        root.then(Commands.literal("backdrop").requires(source -> source.hasPermission(2))
                 .then(Commands.literal("status").executes(ctx -> backdropStatus(ctx.getSource())))
                 .then(Commands.literal("follow")
                         .then(Commands.literal("on").executes(ctx -> followPlayer(ctx.getSource(), true)))
@@ -153,7 +154,8 @@ public final class DynamicStageCommands {
                                         0, (int) StageClientScene.MAX_BLUR_RADIUS))
                                 .executes(ctx -> backdropBlur(ctx.getSource(),
                                         IntegerArgumentType.getInteger(ctx, "radius"))))));
-        LiteralArgumentBuilder<CommandSourceStack> time = Commands.literal("time");
+        LiteralArgumentBuilder<CommandSourceStack> time = Commands.literal("time")
+                .requires(source -> source.hasPermission(2));
         time.then(Commands.literal("status").executes(ctx -> timeStatus(ctx.getSource())));
         time.then(Commands.literal("follow").executes(ctx -> timeFollow(ctx.getSource())));
         time.then(Commands.literal("fixed")
@@ -173,17 +175,19 @@ public final class DynamicStageCommands {
         time.then(Commands.literal("cycle").then(cyclePeriod));
         root.then(time);
         root.then(Commands.literal("exit").executes(ctx -> exit(ctx.getSource())));
-        LiteralArgumentBuilder<CommandSourceStack> edit = Commands.literal("edit");
+        LiteralArgumentBuilder<CommandSourceStack> edit = Commands.literal("edit")
+                .requires(source -> source.hasPermission(2));
         edit.then(Commands.literal("status").executes(ctx -> editStatus(ctx.getSource())));
         edit.then(Commands.literal("on").executes(ctx -> editMode(ctx.getSource(), true)));
         edit.then(Commands.literal("off").executes(ctx -> editMode(ctx.getSource(), false)));
         root.then(edit);
-        root.then(Commands.literal("sky")
+        root.then(Commands.literal("sky").requires(source -> source.hasPermission(2))
                 .then(Commands.literal("overworld").executes(ctx -> sky(ctx.getSource(),
                         StageClientScene.SkyMode.OVERWORLD)))
                 .then(Commands.literal("end").executes(ctx -> sky(ctx.getSource(), StageClientScene.SkyMode.END)))
                 .then(Commands.literal("off").executes(ctx -> sky(ctx.getSource(), StageClientScene.SkyMode.OFF))));
-        LiteralArgumentBuilder<CommandSourceStack> boundary = Commands.literal("boundary");
+        LiteralArgumentBuilder<CommandSourceStack> boundary = Commands.literal("boundary")
+                .requires(source -> source.hasPermission(2));
         boundary.then(Commands.literal("status").executes(ctx -> boundaryStatus(ctx.getSource())));
         boundary.then(Commands.literal("size")
                 .then(Commands.argument("width", IntegerArgumentType.integer(
@@ -201,7 +205,8 @@ public final class DynamicStageCommands {
                         .executes(ctx -> boundaryColor(ctx.getSource(),
                                 StringArgumentType.getString(ctx, "rgb")))));
         root.then(boundary);
-        LiteralArgumentBuilder<CommandSourceStack> flight = Commands.literal("flight");
+        LiteralArgumentBuilder<CommandSourceStack> flight = Commands.literal("flight")
+                .requires(source -> source.hasPermission(2));
         flight.then(flightPlayCommand());
         flight.then(flightStopCommand());
         RequiredArgumentBuilder<CommandSourceStack, String> flightScene =
@@ -254,7 +259,8 @@ public final class DynamicStageCommands {
         flight.then(Commands.literal("library").then(Commands.literal("list")
                 .executes(ctx -> listLibraryFlights(ctx.getSource()))));
         root.then(flight);
-        LiteralArgumentBuilder<CommandSourceStack> distribution = Commands.literal("distribution");
+        LiteralArgumentBuilder<CommandSourceStack> distribution = Commands.literal("distribution")
+                .requires(source -> source.hasPermission(2));
         distribution.then(Commands.literal("list").executes(ctx -> distributionList(ctx.getSource())));
         distribution.then(Commands.literal("path").executes(ctx -> distributionPath(ctx.getSource())));
         distribution.then(Commands.literal("remove")
@@ -284,7 +290,8 @@ public final class DynamicStageCommands {
                 .then(Commands.argument("lod_pack", ResourceLocationArgument.id())
                         .then(distributionDelivery)));
         root.then(distribution);
-        root.then(Commands.literal("reload").executes(ctx -> reload(ctx.getSource())));
+        root.then(Commands.literal("reload").requires(source -> source.hasPermission(2))
+                .executes(ctx -> reload(ctx.getSource())));
         return root;
     }
 
@@ -399,6 +406,15 @@ public final class DynamicStageCommands {
             source.sendFailure(Component.literal("Invalid stage instance UUID."));
             return 0;
         }
+    }
+
+    private static CompletableFuture<Suggestions> suggestJoinableInstances(CommandContext<CommandSourceStack> context,
+                                                                             SuggestionsBuilder builder) {
+        if (context.getSource().getEntity() instanceof ServerPlayer player) {
+            return SharedSuggestionProvider.suggest(StageSessionManager.joinableInstances(player).stream()
+                    .map(UUID::toString), builder);
+        }
+        return builder.buildFuture();
     }
 
     private static int templateSave(CommandSourceStack source, String id, StageTemplate.InstanceMode instanceMode,

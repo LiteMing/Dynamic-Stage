@@ -14,6 +14,10 @@ class DynamicStageCommandsTest {
         DynamicStageCommands.register(dispatcher);
 
         var edit = dispatcher.getRoot().getChild("dstage").getChild("edit");
+        var root = dispatcher.getRoot().getChild("dstage");
+        assertNotNull(root.getChild("join"));
+        assertNotNull(root.getChild("join").getChild("instance"));
+        assertNotNull(root.getChild("exit"));
         assertNotNull(edit);
         assertNotNull(edit.getChild("status"));
         assertNotNull(edit.getChild("on"));
