@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class StageClientSceneTest {
     @Test
     void persistsAllClientSceneSettings() {
-        StageClientScene scene = new StageClientScene(false, 0.5F, 0.125F, true, false, 6.5F,
+        StageClientScene scene = new StageClientScene(false, 0.5F, 0.125F, 1.25F, true, false, 6.5F,
                 StageClientScene.Transition.BLUR, 40, 250L,
                 StageClientScene.TimeMode.CYCLE, 18_000L, 200L, 1_200L, StageClientScene.SkyMode.END);
 
@@ -32,6 +32,7 @@ class StageClientSceneTest {
 
         assertEquals(StageClientScene.defaults(0L, 0L), scene);
         assertEquals(StageClientScene.DEFAULT_DH_NEAR_FADE_SCALE, scene.dhNearFadeScale());
+        assertEquals(StageClientScene.DEFAULT_VOXY_NEAR_PLANE, scene.voxyNearPlane());
     }
 
     @Test
@@ -47,6 +48,13 @@ class StageClientSceneTest {
     void rejectsInvalidDhNearFadeScale() {
         assertThrows(IllegalArgumentException.class, () -> new StageClientScene(true, 1.0F, 0.0F, true, 0.0F,
                 StageClientScene.Transition.INSTANT, 0, 0L,
+                StageClientScene.TimeMode.FOLLOW, 0L, 0L, 0L, StageClientScene.SkyMode.OVERWORLD));
+    }
+
+    @Test
+    void rejectsInvalidVoxyNearPlane() {
+        assertThrows(IllegalArgumentException.class, () -> new StageClientScene(true, 1.0F, 0.1F,
+                0.0F, false, true, 0.0F, StageClientScene.Transition.INSTANT, 0, 0L,
                 StageClientScene.TimeMode.FOLLOW, 0L, 0L, 0L, StageClientScene.SkyMode.OVERWORLD));
     }
 

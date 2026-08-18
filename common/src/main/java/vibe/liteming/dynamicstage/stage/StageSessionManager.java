@@ -633,6 +633,12 @@ public final class StageSessionManager {
                 session.clientScene().withDhNearFadeScale(scale));
     }
 
+    public static boolean setVoxyNearPlane(ServerPlayer player, float nearPlane) {
+        StageSession session = get(player).orElse(null);
+        return session != null && updateClientScene(player,
+                session.clientScene().withVoxyNearPlane(nearPlane));
+    }
+
     public static boolean setVoxyNearCulling(ServerPlayer player, boolean enabled) {
         StageSession session = get(player).orElse(null);
         return session != null && updateClientScene(player,

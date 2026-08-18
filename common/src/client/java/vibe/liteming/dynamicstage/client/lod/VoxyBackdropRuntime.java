@@ -27,7 +27,9 @@ public final class VoxyBackdropRuntime {
 
     @Nullable private static volatile Mounted mounted;
     @Nullable private static Method preserveCameraSectionMethod;
+    @Nullable private static Method stageNearPlaneMethod;
     @Nullable private static Boolean lastPreserveCameraSection;
+    @Nullable private static Float lastStageNearPlane;
     @Nullable private static volatile Object stageWorldEngine;
     @Nullable private static Method acquireSectionMethod;
     @Nullable private static Method sectionDataMethod;
@@ -37,6 +39,7 @@ public final class VoxyBackdropRuntime {
     private static boolean externalInstanceActive;
     private static boolean stageCompatResolved;
     private static boolean stageCompatWarningLogged;
+    private static boolean stageNearPlaneWarningLogged;
 
     private VoxyBackdropRuntime() {
     }
@@ -70,6 +73,7 @@ public final class VoxyBackdropRuntime {
         mounted = null;
         stageActivated = false;
         stageWorldEngine = null;
+        setStageNearPlane(0.0F);
         setPreserveCameraSection(false);
         if (previous == null || !normalInstanceSuspended) {
             return;
@@ -188,27 +192,22 @@ public final class VoxyBackdropRuntime {
         }
     }
 
-    public static void syncCameraSectionCulling() {
+    public static void syncStageRendering() {
         boolean preserve = false;
+        float nearPlane = 0.0F;
         ClientStageSession.Snapshot snapshot = ClientStageSession.active();
         if (snapshot != null && shouldOverrideCurrentStage()
                 && StageWorlds.isStageLevel(Minecraft.getInstance().level)
                 && isMounted(snapshot.instanceId())) {
             preserve = !snapshot.clientScene().voxyNearCulling();
+            nearPlane = snapshot.clientScene().voxyNearPlane();
         }
+        setStageNearPlane(nearPlane);
         setPreserveCameraSection(preserve);
     }
 
     private static void setPreserveCameraSection(boolean preserve) {
-        if (!stageCompatResolved) {
-            stageCompatResolved = true;
-            try {
-                preserveCameraSectionMethod = Class.forName(VOXY_STAGE_COMPAT)
-                        .getMethod("setPreserveCameraSection", boolean.class);
-            } catch (ClassNotFoundException | NoSuchMethodException ignored) {
-                preserveCameraSectionMethod = null;
-            }
-        }
+        resolveStageCompat();
         Method method = preserveCameraSectionMethod;
         if (method == null) {
             if (preserve && !stageCompatWarningLogged) {
@@ -231,7 +230,55 @@ public final class VoxyBackdropRuntime {
         }
     }
 
+    private static void setStageNearPlane(float nearPlane) {
+        resolveStageCompat();
+        Method method = stageNearPlaneMethod;
+        if (method == null) {
+            if (nearPlane > 0.0F && !stageNearPlaneWarningLogged) {
+                stageNearPlaneWarningLogged = true;
+                LOGGER.warn("Voxy's stage near plane cannot be configured; install Dynamic Stage HDRS Voxy 0.0.7 or newer");
+            }
+            return;
+        }
+        if (lastStageNearPlane != null && Float.compare(lastStageNearPlane, nearPlane) == 0) {
+            return;
+        }
+        try {
+            method.invoke(null, nearPlane);
+            lastStageNearPlane = nearPlane;
+        } catch (ReflectiveOperationException e) {
+            if (!stageNearPlaneWarningLogged) {
+                stageNearPlaneWarningLogged = true;
+                LOGGER.warn("Could not configure Voxy's stage near plane: {}", rootMessage(e));
+            }
+        }
+    }
+
+    private static void resolveStageCompat() {
+        if (stageCompatResolved) {
+            return;
+        }
+        stageCompatResolved = true;
+        Class<?> compat;
+        try {
+            compat = Class.forName(VOXY_STAGE_COMPAT);
+        } catch (ClassNotFoundException ignored) {
+            return;
+        }
+        try {
+            preserveCameraSectionMethod = compat.getMethod("setPreserveCameraSection", boolean.class);
+        } catch (NoSuchMethodException ignored) {
+            preserveCameraSectionMethod = null;
+        }
+        try {
+            stageNearPlaneMethod = compat.getMethod("setStageNearPlane", float.class);
+        } catch (NoSuchMethodException ignored) {
+            stageNearPlaneMethod = null;
+        }
+    }
+
     public static void leaveStageLevel() {
+        setStageNearPlane(0.0F);
         setPreserveCameraSection(false);
         stageWorldEngine = null;
         if (mounted == null || !normalInstanceSuspended) {

@@ -104,6 +104,7 @@ final class StageDataTemplateStore {
         return new StageClientScene(bool(json, "follow_player", defaults.followPlayer()),
                 decimal(json, "lod_movement_scale", defaults.lodMovementScale()),
                 decimal(json, "dh_near_fade_scale", defaults.dhNearFadeScale()),
+                decimal(json, "voxy_near_plane", defaults.voxyNearPlane()),
                 bool(json, "voxy_near_culling", defaults.voxyNearCulling()),
                 bool(json, "lod_visible", defaults.lodVisible()),
                 decimal(json, "lod_blur_radius", defaults.lodBlurRadius()), transition, transitionTicks, 0L,

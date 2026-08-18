@@ -24,7 +24,8 @@ class StageTemplateStoreTest {
     void roundTripsPortableTemplateWithoutAbsolutePaths() throws Exception {
         StageTemplate template = new StageTemplate("boss_1", new ResourceLocation("pack", "city"),
                 new BlockPos(-2089, 128, 7627), new StageBoundary(80, 60, 24, 0x12ABEF),
-                new StageClientScene(true, 0.35F, 0.05F, true, 2.0F, StageClientScene.Transition.FADE,
+                new StageClientScene(true, 0.35F, 0.05F, 0.75F, false, true, 2.0F,
+                        StageClientScene.Transition.FADE,
                         20, 200L, StageClientScene.TimeMode.CYCLE, 18_000L, 100L, 1_200L,
                         StageClientScene.SkyMode.OVERWORLD),
                 4, StageTemplate.InstanceMode.SHARED, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
@@ -49,7 +50,7 @@ class StageTemplateStoreTest {
                   "instance_mode": "shared",
                   "lifecycle": "retain",
                   "cleanup": "overlay",
-                  "scene": {"lod_visible": false, "sky": "overworld"},
+                  "scene": {"lod_visible": false, "voxy_near_plane": 2.0, "sky": "overworld"},
                   "structures": [
                     {"id": "touhou:level1", "offset": [-16, 0, -32]},
                     {"id": "touhou:platform", "offset": [0, 6, -35]}
@@ -64,6 +65,7 @@ class StageTemplateStoreTest {
         assertEquals(StageTemplate.InstanceMode.SHARED, template.instanceMode());
         assertEquals(StageTemplate.LifecyclePolicy.RETAIN, template.lifecyclePolicy());
         assertEquals(StageTemplate.CleanupPolicy.OVERLAY, template.cleanupPolicy());
+        assertEquals(2.0F, template.clientScene().voxyNearPlane());
         assertEquals(2, template.structures().size());
         assertEquals(template, StageTemplate.load(template.save()));
     }
@@ -98,6 +100,7 @@ class StageTemplateStoreTest {
         assertEquals(900L, rebased.timeBaseGameTime());
         assertEquals(900L, rebased.lodTransitionStartGameTime());
         assertEquals(0.125F, rebased.dhNearFadeScale());
+        assertEquals(scene.voxyNearPlane(), rebased.voxyNearPlane());
     }
 
     @Test

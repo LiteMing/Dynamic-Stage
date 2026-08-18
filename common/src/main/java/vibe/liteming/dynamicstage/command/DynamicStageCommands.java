@@ -167,6 +167,12 @@ public final class DynamicStageCommands {
                                         StageClientScene.MAX_DH_NEAR_FADE_SCALE))
                                 .executes(ctx -> dhNearFadeScale(ctx.getSource(),
                                         (float) DoubleArgumentType.getDouble(ctx, "scale")))))
+                .then(Commands.literal("voxy-near")
+                        .then(Commands.argument("distance", DoubleArgumentType.doubleArg(
+                                        StageClientScene.MIN_VOXY_NEAR_PLANE,
+                                        StageClientScene.MAX_VOXY_NEAR_PLANE))
+                                .executes(ctx -> voxyNearPlane(ctx.getSource(),
+                                        (float) DoubleArgumentType.getDouble(ctx, "distance")))))
                 .then(Commands.literal("voxy-culling")
                         .then(Commands.argument("enabled", BoolArgumentType.bool())
                                 .executes(ctx -> voxyNearCulling(ctx.getSource(),
@@ -616,6 +622,16 @@ public final class DynamicStageCommands {
         return 1;
     }
 
+    private static int voxyNearPlane(CommandSourceStack source, float nearPlane) {
+        if (!(source.getEntity() instanceof ServerPlayer player)
+                || !StageSessionManager.setVoxyNearPlane(player, nearPlane)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Voxy near plane: " + nearPlane + '.'), true);
+        return 1;
+    }
+
     private static int voxyNearCulling(CommandSourceStack source, boolean enabled) {
         if (!(source.getEntity() instanceof ServerPlayer player)
                 || !StageSessionManager.setVoxyNearCulling(player, enabled)) {
@@ -716,6 +732,7 @@ public final class DynamicStageCommands {
         source.sendSuccess(() -> Component.literal("Stage backdrop: follow_player=" + scene.followPlayer()
                 + ", movement_scale=" + scene.lodMovementScale()
                 + ", dh_fade_scale=" + scene.dhNearFadeScale()
+                + ", voxy_near_plane=" + scene.voxyNearPlane()
                 + ", voxy_near_culling=" + scene.voxyNearCulling()
                 + ", visible=" + scene.lodVisible() + ", blur=" + scene.lodBlurRadius()
                 + ", transition=" + scene.lodTransition().name().toLowerCase(java.util.Locale.ROOT) + '.'), false);

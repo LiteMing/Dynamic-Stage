@@ -11,17 +11,6 @@ import vibe.liteming.dynamicstage.client.lod.VoxyBackdropRuntime;
 @Mixin(targets = "me.cortex.voxy.client.core.VoxyRenderSystem", remap = false)
 public abstract class VoxyNearClipMixin {
 
-    @Redirect(method = "computeProjectionMat(Lorg/joml/Matrix4fc;)Lorg/joml/Matrix4f;",
-            at = @At(value = "INVOKE",
-                    target = "Lme/cortex/voxy/client/VoxyClient;disableSodiumChunkRender()Z"),
-            require = 1,
-            remap = false)
-    private static boolean dynamicstage$useStageNearPlane() {
-        // The sparse stage foreground cannot cover Voxy's native 8/16 block
-        // handoff. Select Voxy's own 0.1 projection only for a mounted stage.
-        return VoxyBackdropRuntime.shouldOverrideCurrentStage();
-    }
-
     @Redirect(method = "renderOpaque(Lme/cortex/voxy/client/core/rendering/Viewport;)V",
             at = @At(value = "INVOKE",
                     target = "Lme/cortex/voxy/client/VoxyClient;disableSodiumChunkRender()Z"),

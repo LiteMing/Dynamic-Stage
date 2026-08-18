@@ -8,6 +8,7 @@ public record StageClientScene(
         boolean followPlayer,
         float lodMovementScale,
         float dhNearFadeScale,
+        float voxyNearPlane,
         boolean voxyNearCulling,
         boolean lodVisible,
         float lodBlurRadius,
@@ -26,6 +27,9 @@ public record StageClientScene(
     public static final float DEFAULT_DH_NEAR_FADE_SCALE = 0.01F;
     public static final float MIN_DH_NEAR_FADE_SCALE = 0.001F;
     public static final float MAX_DH_NEAR_FADE_SCALE = 1.0F;
+    public static final float DEFAULT_VOXY_NEAR_PLANE = 0.1F;
+    public static final float MIN_VOXY_NEAR_PLANE = 0.01F;
+    public static final float MAX_VOXY_NEAR_PLANE = 16.0F;
     /** Voxy's camera-containing section is preserved by default in a stage. */
     public static final boolean DEFAULT_VOXY_NEAR_CULLING = false;
     public static final float MAX_BLUR_RADIUS = 32.0F;
@@ -48,6 +52,10 @@ public record StageClientScene(
                 || dhNearFadeScale > MAX_DH_NEAR_FADE_SCALE) {
             throw new IllegalArgumentException("Invalid DH near fade scale: " + dhNearFadeScale);
         }
+        if (!Float.isFinite(voxyNearPlane) || voxyNearPlane < MIN_VOXY_NEAR_PLANE
+                || voxyNearPlane > MAX_VOXY_NEAR_PLANE) {
+            throw new IllegalArgumentException("Invalid Voxy near plane: " + voxyNearPlane);
+        }
         if (lodTransitionTicks < 0 || lodTransitionTicks > MAX_TRANSITION_TICKS) {
             throw new IllegalArgumentException("Invalid LOD transition duration: " + lodTransitionTicks);
         }
@@ -67,6 +75,18 @@ public record StageClientScene(
         if (timeMode != TimeMode.CYCLE && timeCycleTicks != 0L) {
             throw new IllegalArgumentException("Non-cycling client time contains a cycle duration");
         }
+    }
+
+    /** Source-compatible constructor for the layout before configurable Voxy projection. */
+    public StageClientScene(boolean followPlayer, float lodMovementScale, float dhNearFadeScale,
+                            boolean voxyNearCulling, boolean lodVisible, float lodBlurRadius,
+                            Transition lodTransition, int lodTransitionTicks, long lodTransitionStartGameTime,
+                            TimeMode timeMode, long timeBaseDayTime, long timeBaseGameTime,
+                            long timeCycleTicks, SkyMode skyMode) {
+        this(followPlayer, lodMovementScale, dhNearFadeScale, DEFAULT_VOXY_NEAR_PLANE,
+                voxyNearCulling, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
+                lodTransitionStartGameTime, timeMode, timeBaseDayTime, timeBaseGameTime,
+                timeCycleTicks, skyMode);
     }
 
     /** Source-compatible constructor for integrations using the pre-scale layout. */
@@ -123,23 +143,29 @@ public record StageClientScene(
     }
 
     public StageClientScene withFollowPlayer(boolean follow) {
-        return copy(follow, lodMovementScale, dhNearFadeScale, voxyNearCulling, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
+        return copy(follow, lodMovementScale, dhNearFadeScale, voxyNearPlane, voxyNearCulling, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
                 lodTransitionStartGameTime, timeMode, timeBaseDayTime, timeBaseGameTime, timeCycleTicks, skyMode);
     }
 
     public StageClientScene withLodMovementScale(float scale) {
-        return copy(followPlayer, scale, dhNearFadeScale, voxyNearCulling, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
+        return copy(followPlayer, scale, dhNearFadeScale, voxyNearPlane, voxyNearCulling, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
                 lodTransitionStartGameTime, timeMode, timeBaseDayTime, timeBaseGameTime, timeCycleTicks, skyMode);
     }
 
     public StageClientScene withDhNearFadeScale(float scale) {
-        return copy(followPlayer, lodMovementScale, scale, voxyNearCulling, lodVisible, lodBlurRadius, lodTransition,
+        return copy(followPlayer, lodMovementScale, scale, voxyNearPlane, voxyNearCulling, lodVisible, lodBlurRadius, lodTransition,
                 lodTransitionTicks, lodTransitionStartGameTime, timeMode, timeBaseDayTime, timeBaseGameTime,
                 timeCycleTicks, skyMode);
     }
 
+    public StageClientScene withVoxyNearPlane(float nearPlane) {
+        return copy(followPlayer, lodMovementScale, dhNearFadeScale, nearPlane, voxyNearCulling,
+                lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks, lodTransitionStartGameTime,
+                timeMode, timeBaseDayTime, timeBaseGameTime, timeCycleTicks, skyMode);
+    }
+
     public StageClientScene withVoxyNearCulling(boolean enabled) {
-        return copy(followPlayer, lodMovementScale, dhNearFadeScale, enabled, lodVisible, lodBlurRadius,
+        return copy(followPlayer, lodMovementScale, dhNearFadeScale, voxyNearPlane, enabled, lodVisible, lodBlurRadius,
                 lodTransition, lodTransitionTicks, lodTransitionStartGameTime, timeMode, timeBaseDayTime,
                 timeBaseGameTime, timeCycleTicks, skyMode);
     }
@@ -155,30 +181,31 @@ public record StageClientScene(
 
     public StageClientScene withLodVisible(boolean visible, Transition transition,
                                            int transitionTicks, long startGameTime) {
-        return copy(followPlayer, lodMovementScale, dhNearFadeScale, voxyNearCulling, visible, lodBlurRadius, transition, transitionTicks, startGameTime,
+        return copy(followPlayer, lodMovementScale, dhNearFadeScale, voxyNearPlane, voxyNearCulling, visible, lodBlurRadius, transition, transitionTicks, startGameTime,
                 timeMode, timeBaseDayTime, timeBaseGameTime, timeCycleTicks, skyMode);
     }
 
     public StageClientScene withLodBlurRadius(float blurRadius) {
-        return copy(followPlayer, lodMovementScale, dhNearFadeScale, voxyNearCulling, lodVisible, blurRadius, lodTransition, lodTransitionTicks,
+        return copy(followPlayer, lodMovementScale, dhNearFadeScale, voxyNearPlane, voxyNearCulling, lodVisible, blurRadius, lodTransition, lodTransitionTicks,
                 lodTransitionStartGameTime, timeMode, timeBaseDayTime, timeBaseGameTime, timeCycleTicks, skyMode);
     }
 
     public StageClientScene withTime(TimeMode mode, long baseDayTime, long baseGameTime, long cycleTicks) {
-        return copy(followPlayer, lodMovementScale, dhNearFadeScale, voxyNearCulling, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
+        return copy(followPlayer, lodMovementScale, dhNearFadeScale, voxyNearPlane, voxyNearCulling, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
                 lodTransitionStartGameTime, mode, baseDayTime, baseGameTime, cycleTicks, skyMode);
     }
 
     public StageClientScene withSkyMode(SkyMode mode) {
-        return copy(followPlayer, lodMovementScale, dhNearFadeScale, voxyNearCulling, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
+        return copy(followPlayer, lodMovementScale, dhNearFadeScale, voxyNearPlane, voxyNearCulling, lodVisible, lodBlurRadius, lodTransition, lodTransitionTicks,
                 lodTransitionStartGameTime, timeMode, timeBaseDayTime, timeBaseGameTime, timeCycleTicks, mode);
     }
 
-    private StageClientScene copy(boolean follow, float movementScale, float dhFadeScale, boolean voxyCulling, boolean visible, float blurRadius,
+    private StageClientScene copy(boolean follow, float movementScale, float dhFadeScale, float nearPlane,
+                                  boolean voxyCulling, boolean visible, float blurRadius,
                                   Transition transition, int transitionTicks, long transitionStart,
                                   TimeMode newTimeMode,
                                   long baseDayTime, long baseGameTime, long cycleTicks, SkyMode newSkyMode) {
-        return new StageClientScene(follow, movementScale, dhFadeScale, voxyCulling, visible, blurRadius, transition, transitionTicks, transitionStart,
+        return new StageClientScene(follow, movementScale, dhFadeScale, nearPlane, voxyCulling, visible, blurRadius, transition, transitionTicks, transitionStart,
                 newTimeMode, baseDayTime, baseGameTime, cycleTicks, newSkyMode);
     }
 
@@ -187,6 +214,7 @@ public record StageClientScene(
         tag.putBoolean("FollowPlayer", followPlayer);
         tag.putFloat("LodMovementScale", lodMovementScale);
         tag.putFloat("DhNearFadeScale", dhNearFadeScale);
+        tag.putFloat("VoxyNearPlane", voxyNearPlane);
         tag.putBoolean("VoxyNearCulling", voxyNearCulling);
         tag.putBoolean("LodVisible", lodVisible);
         tag.putFloat("LodBlurRadius", lodBlurRadius);
@@ -210,6 +238,8 @@ public record StageClientScene(
                 tag.contains("LodMovementScale", Tag.TAG_FLOAT) ? tag.getFloat("LodMovementScale") : 1.0F,
                 tag.contains("DhNearFadeScale", Tag.TAG_FLOAT)
                         ? tag.getFloat("DhNearFadeScale") : DEFAULT_DH_NEAR_FADE_SCALE,
+                tag.contains("VoxyNearPlane", Tag.TAG_FLOAT)
+                        ? tag.getFloat("VoxyNearPlane") : DEFAULT_VOXY_NEAR_PLANE,
                 tag.contains("VoxyNearCulling", Tag.TAG_BYTE)
                         ? tag.getBoolean("VoxyNearCulling")
                         : DEFAULT_VOXY_NEAR_CULLING,

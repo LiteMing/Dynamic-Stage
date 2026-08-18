@@ -17,6 +17,7 @@
   "screen.dynamicstage.editor.field.capacity": "Capacity",
   "screen.dynamicstage.editor.field.movement_scale": "Movement scale",
   "screen.dynamicstage.editor.field.dh_near_fade": "DH near fade",
+  "screen.dynamicstage.editor.field.voxy_near_plane": "Voxy near plane",
   "screen.dynamicstage.editor.field.persistent_blur": "Persistent blur",
   "screen.dynamicstage.editor.field.transition_ticks": "Transition ticks",
   "screen.dynamicstage.editor.field.base_day_time": "Base day time",

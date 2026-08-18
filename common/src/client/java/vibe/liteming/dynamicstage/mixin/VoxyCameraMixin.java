@@ -17,8 +17,8 @@ import vibe.liteming.dynamicstage.client.lod.VoxyVirtualCamera;
 @Mixin(targets = "me.cortex.voxy.client.core.VoxyRenderSystem", remap = false)
 public abstract class VoxyCameraMixin {
     @Inject(method = "setupViewport", at = @At("HEAD"), require = 0, remap = false)
-    private void dynamicstage$configureCameraSectionCulling(CallbackInfoReturnable<Object> callback) {
-        VoxyBackdropRuntime.syncCameraSectionCulling();
+    private void dynamicstage$configureStageRendering(CallbackInfoReturnable<Object> callback) {
+        VoxyBackdropRuntime.syncStageRendering();
     }
 
     @ModifyVariable(method = "setupViewport", at = @At("HEAD"), argsOnly = true,
