@@ -17,10 +17,11 @@ import java.util.List;
 /** Portable, game-instance-level configuration used to create stage instances. */
 public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
                             StageBoundary boundary, StageClientScene clientScene, int capacity,
-                            InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy, byte[] flightJson,
-                            CompoundTag arenaSnapshot, String flightName, BlockPos entryOffset,
-                            List<StageStructurePlacement> structures) {
-    public static final int FORMAT_VERSION = 2;
+                            InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy,
+                            CleanupPolicy cleanupPolicy, InteractionPolicy interactionPolicy,
+                            byte[] flightJson, CompoundTag arenaSnapshot, String flightName,
+                            BlockPos entryOffset, List<StageStructurePlacement> structures) {
+    public static final int FORMAT_VERSION = 3;
     private static final int MAX_STRUCTURES = 16;
 
     public StageTemplate {
@@ -28,8 +29,10 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
             throw new IllegalArgumentException("Invalid template id");
         }
         if (lodPackId == null || lodAnchor == null || boundary == null || clientScene == null
-                || instanceMode == null || lifecyclePolicy == null || flightJson == null || arenaSnapshot == null
-                || flightName == null || entryOffset == null || structures == null) {
+                || instanceMode == null || lifecyclePolicy == null || cleanupPolicy == null
+                || interactionPolicy == null
+                || flightJson == null || arenaSnapshot == null || flightName == null
+                || entryOffset == null || structures == null) {
             throw new IllegalArgumentException("Stage template contains null state");
         }
         if (capacity < 1 || capacity > StageSession.MAX_CAPACITY) {
@@ -65,7 +68,8 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                          InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy, byte[] flightJson,
                          CompoundTag arenaSnapshot) {
         this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
-                flightJson, arenaSnapshot, "", BlockPos.ZERO, List.of());
+                CleanupPolicy.FULL, InteractionPolicy.ADVENTURE, flightJson, arenaSnapshot,
+                "", BlockPos.ZERO, List.of());
     }
 
     public StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
@@ -73,7 +77,26 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                          InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy, byte[] flightJson,
                          CompoundTag arenaSnapshot, String flightName) {
         this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
-                flightJson, arenaSnapshot, flightName, BlockPos.ZERO, List.of());
+                CleanupPolicy.FULL, InteractionPolicy.ADVENTURE, flightJson, arenaSnapshot,
+                flightName, BlockPos.ZERO, List.of());
+    }
+
+    public StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
+                         StageBoundary boundary, StageClientScene clientScene, int capacity,
+                         InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy,
+                         CleanupPolicy cleanupPolicy, byte[] flightJson, CompoundTag arenaSnapshot) {
+        this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
+                cleanupPolicy, InteractionPolicy.ADVENTURE, flightJson, arenaSnapshot,
+                "", BlockPos.ZERO, List.of());
+    }
+
+    public StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
+                         StageBoundary boundary, StageClientScene clientScene, int capacity,
+                         InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy,
+                         CleanupPolicy cleanupPolicy, InteractionPolicy interactionPolicy,
+                         byte[] flightJson, CompoundTag arenaSnapshot) {
+        this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
+                cleanupPolicy, interactionPolicy, flightJson, arenaSnapshot, "", BlockPos.ZERO, List.of());
     }
 
     public static boolean validFlightName(String name) {
@@ -127,6 +150,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         return id.equals(instance.stageId()) && lodPackId.equals(instance.lodPackId())
                 && lodAnchor.equals(instance.lodAnchor()) && boundary.equals(instance.boundary())
                 && capacity == instance.capacity() && flightHash().equals(instance.flightHash())
+                && interactionPolicy == instance.interactionPolicy()
                 && instance.persistent() == (lifecyclePolicy == LifecyclePolicy.RETAIN)
                 && equivalentScene(clientScene, instance.clientScene());
     }
@@ -158,6 +182,8 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         tag.putInt("Capacity", capacity);
         tag.putString("InstanceMode", instanceMode.name());
         tag.putString("LifecyclePolicy", lifecyclePolicy.name());
+        tag.putString("CleanupPolicy", cleanupPolicy.name());
+        tag.putString("InteractionPolicy", interactionPolicy.name());
         if (hasFlight()) {
             tag.putByteArray("Flight", flightJson);
             if (!flightName.isEmpty()) {
@@ -194,7 +220,8 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 BlockPos.of(tag.getLong("LodAnchor")), StageBoundary.load(tag.getCompound("Boundary")),
                 StageClientScene.load(tag.getCompound("ClientScene")), tag.getInt("Capacity"),
                 InstanceMode.valueOf(tag.getString("InstanceMode")),
-                loadLifecyclePolicy(tag), tag.getByteArray("Flight"),
+                loadLifecyclePolicy(tag), loadCleanupPolicy(tag), loadInteractionPolicy(tag),
+                tag.getByteArray("Flight"),
                 tag.contains("Arena", Tag.TAG_COMPOUND) ? tag.getCompound("Arena") : new CompoundTag(),
                 tag.contains("FlightName", Tag.TAG_STRING) ? tag.getString("FlightName") : "",
                 format >= 2 && tag.contains("EntryOffset", Tag.TAG_LONG)
@@ -208,6 +235,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 && id.equals(that.id) && lodPackId.equals(that.lodPackId) && lodAnchor.equals(that.lodAnchor)
                 && boundary.equals(that.boundary) && clientScene.equals(that.clientScene) && capacity == that.capacity
                 && instanceMode == that.instanceMode && lifecyclePolicy == that.lifecyclePolicy
+                && cleanupPolicy == that.cleanupPolicy && interactionPolicy == that.interactionPolicy
                 && Arrays.equals(flightJson, that.flightJson) && arenaSnapshot.equals(that.arenaSnapshot)
                 && flightName.equals(that.flightName) && entryOffset.equals(that.entryOffset)
                 && structures.equals(that.structures);
@@ -216,7 +244,8 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
     @Override
     public int hashCode() {
         int result = java.util.Objects.hash(id, lodPackId, lodAnchor, boundary, clientScene,
-                capacity, instanceMode, lifecyclePolicy, flightName, entryOffset, structures);
+                capacity, instanceMode, lifecyclePolicy, cleanupPolicy, interactionPolicy,
+                flightName, entryOffset, structures);
         result = 31 * result + Arrays.hashCode(flightJson);
         return 31 * result + arenaSnapshot.hashCode();
     }
@@ -224,6 +253,10 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
     public enum InstanceMode { SHARED, PARALLEL }
 
     public enum LifecyclePolicy { RELEASE_WHEN_EMPTY, RETAIN }
+
+    public enum CleanupPolicy { FULL, OVERLAY }
+
+    public enum InteractionPolicy { LOCKED, ADVENTURE }
 
     private static LifecyclePolicy loadLifecyclePolicy(CompoundTag tag) {
         if (tag.contains("LifecyclePolicy", Tag.TAG_STRING)) {
@@ -233,5 +266,15 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         // distinction maps directly onto whether an empty instance is retained.
         return "MANUAL".equals(tag.getString("ResetPolicy"))
                 ? LifecyclePolicy.RETAIN : LifecyclePolicy.RELEASE_WHEN_EMPTY;
+    }
+
+    private static CleanupPolicy loadCleanupPolicy(CompoundTag tag) {
+        return tag.contains("CleanupPolicy", Tag.TAG_STRING)
+                ? CleanupPolicy.valueOf(tag.getString("CleanupPolicy")) : CleanupPolicy.FULL;
+    }
+
+    private static InteractionPolicy loadInteractionPolicy(CompoundTag tag) {
+        return tag.contains("InteractionPolicy", Tag.TAG_STRING)
+                ? InteractionPolicy.valueOf(tag.getString("InteractionPolicy")) : InteractionPolicy.ADVENTURE;
     }
 }

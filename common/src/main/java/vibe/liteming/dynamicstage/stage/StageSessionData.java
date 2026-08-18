@@ -7,6 +7,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.saveddata.SavedData;
+import vibe.liteming.dynamicstage.template.StageTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -93,11 +94,16 @@ public final class StageSessionData extends SavedData {
     }
 
     public void put(StageSession session, boolean persistent) {
+        put(session, persistent, StageTemplate.InteractionPolicy.ADVENTURE);
+    }
+
+    public void put(StageSession session, boolean persistent, StageTemplate.InteractionPolicy interactionPolicy) {
         StageInstance existing = instances.get(session.instanceId());
         if (existing == null) {
-            instances.put(session.instanceId(), StageInstance.from(session, persistent));
-        } else if (existing.persistent() != persistent) {
-            instances.put(session.instanceId(), StageInstance.from(session, persistent));
+            instances.put(session.instanceId(), StageInstance.from(session, persistent, interactionPolicy));
+        } else if (existing.persistent() != persistent || existing.interactionPolicy() != interactionPolicy) {
+            instances.put(session.instanceId(), existing.withPersistent(persistent)
+                    .withInteractionPolicy(interactionPolicy));
         }
         sessions.put(session.playerId(), session);
         setDirty();
@@ -143,21 +149,21 @@ public final class StageSessionData extends SavedData {
                                        BlockPos lodAnchor, int capacity, StageBoundary boundary,
                                        StageClientScene scene, String flightHash, int flightBytes,
                                        long flightDurationMillis, long flightStartGameTime,
-                                       boolean persistent) {
+                                       boolean persistent, StageTemplate.InteractionPolicy interactionPolicy) {
         boolean changed = false;
         for (StageSession session : List.copyOf(sessions.values())) {
             if (session.instanceId().equals(instanceId)) {
                 StageSession updated = session.withTemplateSettings(stageId, lodPackId, lodAnchor,
                         capacity, boundary, scene).withFlight(flightHash, flightBytes,
                         flightDurationMillis, flightStartGameTime);
-                sessions.put(session.playerId(), updated);
+                    sessions.put(session.playerId(), updated);
                 changed = true;
             }
         }
         StageInstance instance = instances.get(instanceId);
         if (instance != null) {
             instances.put(instanceId, instance.withTemplateSettings(stageId, lodPackId, lodAnchor,
-                    capacity, boundary, scene, persistent).withFlight(flightHash, flightBytes,
+                    capacity, boundary, scene, persistent, interactionPolicy).withFlight(flightHash, flightBytes,
                     flightDurationMillis, flightStartGameTime));
             changed = true;
         }

@@ -23,7 +23,8 @@ class StageTemplatePacketsTest {
                 new StageClientScene(true, 0.4F, 0.2F, true, false, 3.0F, StageClientScene.Transition.BLUR,
                         40, 500L, StageClientScene.TimeMode.CYCLE, 18_000L, 500L, 1_200L,
                 StageClientScene.SkyMode.END), 4, StageTemplate.InstanceMode.SHARED,
-                StageTemplate.LifecyclePolicy.RETAIN, "scarlet");
+                StageTemplate.LifecyclePolicy.RETAIN, StageTemplate.CleanupPolicy.OVERLAY,
+                StageTemplate.InteractionPolicy.ADVENTURE, "scarlet");
         FriendlyByteBuf listBuffer = new FriendlyByteBuf(Unpooled.buffer());
         StageTemplatePackets.ListPacket list = new StageTemplatePackets.ListPacket(List.of(summary));
         StageTemplatePackets.encodeList(list, listBuffer);

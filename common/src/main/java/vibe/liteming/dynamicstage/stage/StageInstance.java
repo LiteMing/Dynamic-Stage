@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
+import vibe.liteming.dynamicstage.template.StageTemplate;
 
 import java.util.UUID;
 
@@ -18,6 +19,7 @@ public record StageInstance(
         StageBoundary boundary,
         StageClientScene clientScene,
         boolean persistent,
+        StageTemplate.InteractionPolicy interactionPolicy,
         String flightHash,
         int flightBytes,
         long flightDurationMillis,
@@ -25,7 +27,7 @@ public record StageInstance(
 ) {
     public StageInstance {
         if (instanceId == null || lodPackId == null || lodAnchor == null || boundary == null
-                || clientScene == null) {
+                || clientScene == null || interactionPolicy == null) {
             throw new IllegalArgumentException("Stage instance contains null state");
         }
         if (stageId == null || stageId.isBlank() || stageId.length() > 128) {
@@ -41,9 +43,14 @@ public record StageInstance(
     }
 
     public static StageInstance from(StageSession session, boolean persistent) {
+        return from(session, persistent, StageTemplate.InteractionPolicy.ADVENTURE);
+    }
+
+    public static StageInstance from(StageSession session, boolean persistent,
+                                     StageTemplate.InteractionPolicy interactionPolicy) {
         return new StageInstance(session.instanceId(), session.stageId(), session.lodPackId(),
                 session.lodAnchor(), session.slot(), session.capacity(), session.boundary(), session.clientScene(),
-                persistent, session.flightHash(), session.flightBytes(), session.flightDurationMillis(),
+                persistent, interactionPolicy, session.flightHash(), session.flightBytes(), session.flightDurationMillis(),
                 session.flightStartGameTime());
     }
 
@@ -57,39 +64,45 @@ public record StageInstance(
 
     public StageInstance withLodAnchor(BlockPos anchor) {
         return copy(stageId, lodPackId, anchor, capacity, boundary, clientScene, persistent,
-                flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+                interactionPolicy, flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
     public StageInstance withLodPack(ResourceLocation pack) {
         return copy(stageId, pack, lodAnchor, capacity, boundary, clientScene, persistent,
-                flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+                interactionPolicy, flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
     public StageInstance withTemplateSettings(String newStageId, ResourceLocation pack, BlockPos anchor,
                                               int newCapacity, StageBoundary newBoundary,
-                                              StageClientScene scene, boolean newPersistent) {
+                                              StageClientScene scene, boolean newPersistent,
+                                              StageTemplate.InteractionPolicy newInteractionPolicy) {
         return copy(newStageId, pack, anchor, newCapacity, newBoundary, scene, newPersistent,
-                flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+                newInteractionPolicy, flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
     public StageInstance withBoundary(StageBoundary newBoundary) {
         return copy(stageId, lodPackId, lodAnchor, capacity, newBoundary, clientScene, persistent,
-                flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+                interactionPolicy, flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
     public StageInstance withClientScene(StageClientScene scene) {
         return copy(stageId, lodPackId, lodAnchor, capacity, boundary, scene, persistent,
-                flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+                interactionPolicy, flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
     public StageInstance withPersistent(boolean value) {
         return copy(stageId, lodPackId, lodAnchor, capacity, boundary, clientScene, value,
-                flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+                interactionPolicy, flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+    }
+
+    public StageInstance withInteractionPolicy(StageTemplate.InteractionPolicy policy) {
+        return copy(stageId, lodPackId, lodAnchor, capacity, boundary, clientScene, persistent,
+                policy, flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
     public StageInstance withFlight(String hash, int bytes, long durationMillis, long startGameTime) {
         return copy(stageId, lodPackId, lodAnchor, capacity, boundary, clientScene, persistent,
-                hash, bytes, durationMillis, startGameTime);
+                interactionPolicy, hash, bytes, durationMillis, startGameTime);
     }
 
     public StageInstance withFlightStart(long startGameTime) {
@@ -110,6 +123,7 @@ public record StageInstance(
         tag.put("Boundary", boundary.save());
         tag.put("ClientScene", clientScene.save());
         tag.putBoolean("Persistent", persistent);
+        tag.putString("InteractionPolicy", interactionPolicy.name());
         if (hasFlight()) {
             tag.putString("FlightHash", flightHash);
             tag.putInt("FlightBytes", flightBytes);
@@ -128,14 +142,18 @@ public record StageInstance(
                 tag.contains("ClientScene", Tag.TAG_COMPOUND)
                         ? StageClientScene.load(tag.getCompound("ClientScene"))
                         : StageClientScene.defaults(0L, 0L),
-                tag.getBoolean("Persistent"), tag.getString("FlightHash"), tag.getInt("FlightBytes"),
+                tag.getBoolean("Persistent"), tag.contains("InteractionPolicy", Tag.TAG_STRING)
+                        ? StageTemplate.InteractionPolicy.valueOf(tag.getString("InteractionPolicy"))
+                        : StageTemplate.InteractionPolicy.ADVENTURE,
+                tag.getString("FlightHash"), tag.getInt("FlightBytes"),
                 tag.getLong("FlightDuration"), tag.contains("FlightStart") ? tag.getLong("FlightStart") : -1L);
     }
 
     private StageInstance copy(String newStageId, ResourceLocation pack, BlockPos anchor, int newCapacity,
                                StageBoundary newBoundary, StageClientScene scene, boolean newPersistent,
+                               StageTemplate.InteractionPolicy newInteractionPolicy,
                                String hash, int bytes, long durationMillis, long startGameTime) {
         return new StageInstance(instanceId, newStageId, pack, anchor, slot, newCapacity, newBoundary, scene,
-                newPersistent, hash, bytes, durationMillis, startGameTime);
+                newPersistent, newInteractionPolicy, hash, bytes, durationMillis, startGameTime);
     }
 }

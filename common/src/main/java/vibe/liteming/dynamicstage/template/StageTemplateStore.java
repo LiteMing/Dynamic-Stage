@@ -46,7 +46,9 @@ public final class StageTemplateStore {
 
     public static StageTemplate capture(MinecraftServer server, StageSession session, String id,
                                         StageTemplate.InstanceMode instanceMode,
-                                        StageTemplate.LifecyclePolicy lifecyclePolicy) throws IOException {
+                                        StageTemplate.LifecyclePolicy lifecyclePolicy,
+                                        StageTemplate.CleanupPolicy cleanupPolicy,
+                                        StageTemplate.InteractionPolicy interactionPolicy) throws IOException {
         StageFlightAssets.Asset flight = session.hasFlight()
                 ? StageFlightAssets.load(server, session.stageId(), session.flightHash()) : null;
         if (session.hasFlight() && flight == null) {
@@ -59,7 +61,7 @@ public final class StageTemplateStore {
         CompoundTag arena = StageArenaSnapshot.capture(stageLevel, session.stageOrigin(), session.boundary());
         return new StageTemplate(id, session.lodPackId(), session.lodAnchor(), session.boundary(),
                 session.clientScene(), session.capacity(), instanceMode, lifecyclePolicy,
-                flight == null ? new byte[0] : flight.sceneJson(), arena, "",
+                cleanupPolicy, interactionPolicy, flight == null ? new byte[0] : flight.sceneJson(), arena, "",
                 compatibleEntryOffset(load(server, id), session.boundary()), java.util.List.of());
     }
 
@@ -77,6 +79,7 @@ public final class StageTemplateStore {
         CompoundTag arena = StageArenaSnapshot.capture(stageLevel, session.stageOrigin(), summary.boundary());
         return new StageTemplate(summary.id(), summary.lodPackId(), summary.lodAnchor(), summary.boundary(),
                 summary.clientScene(), summary.capacity(), summary.instanceMode(), summary.lifecyclePolicy(),
+                summary.cleanupPolicy(), summary.interactionPolicy(),
                 flight == null ? new byte[0] : flight.sceneJson(), arena,
                 flight == null ? "" : summary.flightName(),
                 compatibleEntryOffset(load(server, summary.id()), summary.boundary()), java.util.List.of());

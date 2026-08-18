@@ -162,6 +162,20 @@ public final class StageTemplateEditorScreen extends Screen {
             button.setMessage(text("setting.lifecycle", value(draft.lifecyclePolicy)));
         });
         y += ROW_HEIGHT;
+        addButton(left, y, panelWidth, text("setting.cleanup", value(draft.cleanupPolicy)), button -> {
+            awaitingInitialTemplate = false;
+            draft.cleanupPolicy = draft.cleanupPolicy == StageTemplate.CleanupPolicy.FULL
+                    ? StageTemplate.CleanupPolicy.OVERLAY : StageTemplate.CleanupPolicy.FULL;
+            button.setMessage(text("setting.cleanup", value(draft.cleanupPolicy)));
+        });
+        y += ROW_HEIGHT;
+        addButton(left, y, panelWidth, text("setting.interaction", value(draft.interactionPolicy)), button -> {
+            awaitingInitialTemplate = false;
+            draft.interactionPolicy = draft.interactionPolicy == StageTemplate.InteractionPolicy.ADVENTURE
+                    ? StageTemplate.InteractionPolicy.LOCKED : StageTemplate.InteractionPolicy.ADVENTURE;
+            button.setMessage(text("setting.interaction", value(draft.interactionPolicy)));
+        });
+        y += ROW_HEIGHT;
         addButton(left, y, panelWidth, text("action.use_current_lod"), button -> prepareCurrentLod());
     }
 
@@ -603,7 +617,8 @@ public final class StageTemplateEditorScreen extends Screen {
             return Draft.from(new StageTemplateSummary(active.stageId(), active.lodPackId(), active.lodAnchor(),
                     active.boundary(), active.clientScene(), active.capacity(),
                     StageTemplate.InstanceMode.PARALLEL,
-                    StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY, ""));
+                    StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
+                    StageTemplate.CleanupPolicy.FULL, StageTemplate.InteractionPolicy.ADVENTURE, ""));
         }
         Minecraft mc = Minecraft.getInstance();
         BlockPos anchor = mc.player == null ? BlockPos.ZERO : mc.player.blockPosition();
@@ -612,7 +627,8 @@ public final class StageTemplateEditorScreen extends Screen {
         return Draft.from(new StageTemplateSummary("stage_1", new ResourceLocation("dynamicstage", "none"),
                 anchor, StageBoundary.defaults(), StageClientScene.defaults(dayTime, gameTime), 1,
                 StageTemplate.InstanceMode.PARALLEL,
-                StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY, ""));
+                StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
+                StageTemplate.CleanupPolicy.FULL, StageTemplate.InteractionPolicy.ADVENTURE, ""));
     }
 
     private static int templateIndex(String id) {
@@ -714,6 +730,8 @@ public final class StageTemplateEditorScreen extends Screen {
         private int capacity;
         private StageTemplate.InstanceMode instanceMode;
         private StageTemplate.LifecyclePolicy lifecyclePolicy;
+        private StageTemplate.CleanupPolicy cleanupPolicy;
+        private StageTemplate.InteractionPolicy interactionPolicy;
         private boolean followPlayer;
         private float movementScale;
         private float dhNearFadeScale;
@@ -738,6 +756,8 @@ public final class StageTemplateEditorScreen extends Screen {
             draft.capacity = summary.capacity();
             draft.instanceMode = summary.instanceMode();
             draft.lifecyclePolicy = summary.lifecyclePolicy();
+            draft.cleanupPolicy = summary.cleanupPolicy();
+            draft.interactionPolicy = summary.interactionPolicy();
             draft.followPlayer = scene.followPlayer();
             draft.movementScale = scene.lodMovementScale();
             draft.dhNearFadeScale = scene.dhNearFadeScale();
@@ -765,7 +785,7 @@ public final class StageTemplateEditorScreen extends Screen {
                     gameTime, timeMode, normalizedDayTime, gameTime,
                     timeMode == StageClientScene.TimeMode.CYCLE ? cycleTicks : 0L, skyMode);
             return new StageTemplateSummary(id, pack, anchor, boundary, scene, capacity, instanceMode,
-                    lifecyclePolicy, flightName);
+                    lifecyclePolicy, cleanupPolicy, interactionPolicy, flightName);
         }
     }
 }

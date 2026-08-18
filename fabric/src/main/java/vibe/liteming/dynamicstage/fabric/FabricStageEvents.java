@@ -70,9 +70,23 @@ public final class FabricStageEvents {
                 !level.isClientSide && StageWorlds.isStageLevel(level) && !StageSessionManager.isEditing(player, pos)
                         ? InteractionResult.FAIL : InteractionResult.PASS);
         UseBlockCallback.EVENT.register((player, level, hand, hit) ->
-                !level.isClientSide && StageWorlds.isStageLevel(level) && !StageSessionManager.isEditing(player, hit.getBlockPos())
-                        ? InteractionResult.FAIL : InteractionResult.PASS);
+                !level.isClientSide && StageWorlds.isStageLevel(level)
+                        ? useStageBlock(player, level, hand, hit) : InteractionResult.PASS);
         PlayerBlockBreakEvents.BEFORE.register((level, player, pos, state, blockEntity) ->
                 level.isClientSide || !StageWorlds.isStageLevel(level) || StageSessionManager.isEditing(player, pos));
+    }
+
+    private static InteractionResult useStageBlock(net.minecraft.world.entity.player.Player player,
+                                                   net.minecraft.world.level.Level level,
+                                                   net.minecraft.world.InteractionHand hand,
+                                                   net.minecraft.world.phys.BlockHitResult hit) {
+        if (StageSessionManager.isEditing(player, hit.getBlockPos())) {
+            return InteractionResult.PASS;
+        }
+        if (!StageSessionManager.canUseBlock(player, hit.getBlockPos())) {
+            return InteractionResult.FAIL;
+        }
+        InteractionResult result = level.getBlockState(hit.getBlockPos()).use(level, player, hand, hit);
+        return result.consumesAction() ? result : InteractionResult.FAIL;
     }
 }

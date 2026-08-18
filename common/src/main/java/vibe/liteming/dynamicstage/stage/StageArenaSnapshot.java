@@ -55,6 +55,20 @@ public final class StageArenaSnapshot {
         }
     }
 
+    /** Removes transient entities and reapplies template contents without clearing existing blocks. */
+    public static void overlay(ServerLevel level, BlockPos origin, StageBoundary boundary,
+                               CompoundTag snapshot, List<StageStructurePlacement> structures) throws IOException {
+        StructureTemplate structure = snapshot.isEmpty() ? null : read(level, boundary, snapshot);
+        List<ResolvedStructure> resolved = resolveStructures(level, origin, boundary, structures);
+        discardNonPlayers(level, regionBounds(level, origin));
+        if (structure != null) {
+            place(level, origin, boundary, structure);
+        }
+        for (ResolvedStructure placement : resolved) {
+            place(level, placement.position(), placement.structure());
+        }
+    }
+
     /** Releases every resource owned by an empty, non-persistent instance slot. */
     public static void release(ServerLevel level, BlockPos origin, StageBoundary boundary) throws IOException {
         AABB region = regionBounds(level, origin);

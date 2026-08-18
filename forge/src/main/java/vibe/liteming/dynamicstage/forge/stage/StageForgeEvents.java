@@ -75,6 +75,11 @@ public final class StageForgeEvents {
                 && StageSessionManager.isEditing(player, event.getPos())) {
             return;
         }
+        if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player
+                && StageSessionManager.canUseBlock(player, event.getPos())) {
+            event.setUseItem(Event.Result.DENY);
+            return;
+        }
         event.setCancellationResult(InteractionResult.PASS);
         event.setUseBlock(Event.Result.DENY);
         event.setUseItem(Event.Result.DENY);

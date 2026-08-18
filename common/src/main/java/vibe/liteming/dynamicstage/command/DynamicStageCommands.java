@@ -96,7 +96,30 @@ public final class DynamicStageCommands {
         lifecyclePolicy.executes(ctx -> templateSave(ctx.getSource(),
                 StringArgumentType.getString(ctx, "template"),
                 parseInstanceMode(StringArgumentType.getString(ctx, "instance_mode")),
-                parseLifecyclePolicy(StringArgumentType.getString(ctx, "lifecycle"))));
+                parseLifecyclePolicy(StringArgumentType.getString(ctx, "lifecycle")),
+                StageTemplate.CleanupPolicy.FULL, StageTemplate.InteractionPolicy.ADVENTURE));
+        RequiredArgumentBuilder<CommandSourceStack, String> cleanupPolicy =
+                Commands.argument("cleanup", StringArgumentType.word())
+                        .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
+                                java.util.List.of("full", "overlay"), builder));
+        cleanupPolicy.executes(ctx -> templateSave(ctx.getSource(),
+                StringArgumentType.getString(ctx, "template"),
+                parseInstanceMode(StringArgumentType.getString(ctx, "instance_mode")),
+                parseLifecyclePolicy(StringArgumentType.getString(ctx, "lifecycle")),
+                parseCleanupPolicy(StringArgumentType.getString(ctx, "cleanup")),
+                StageTemplate.InteractionPolicy.ADVENTURE));
+        RequiredArgumentBuilder<CommandSourceStack, String> interactionPolicy =
+                Commands.argument("interaction", StringArgumentType.word())
+                        .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
+                                java.util.List.of("adventure", "locked"), builder));
+        interactionPolicy.executes(ctx -> templateSave(ctx.getSource(),
+                StringArgumentType.getString(ctx, "template"),
+                parseInstanceMode(StringArgumentType.getString(ctx, "instance_mode")),
+                parseLifecyclePolicy(StringArgumentType.getString(ctx, "lifecycle")),
+                parseCleanupPolicy(StringArgumentType.getString(ctx, "cleanup")),
+                parseInteractionPolicy(StringArgumentType.getString(ctx, "interaction"))));
+        cleanupPolicy.then(interactionPolicy);
+        lifecyclePolicy.then(cleanupPolicy);
         RequiredArgumentBuilder<CommandSourceStack, String> instanceMode =
                 Commands.argument("instance_mode", StringArgumentType.word())
                         .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
@@ -104,13 +127,15 @@ public final class DynamicStageCommands {
         instanceMode.executes(ctx -> templateSave(ctx.getSource(),
                 StringArgumentType.getString(ctx, "template"),
                 parseInstanceMode(StringArgumentType.getString(ctx, "instance_mode")),
-                StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY));
+                StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY, StageTemplate.CleanupPolicy.FULL,
+                StageTemplate.InteractionPolicy.ADVENTURE));
         instanceMode.then(lifecyclePolicy);
         RequiredArgumentBuilder<CommandSourceStack, String> templateName =
                 Commands.argument("template", StringArgumentType.word());
         templateName.executes(ctx -> templateSave(ctx.getSource(),
                 StringArgumentType.getString(ctx, "template"), StageTemplate.InstanceMode.PARALLEL,
-                StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY));
+                StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY, StageTemplate.CleanupPolicy.FULL,
+                StageTemplate.InteractionPolicy.ADVENTURE));
         templateName.then(instanceMode);
         templates.then(Commands.literal("save").then(templateName));
         root.then(templates);
@@ -412,7 +437,9 @@ public final class DynamicStageCommands {
     }
 
     private static int templateSave(CommandSourceStack source, String id, StageTemplate.InstanceMode instanceMode,
-                                    StageTemplate.LifecyclePolicy lifecyclePolicy) {
+                                     StageTemplate.LifecyclePolicy lifecyclePolicy,
+                                     StageTemplate.CleanupPolicy cleanupPolicy,
+                                     StageTemplate.InteractionPolicy interactionPolicy) {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
             return 0;
         }
@@ -423,7 +450,7 @@ public final class DynamicStageCommands {
         }
         try {
             StageTemplate template = StageTemplateStore.capture(source.getServer(), session, id,
-                    instanceMode, lifecyclePolicy);
+                    instanceMode, lifecyclePolicy, cleanupPolicy, interactionPolicy);
             StageTemplateStore.save(template);
             source.sendSuccess(() -> Component.literal("Saved portable stage template '" + id + "' ("
                     + instanceMode.name().toLowerCase(java.util.Locale.ROOT) + ", capacity "
@@ -529,6 +556,22 @@ public final class DynamicStageCommands {
             case "release", "on_create" -> StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY;
             case "retain", "manual" -> StageTemplate.LifecyclePolicy.RETAIN;
             default -> throw new IllegalArgumentException("lifecycle must be release or retain");
+        };
+    }
+
+    private static StageTemplate.CleanupPolicy parseCleanupPolicy(String value) {
+        return switch (value.toLowerCase(java.util.Locale.ROOT)) {
+            case "full" -> StageTemplate.CleanupPolicy.FULL;
+            case "overlay" -> StageTemplate.CleanupPolicy.OVERLAY;
+            default -> throw new IllegalArgumentException("cleanup must be full or overlay");
+        };
+    }
+
+    private static StageTemplate.InteractionPolicy parseInteractionPolicy(String value) {
+        return switch (value.toLowerCase(java.util.Locale.ROOT)) {
+            case "adventure" -> StageTemplate.InteractionPolicy.ADVENTURE;
+            case "locked" -> StageTemplate.InteractionPolicy.LOCKED;
+            default -> throw new IllegalArgumentException("interaction must be adventure or locked");
         };
     }
 

@@ -60,10 +60,22 @@ final class StageDataTemplateStore {
             case "retain" -> StageTemplate.LifecyclePolicy.RETAIN;
             default -> throw new IllegalArgumentException("invalid lifecycle");
         };
+        StageTemplate.CleanupPolicy cleanup = switch (string(json, "cleanup", "full")
+                .toLowerCase(Locale.ROOT)) {
+            case "full" -> StageTemplate.CleanupPolicy.FULL;
+            case "overlay" -> StageTemplate.CleanupPolicy.OVERLAY;
+            default -> throw new IllegalArgumentException("invalid cleanup policy");
+        };
+        StageTemplate.InteractionPolicy interaction = switch (string(json, "interaction", "adventure")
+                .toLowerCase(Locale.ROOT)) {
+            case "locked" -> StageTemplate.InteractionPolicy.LOCKED;
+            case "adventure" -> StageTemplate.InteractionPolicy.ADVENTURE;
+            default -> throw new IllegalArgumentException("invalid interaction policy");
+        };
         BlockPos entryOffset = blockPos(json.get("entry_offset"), BlockPos.ZERO);
         List<StageStructurePlacement> structures = structures(json.getAsJsonArray("structures"));
         return new StageTemplate(id, lodPack, anchor, boundary, scene, capacity, instanceMode, lifecycle,
-                new byte[0], new CompoundTag(), "", entryOffset, structures);
+                cleanup, interaction, new byte[0], new CompoundTag(), "", entryOffset, structures);
     }
 
     private static StageBoundary boundary(JsonObject json) {

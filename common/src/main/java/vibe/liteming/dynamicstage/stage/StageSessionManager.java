@@ -23,6 +23,7 @@ import vibe.liteming.dynamicstage.network.StageBackdropSwitchPacket;
 import vibe.liteming.dynamicstage.network.StageBackdropSwitchResultPacket;
 import vibe.liteming.dynamicstage.platform.StagePlatform;
 import vibe.liteming.dynamicstage.template.StageTemplate;
+import vibe.liteming.dynamicstage.template.StageTemplateSummary;
 import vibe.liteming.dynamicstage.template.StageTemplateStore;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
@@ -66,7 +67,7 @@ public final class StageSessionManager {
         UUID instanceId = UUID.randomUUID();
         StageSession session = createMembership(player, instanceId, stageId, lodPackId, lodAnchor,
                 slot, capacity, flightFor(server, stageId), -1L);
-        return prepare(player, session, false, BlockPos.ZERO);
+        return prepare(player, session, false, BlockPos.ZERO, StageTemplate.InteractionPolicy.ADVENTURE);
     }
 
     public static boolean createAndEnterTemplate(ServerPlayer player, StageTemplate template) {
@@ -95,11 +96,13 @@ public final class StageSessionManager {
                     .filter(entry -> template.matches(entry.session))
                     .filter(entry -> entry.persistent
                             == (template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN))
+                    .filter(entry -> entry.interactionPolicy == template.interactionPolicy())
                     .filter(entry -> memberCount(data, entry.session.instanceId()) < entry.session.capacity())
                     .filter(entry -> !entry.session.hasFlight() || validFlight(server, entry.session))
                     .findFirst().orElse(null);
             if (pending != null) {
-                return joinExisting(player, pending.session, pending.persistent, pending.entryOffset);
+                return joinExisting(player, pending.session, pending.persistent, pending.entryOffset,
+                        pending.interactionPolicy);
             }
         }
         if (!canPrepare(player, server)) {
@@ -129,7 +132,7 @@ public final class StageSessionManager {
         StageSession session = createMembership(player, UUID.randomUUID(), template.id(), template.lodPackId(),
                 template.lodAnchor(), slot, template.capacity(), template.boundary(), scene, flight, -1L);
         return prepare(player, session, template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN,
-                template.entryOffset());
+                template.entryOffset(), template.interactionPolicy());
     }
 
     public static boolean resetTemplateArena(ServerPlayer player, StageTemplate template) {
@@ -144,8 +147,7 @@ public final class StageSessionManager {
             return false;
         }
         try {
-            StageArenaSnapshot.restore(stageLevel, session.stageOrigin(),
-                    template.boundary(), template.arenaSnapshot(), template.structures());
+            resetArena(stageLevel, session.stageOrigin(), template);
             return true;
         } catch (java.io.IOException | RuntimeException e) {
             player.sendSystemMessage(Component.literal("Could not reset the template arena: " + e.getMessage()));
@@ -217,8 +219,16 @@ public final class StageSessionManager {
             return false;
         }
         try {
-            StageArenaSnapshot.replace(stageLevel, current.stageOrigin(), current.boundary(),
-                    template.boundary(), template.arenaSnapshot(), template.structures());
+            boolean compatibleOverlay = template.cleanupPolicy() == StageTemplate.CleanupPolicy.OVERLAY
+                    && current.stageId().equals(template.id())
+                    && StageTemplateSummary.sameBoundarySize(current.boundary(), template.boundary());
+            if (compatibleOverlay) {
+                StageArenaSnapshot.overlay(stageLevel, current.stageOrigin(), template.boundary(),
+                        template.arenaSnapshot(), template.structures());
+            } else {
+                StageArenaSnapshot.replace(stageLevel, current.stageOrigin(), current.boundary(),
+                        template.boundary(), template.arenaSnapshot(), template.structures());
+            }
         } catch (java.io.IOException | RuntimeException e) {
             sendReloadMessage(server, plan, "Could not reload stage template: " + e.getMessage());
             return false;
@@ -231,14 +241,16 @@ public final class StageSessionManager {
                 template.lodAnchor(), template.capacity(), template.boundary(), scene,
                 flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
                 flight == null ? 0L : flight.durationMillis(), flightStart,
-                template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN);
+                template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN,
+                template.interactionPolicy());
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(instanceId)
                 ? entry.withSession(entry.session.withTemplateSettings(template.id(), template.lodPackId(),
                 template.lodAnchor(), template.capacity(), template.boundary(), scene)
-                .withFlight(flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
-                        flight == null ? 0L : flight.durationMillis(), flightStart),
-                template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN)
-                .withEntryOffset(template.entryOffset()) : entry);
+                 .withFlight(flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
+                         flight == null ? 0L : flight.durationMillis(), flightStart),
+                 template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN)
+                 .withInteractionPolicy(template.interactionPolicy())
+                 .withEntryOffset(template.entryOffset()) : entry);
         for (StageSession member : data.members(instanceId)) {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
             if (target == null) {
@@ -299,7 +311,8 @@ public final class StageSessionManager {
             player.sendSystemMessage(Component.literal("Unknown or inactive Dynamic Stage instance."));
             return false;
         }
-        return joinExisting(player, pending.session, pending.persistent, pending.entryOffset);
+        return joinExisting(player, pending.session, pending.persistent, pending.entryOffset,
+                pending.interactionPolicy);
     }
 
     /** Lists active or preparing stage instances the given player can currently join. */
@@ -328,7 +341,7 @@ public final class StageSessionManager {
 
     private static boolean joinExisting(ServerPlayer player, StageInstance instance) {
         return joinExisting(player, createMembership(player, instance), instance.persistent(),
-                entryOffsetFor(player.getServer(), instance.stageId()));
+                entryOffsetFor(player.getServer(), instance.stageId()), instance.interactionPolicy());
     }
 
     private static boolean joinExisting(ServerPlayer player, StageSession membership, boolean persistent) {
@@ -337,6 +350,12 @@ public final class StageSessionManager {
 
     private static boolean joinExisting(ServerPlayer player, StageSession membership, boolean persistent,
                                         BlockPos entryOffset) {
+        return joinExisting(player, membership, persistent, entryOffset,
+                StageTemplate.InteractionPolicy.ADVENTURE);
+    }
+
+    private static boolean joinExisting(ServerPlayer player, StageSession membership, boolean persistent,
+                                        BlockPos entryOffset, StageTemplate.InteractionPolicy interactionPolicy) {
         MinecraftServer server = player.getServer();
         if (!canPrepare(player, server)) {
             return false;
@@ -355,7 +374,7 @@ public final class StageSessionManager {
             player.sendSystemMessage(Component.literal("That Dynamic Stage instance's flight is unavailable."));
             return false;
         }
-        return prepare(player, membership, persistent, entryOffset);
+        return prepare(player, membership, persistent, entryOffset, interactionPolicy);
     }
 
     public static boolean setAnchor(ServerPlayer player, BlockPos anchor) {
@@ -901,7 +920,7 @@ public final class StageSessionManager {
             return false;
         }
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(instanceId)
-                ? new PendingEntry(entry.session, persistent, entry.entryOffset) : entry);
+                ? entry.withPersistent(persistent) : entry);
         boolean hasPendingMembers = PENDING.values().stream()
                 .anyMatch(entry -> entry.session.instanceId().equals(instanceId));
         if (!persistent && data.members(instanceId).isEmpty() && !hasPendingMembers) {
@@ -990,6 +1009,29 @@ public final class StageSessionManager {
         return player instanceof ServerPlayer serverPlayer && isEditing(serverPlayer, position);
     }
 
+    /** Returns whether a stage member may run the target block's interaction. */
+    public static boolean canUseBlock(ServerPlayer player, BlockPos position) {
+        if (isEditing(player, position)) {
+            return true;
+        }
+        if (player == null || position == null || !StageWorlds.isStageLevel(player.level())) {
+            return false;
+        }
+        StageSession session = get(player).orElse(null);
+        if (session == null || !session.boundary().bounds(session.stageOrigin())
+                .contains(position.getX() + 0.5D, position.getY() + 0.5D, position.getZ() + 0.5D)) {
+            return false;
+        }
+        MinecraftServer server = player.getServer();
+        StageInstance instance = server == null ? null
+                : StageSessionData.get(server).findInstance(session.instanceId()).orElse(null);
+        return instance != null && instance.interactionPolicy() == StageTemplate.InteractionPolicy.ADVENTURE;
+    }
+
+    public static boolean canUseBlock(net.minecraft.world.entity.player.Player player, BlockPos position) {
+        return player instanceof ServerPlayer serverPlayer && canUseBlock(serverPlayer, position);
+    }
+
     public static boolean canRequestLodDownload(ServerPlayer player, ResourceLocation lodPackId) {
         if (player == null || lodPackId == null) {
             return false;
@@ -1011,8 +1053,8 @@ public final class StageSessionManager {
     }
 
     private static boolean prepare(ServerPlayer player, StageSession session, boolean persistent,
-                                   BlockPos entryOffset) {
-        PENDING.put(player.getUUID(), new PendingEntry(session, persistent, entryOffset));
+                                   BlockPos entryOffset, StageTemplate.InteractionPolicy interactionPolicy) {
+        PENDING.put(player.getUUID(), new PendingEntry(session, persistent, entryOffset, interactionPolicy));
         DynamicStageNetwork.sendSession(player, session);
         player.sendSystemMessage(Component.literal("Checking local LOD pack '" + session.lodPackId() + "'..."));
         return true;
@@ -1036,7 +1078,7 @@ public final class StageSessionManager {
             player.sendSystemMessage(Component.literal("The Dynamic Stage instance changed while preparing."));
             return;
         }
-        data.put(session, pending.persistent);
+        data.put(session, pending.persistent, pending.interactionPolicy);
         markPlayer(player, session.instanceId());
         BlockPos origin = session.stageOrigin();
         BlockPos entry = origin.offset(pending.entryOffset);
@@ -1211,7 +1253,7 @@ public final class StageSessionManager {
             return;
         }
         // Retention begins only after the first member has successfully entered.
-        releaseArena(server, StageInstance.from(pending.session, false));
+        releaseArena(server, StageInstance.from(pending.session, false, pending.interactionPolicy));
     }
 
     private static String boundedError(String error) {
@@ -1219,6 +1261,17 @@ public final class StageSessionManager {
             return "unknown client error";
         }
         return error.length() <= 256 ? error : error.substring(0, 256);
+    }
+
+    private static void resetArena(ServerLevel level, BlockPos origin, StageTemplate template)
+            throws java.io.IOException {
+        if (template.cleanupPolicy() == StageTemplate.CleanupPolicy.OVERLAY) {
+            StageArenaSnapshot.overlay(level, origin, template.boundary(),
+                    template.arenaSnapshot(), template.structures());
+        } else {
+            StageArenaSnapshot.restore(level, origin, template.boundary(),
+                    template.arenaSnapshot(), template.structures());
+        }
     }
 
     private static int backdropSwitchTimeoutTicks(MinecraftServer server, ResourceLocation lodPackId) {
@@ -1289,17 +1342,26 @@ public final class StageSessionManager {
         }
     }
 
-    private record PendingEntry(StageSession session, boolean persistent, BlockPos entryOffset) {
+    private record PendingEntry(StageSession session, boolean persistent, BlockPos entryOffset,
+                                StageTemplate.InteractionPolicy interactionPolicy) {
         private PendingEntry withSession(StageSession updated) {
-            return new PendingEntry(updated, persistent, entryOffset);
+            return new PendingEntry(updated, persistent, entryOffset, interactionPolicy);
         }
 
         private PendingEntry withSession(StageSession updated, boolean newPersistent) {
-            return new PendingEntry(updated, newPersistent, entryOffset);
+            return new PendingEntry(updated, newPersistent, entryOffset, interactionPolicy);
         }
 
         private PendingEntry withEntryOffset(BlockPos updated) {
-            return new PendingEntry(session, persistent, updated);
+            return new PendingEntry(session, persistent, updated, interactionPolicy);
+        }
+
+        private PendingEntry withInteractionPolicy(StageTemplate.InteractionPolicy updated) {
+            return new PendingEntry(session, persistent, entryOffset, updated);
+        }
+
+        private PendingEntry withPersistent(boolean updated) {
+            return new PendingEntry(session, updated, entryOffset, interactionPolicy);
         }
     }
 

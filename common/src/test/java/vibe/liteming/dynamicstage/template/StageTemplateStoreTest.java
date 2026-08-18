@@ -28,7 +28,9 @@ class StageTemplateStoreTest {
                         20, 200L, StageClientScene.TimeMode.CYCLE, 18_000L, 100L, 1_200L,
                         StageClientScene.SkyMode.OVERWORLD),
                 4, StageTemplate.InstanceMode.SHARED, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
-                flight(), arenaSnapshot(), "scarlet");
+                StageTemplate.CleanupPolicy.OVERLAY, StageTemplate.InteractionPolicy.ADVENTURE,
+                flight(), arenaSnapshot(), "scarlet",
+                BlockPos.ZERO, java.util.List.of());
 
         StageTemplateStore.save(temporaryDirectory, template);
 
@@ -45,6 +47,8 @@ class StageTemplateStoreTest {
                   "entry_offset": [0, 8, -35],
                   "capacity": 4,
                   "instance_mode": "shared",
+                  "lifecycle": "retain",
+                  "cleanup": "overlay",
                   "scene": {"lod_visible": false, "sky": "overworld"},
                   "structures": [
                     {"id": "touhou:level1", "offset": [-16, 0, -32]},
@@ -58,6 +62,8 @@ class StageTemplateStoreTest {
         assertEquals(new BlockPos(0, 8, -35), template.entryOffset());
         assertEquals(4, template.capacity());
         assertEquals(StageTemplate.InstanceMode.SHARED, template.instanceMode());
+        assertEquals(StageTemplate.LifecyclePolicy.RETAIN, template.lifecyclePolicy());
+        assertEquals(StageTemplate.CleanupPolicy.OVERLAY, template.cleanupPolicy());
         assertEquals(2, template.structures().size());
         assertEquals(template, StageTemplate.load(template.save()));
     }
@@ -137,12 +143,15 @@ class StageTemplateStoreTest {
                 StageTemplate.InstanceMode.PARALLEL, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
                 new byte[0], new CompoundTag());
         CompoundTag retained = template.save();
+        retained.putInt("Format", 2);
+        retained.remove("CleanupPolicy");
         retained.remove("LifecyclePolicy");
         retained.putString("ResetPolicy", "MANUAL");
         CompoundTag released = retained.copy();
         released.putString("ResetPolicy", "ON_CREATE");
 
         assertEquals(StageTemplate.LifecyclePolicy.RETAIN, StageTemplate.load(retained).lifecyclePolicy());
+        assertEquals(StageTemplate.CleanupPolicy.FULL, StageTemplate.load(retained).cleanupPolicy());
         assertEquals(StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
                 StageTemplate.load(released).lifecyclePolicy());
     }
