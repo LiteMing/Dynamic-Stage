@@ -9,12 +9,15 @@ import org.junit.jupiter.api.io.TempDir;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageClientScene;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StageTemplateStoreTest {
     @TempDir
@@ -26,21 +29,29 @@ class StageTemplateStoreTest {
                 new BlockPos(-2089, 128, 7627), new StageBoundary(80, 60, 24, 0x12ABEF),
                 new StageClientScene(true, 0.35F, 0.05F, 0.75F, false, true, 2.0F,
                         StageClientScene.Transition.FADE,
-                        20, 200L, StageClientScene.TimeMode.CYCLE, 18_000L, 100L, 1_200L,
+                20, 200L, StageClientScene.TimeMode.CYCLE, 18_000L, 100L, 1_200L,
                         StageClientScene.SkyMode.OVERWORLD),
                 4, StageTemplate.InstanceMode.SHARED, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
                 StageTemplate.CleanupPolicy.OVERLAY, StageTemplate.InteractionPolicy.ADVENTURE,
-                flight(), arenaSnapshot(), "scarlet",
+                flight(), arenaSnapshot(), "",
                 BlockPos.ZERO, java.util.List.of());
+        Path templates = temporaryDirectory.resolve("templates");
 
-        StageTemplateStore.save(temporaryDirectory, template);
+        StageTemplateStore.save(templates, template);
 
-        assertEquals(template, StageTemplateStore.load(temporaryDirectory, "boss_1"));
-        assertNull(StageTemplateStore.load(temporaryDirectory, "missing"));
+        assertEquals(template, StageTemplateStore.load(templates, "boss_1"));
+        assertNull(StageTemplateStore.load(templates, "missing"));
+        Path manifest = templates.resolve("boss_1.json");
+        String json = Files.readString(manifest);
+        assertTrue(json.startsWith("{"));
+        assertTrue(json.contains("\"lod_pack\": \"pack:city\""));
+        String arena = JsonParser.parseString(json).getAsJsonObject().get("arena").getAsString();
+        assertTrue(Files.isRegularFile(temporaryDirectory.resolve("arenas").resolve(arena)));
+        assertFalse(Files.exists(templates.resolve("boss_1.dat")));
     }
 
     @Test
-    void parsesDataPackTemplateStructuresAndEntryOffset() {
+    void parsesDataPackTemplateStructuresAndEntryOffset() throws Exception {
         StageTemplate template = StageDataTemplateStore.parse(JsonParser.parseString("""
                 {
                   "id": "cirno",
@@ -71,18 +82,50 @@ class StageTemplateStoreTest {
     }
 
     @Test
-    void migratesLegacyConfigTemplatesIntoPortableResourceDirectory() throws Exception {
-        Path legacy = temporaryDirectory.resolve("config/dynamicstage/templates");
-        Path portable = temporaryDirectory.resolve("dynamicstage/templates");
-        StageTemplate template = new StageTemplate("gr1", new ResourceLocation("minecraft", "gr"),
-                BlockPos.ZERO, StageBoundary.defaults(), StageClientScene.defaults(0L, 0L), 1,
-                StageTemplate.InstanceMode.PARALLEL, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
-                new byte[0], new CompoundTag());
-        StageTemplateStore.save(legacy, template);
+    void resolvesNamedFlightsFromEditableJson() throws Exception {
+        StageTemplate template = StageTemplateJsonCodec.parse(JsonParser.parseString("""
+                {
+                  "id": "scarlet_stage",
+                  "flight": "scarlet"
+                }
+                """).getAsJsonObject(), new CompoundTag(), name -> {
+            assertEquals("scarlet", name);
+            return flight();
+        });
 
-        assertEquals(1, StageTemplateStore.migrate(legacy, portable));
-        assertNotNull(StageTemplateStore.load(portable, "gr1"));
-        assertEquals(0, StageTemplateStore.migrate(legacy, portable));
+        assertEquals("scarlet", template.flightName());
+        assertTrue(template.hasFlight());
+    }
+
+    @Test
+    void ignoresRetiredDatTemplates() throws Exception {
+        Path templates = temporaryDirectory.resolve("templates");
+        Files.createDirectories(templates);
+        Files.writeString(templates.resolve("retired.dat"), "retired", StandardCharsets.UTF_8);
+
+        assertTrue(StageTemplateStore.listTemplates(templates,
+                temporaryDirectory.resolve("arenas")).isEmpty());
+        assertNull(StageTemplateStore.load(templates, "retired"));
+    }
+
+    @Test
+    void editsJsonDirectlyAndDeduplicatesArenaSnapshots() throws Exception {
+        Path templates = temporaryDirectory.resolve("templates");
+        Path arenas = temporaryDirectory.resolve("arenas");
+        StageTemplate first = template("first", 1);
+        StageTemplate second = template("second", 1);
+        StageTemplateStore.save(templates, arenas, first);
+        StageTemplateStore.save(templates, arenas, second);
+
+        assertEquals(1L, fileCount(arenas));
+        Path firstJson = templates.resolve("first.json");
+        Files.writeString(firstJson, Files.readString(firstJson).replace("\"capacity\": 1", "\"capacity\": 3"));
+        assertEquals(3, StageTemplateStore.load(templates, arenas, "first").capacity());
+
+        assertTrue(StageTemplateStore.delete(templates, arenas, "first"));
+        assertEquals(1L, fileCount(arenas));
+        assertTrue(StageTemplateStore.delete(templates, arenas, "second"));
+        assertEquals(0L, fileCount(arenas));
     }
 
     @Test
@@ -163,6 +206,20 @@ class StageTemplateStoreTest {
         CompoundTag snapshot = new CompoundTag();
         snapshot.putInt("test", 1);
         return snapshot;
+    }
+
+    private static StageTemplate template(String id, int capacity) {
+        return new StageTemplate(id, new ResourceLocation("dynamicstage", "none"), BlockPos.ZERO,
+                StageBoundary.defaults(), StageClientScene.defaults(0L, 0L), capacity,
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.LifecyclePolicy.RETAIN,
+                StageTemplate.CleanupPolicy.OVERLAY, StageTemplate.InteractionPolicy.ADVENTURE,
+                new byte[0], arenaSnapshot());
+    }
+
+    private static long fileCount(Path directory) throws Exception {
+        try (var files = Files.list(directory)) {
+            return files.filter(Files::isRegularFile).count();
+        }
     }
 
     private static byte[] flight() {

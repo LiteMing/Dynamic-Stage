@@ -239,15 +239,19 @@ and press `Reload` to replace the current instance in place. The instance UUID,
 slot, members, and return locations remain stable while the selected arena,
 boundary, LOD binding, Flight, and client scene are applied to every member.
 
-Portable stage templates are stored under `dynamicstage/templates` beside the
-LOD and Flight resources, so copying one `dynamicstage` directory to another
-game or server instance makes the same authored stages available there. Existing
-templates under `config/dynamicstage/templates` are migrated automatically. Saving
-a template captures the active LOD package ID and anchor, boundary, client time
+Portable stage template manifests are directly editable UTF-8 JSON files at
+`dynamicstage/templates/<id>.json`. Captured vanilla structure data is stored separately
+as a content-addressed `dynamicstage/arenas/<sha256>.nbt`; templates with identical
+arena contents share that file, and deleting the final reference removes it. Copying one
+`dynamicstage` directory to another game or server instance therefore makes the same
+authored stages available there. Retired template `.dat` files and the old
+`config/dynamicstage/templates` store are intentionally ignored rather than migrated.
+Saving a template captures the active LOD package ID and anchor, boundary, client time
 and backdrop settings, player movement scale, capacity, CMDCam flight data, and
 the boundary's blocks, block entities, and non-player entities. Native LOD data
 is still referenced by its client-local package ID and is not copied into the
-template. Global imported flights are stored as one directly editable, validated
+template. A named template Flight is stored as a reference to its global JSON name;
+an unnamed active Flight is embedded as a JSON object so it is not lost. Global imported flights are stored as one directly editable, validated
 `<name>.json` per animation under `.minecraft/dynamicstage`; `/dstage flight use <stage> [flight_name]`
 installs one into another save. `shared` reuses one live instance up to its capacity; `parallel`
 creates an isolated instance for every start. With capacity 1, `parallel` gives each player a
@@ -277,13 +281,15 @@ them only to this game instance's `config/dynamicstage-client.json`.
 
 `/dynamicstage` remains available as a compatibility alias for server commands. `dstage sky` is client-only: `overworld` is the default normal Overworld sky renderer, `end` selects the End sky renderer, and `off` suppresses sky and cloud rendering inside the stage. While a flight is active, the selected sky shares its yaw, pitch, roll, and FOV transform with the LOD backdrop. Vanilla clouds additionally use the same virtual source position as the LOD backdrop, including the anchor, player-follow mode, and flight XYZ; the infinite-distance sky dome ignores translation.
 
-`/dstage reload` rescans and validates portable templates, global Flight JSON,
+`/dstage reload` rescans and validates portable template JSON, arena NBT, global Flight JSON,
 and server LOD packages without restarting the server. It invalidates generated
-archive hashes, rebuilds archives for unpacked packages, migrates legacy
-templates, reports invalid resources, and refreshes the Editor template list
+archive hashes, rebuilds archives for unpacked packages, reports invalid resources,
+and refreshes the Editor template list
 for online operators. It does not mutate an already running stage instance;
 use the Editor's Reload action when the updated template should be applied to
-that instance.
+that instance. Data-pack templates are owned by Minecraft's resource manager;
+after adding or deleting KubeJS `data/<namespace>/dynamicstage/stages/*.json`, run
+`kjs reload` (or the full vanilla data-pack reload) before `/dstage reload`.
 
 Stage flights do not replace Minecraft's main camera or a shader pack's shadow camera. Stage blocks, entities, particles, and shadow-map movement therefore remain attached to the player; only the mounted LOD viewport and the local vanilla sky/cloud passes receive the flight transform. Iris/Oculus shader packs that retain those vanilla passes can render them through their normal pipeline. A pack that disables vanilla sky or clouds and draws its own procedural replacement requires a pack-specific integration before that replacement can follow stage flights. Client stage time is intentionally visible to the rendering pipeline, so shader packs may move their sun, ambient lighting, and time-derived shadows when `/dstage time` changes.
 

@@ -321,6 +321,11 @@ public final class StageFlightAssets {
         return readLibrary(libraryDirectory(), name);
     }
 
+    /** Returns the validated canonical JSON used by a named portable template reference. */
+    public static byte[] readLibraryJson(String name) throws IOException {
+        return readLibrary(name).json();
+    }
+
     static StageFlightCodec.Scene readLibrary(Path root, String name) throws IOException {
         Path file = libraryFile(root, name);
         if (Files.isSymbolicLink(file) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {

@@ -95,7 +95,7 @@ public final class DynamicStageCommands {
                                 StringArgumentType.getString(ctx, "template")))));
         templates.then(Commands.literal("delete")
                 .then(Commands.argument("template", StringArgumentType.word())
-                        .suggests(DynamicStageCommands::suggestTemplates)
+                        .suggests(DynamicStageCommands::suggestLocalTemplates)
                         .executes(ctx -> templateDelete(ctx.getSource(),
                                 StringArgumentType.getString(ctx, "template")))));
         RequiredArgumentBuilder<CommandSourceStack, String> lifecyclePolicy =
@@ -355,7 +355,7 @@ public final class DynamicStageCommands {
             }
             int warnings = templates.errors().size() + lods.errors().size() + flights.errors().size();
             source.sendSuccess(() -> Component.literal("Reloaded Dynamic Stage resources: "
-                    + templates.templates() + " templates (" + templates.migratedTemplates() + " migrated), "
+                    + templates.templates() + " templates, "
                     + lods.hostedPacks() + " server LOD packages (" + lods.generatedArchives()
                     + " archives generated), " + flights.flights() + " Flights, " + warnings + " warnings."), true);
             return 1;
@@ -544,6 +544,11 @@ public final class DynamicStageCommands {
     private static int templateDelete(CommandSourceStack source, String id) {
         try {
             if (!StageTemplateStore.delete(id)) {
+                if (StageTemplateStore.load(source.getServer(), id) != null) {
+                    source.sendFailure(Component.literal("Stage template '" + id
+                            + "' is supplied by a data pack and is read-only; remove its JSON source and reload the data pack."));
+                    return 0;
+                }
                 source.sendFailure(Component.literal("Unknown stage template '" + id + "'."));
                 return 0;
             }
@@ -596,6 +601,15 @@ public final class DynamicStageCommands {
                                                                     SuggestionsBuilder builder) {
         try {
             return SharedSuggestionProvider.suggest(StageTemplateStore.list(context.getSource().getServer()), builder);
+        } catch (IOException | RuntimeException e) {
+            return builder.buildFuture();
+        }
+    }
+
+    private static CompletableFuture<Suggestions> suggestLocalTemplates(CommandContext<CommandSourceStack> context,
+                                                                         SuggestionsBuilder builder) {
+        try {
+            return SharedSuggestionProvider.suggest(StageTemplateStore.list(), builder);
         } catch (IOException | RuntimeException e) {
             return builder.buildFuture();
         }
