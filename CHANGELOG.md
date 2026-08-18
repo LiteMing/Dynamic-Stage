@@ -19,7 +19,7 @@
 - 满员观察者会保留进入关卡前的位置和游戏模式，离开关卡或 LOD 准备失败时自动恢复。
 - 实例容量只统计正式成员，观察者仍会收到完整场景同步，但不会占用玩家名额。
 - Editor 保存的便携模板改为可直接编辑的 `dynamicstage/templates/<id>.json`；原版场地方块和实体快照单独保存为内容寻址的 `dynamicstage/arenas/<sha256>.nbt`，相同快照自动复用。
-- 命名 Flight 在模板 JSON 中保存全局 Flight 名称引用；未命名 Flight 以内嵌 JSON 保留。旧模板 `.dat` 和旧 `config/dynamicstage/templates` 按既定决策直接废弃，不再读取或迁移。
+- 命名 Flight 在模板 JSON 中保存全局 Flight 名称引用；未命名 Flight 以内嵌 JSON 保留。现有 `dynamicstage/templates` 中的旧哈希 `.dat` 会一次性转换并在回读验证后删除；更早的 `config/dynamicstage/templates` 不再扫描。
 - `/dstage template delete` 只补全可删除的本地 JSON 模板；数据包模板会明确提示其为只读资源。
 
 ### 修复

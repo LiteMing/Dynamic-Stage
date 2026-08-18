@@ -244,8 +244,9 @@ Portable stage template manifests are directly editable UTF-8 JSON files at
 as a content-addressed `dynamicstage/arenas/<sha256>.nbt`; templates with identical
 arena contents share that file, and deleting the final reference removes it. Copying one
 `dynamicstage` directory to another game or server instance therefore makes the same
-authored stages available there. Retired template `.dat` files and the old
-`config/dynamicstage/templates` store are intentionally ignored rather than migrated.
+authored stages available there. Retired hashed template `.dat` files already present in
+`dynamicstage/templates` are converted once, verified, and removed when templates are first
+listed or `/dstage reload` runs. The older `config/dynamicstage/templates` store is not scanned.
 Saving a template captures the active LOD package ID and anchor, boundary, client time
 and backdrop settings, player movement scale, capacity, CMDCam flight data, and
 the boundary's blocks, block entities, and non-player entities. Native LOD data

@@ -4,10 +4,12 @@ import com.google.gson.JsonParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtIo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageClientScene;
+import vibe.liteming.dynamicstage.util.ContentHash;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -106,6 +108,25 @@ class StageTemplateStoreTest {
         assertTrue(StageTemplateStore.listTemplates(templates,
                 temporaryDirectory.resolve("arenas")).isEmpty());
         assertNull(StageTemplateStore.load(templates, "retired"));
+    }
+
+    @Test
+    void convertsLegacyEditorTemplatesBeforeListing() throws Exception {
+        Path templates = temporaryDirectory.resolve("templates");
+        Path arenas = temporaryDirectory.resolve("arenas");
+        Files.createDirectories(templates);
+        StageTemplate legacy = template("legacy_stage", 2);
+        String legacyName = ContentHash.sha256Hex(legacy.id().getBytes(StandardCharsets.UTF_8))
+                .substring(0, 32) + ".dat";
+        Path legacyFile = templates.resolve(legacyName);
+        try (var output = Files.newOutputStream(legacyFile)) {
+            NbtIo.writeCompressed(legacy.save(), output);
+        }
+
+        assertEquals(java.util.List.of(legacy), StageTemplateStore.listTemplates(templates, arenas));
+        assertTrue(Files.isRegularFile(templates.resolve("legacy_stage.json")));
+        assertFalse(Files.exists(legacyFile));
+        assertEquals(1L, fileCount(arenas));
     }
 
     @Test

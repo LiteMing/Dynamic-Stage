@@ -355,7 +355,7 @@ public final class DynamicStageCommands {
             }
             int warnings = templates.errors().size() + lods.errors().size() + flights.errors().size();
             source.sendSuccess(() -> Component.literal("Reloaded Dynamic Stage resources: "
-                    + templates.templates() + " templates, "
+                    + templates.templates() + " templates (" + templates.migratedTemplates() + " converted), "
                     + lods.hostedPacks() + " server LOD packages (" + lods.generatedArchives()
                     + " archives generated), " + flights.flights() + " Flights, " + warnings + " warnings."), true);
             return 1;

@@ -176,11 +176,14 @@ public final class StageTemplateStore {
     @Nullable
     static StageTemplate load(Path root, Path arenas, String id) throws IOException {
         validateTemplateId(id);
-        Path path = templateFile(root.toAbsolutePath().normalize(), id);
+        root = root.toAbsolutePath().normalize();
+        arenas = arenas.toAbsolutePath().normalize();
+        migrateLegacyTemplates(root, arenas);
+        Path path = templateFile(root, id);
         if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
             return null;
         }
-        return readFile(path, arenas.toAbsolutePath().normalize());
+        return readFile(path, arenas);
     }
 
     public static List<String> list() throws IOException {
@@ -194,6 +197,7 @@ public final class StageTemplateStore {
     static List<StageTemplate> listTemplates(Path root, Path arenas) throws IOException {
         root = root.toAbsolutePath().normalize();
         arenas = arenas.toAbsolutePath().normalize();
+        migrateLegacyTemplates(root, arenas);
         if (!Files.isDirectory(root)) {
             return List.of();
         }
@@ -231,6 +235,7 @@ public final class StageTemplateStore {
         validateTemplateId(id);
         root = root.toAbsolutePath().normalize();
         arenas = arenas.toAbsolutePath().normalize();
+        migrateLegacyTemplates(root, arenas);
         Path target = templateFile(root, id);
         String arena = readArenaReferenceQuietly(target);
         boolean deleted = Files.deleteIfExists(target);
@@ -244,11 +249,12 @@ public final class StageTemplateStore {
     public static ReloadResult reload() throws IOException {
         Path root = rootDirectory();
         Path arenas = arenaDirectory();
+        MigrationResult migration = migrateLegacyTemplates(root, arenas);
         if (!Files.isDirectory(root)) {
-            return new ReloadResult(0, List.of());
+            return new ReloadResult(0, migration.migrated(), migration.errors());
         }
         int valid = 0;
-        List<String> errors = new ArrayList<>();
+        List<String> errors = new ArrayList<>(migration.errors());
         try (var files = Files.list(root)) {
             for (Path path : files.filter(file -> Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
                     .filter(StageTemplateStore::isTemplateJson).sorted().toList()) {
@@ -260,13 +266,13 @@ public final class StageTemplateStore {
                 }
             }
         }
-        return new ReloadResult(valid, List.copyOf(errors));
+        return new ReloadResult(valid, migration.migrated(), List.copyOf(errors));
     }
 
     public static ReloadResult reload(MinecraftServer server) throws IOException {
         ReloadResult local = reload();
         int dataTemplates = StageDataTemplateStore.load(server).size();
-        return new ReloadResult(local.templates() + dataTemplates, local.errors());
+        return new ReloadResult(local.templates() + dataTemplates, local.migratedTemplates(), local.errors());
     }
 
     public static StageFlightAssets.Asset installFlight(MinecraftServer server, StageTemplate template)
@@ -303,6 +309,59 @@ public final class StageTemplateStore {
             return template;
         } catch (RuntimeException e) {
             throw new IOException("invalid template fields", e);
+        }
+    }
+
+    private static synchronized MigrationResult migrateLegacyTemplates(Path root, Path arenas) throws IOException {
+        root = root.toAbsolutePath().normalize();
+        arenas = arenas.toAbsolutePath().normalize();
+        if (!Files.isDirectory(root)) {
+            return new MigrationResult(0, List.of());
+        }
+        int migrated = 0;
+        List<String> errors = new ArrayList<>();
+        try (var files = Files.list(root)) {
+            for (Path legacy : files.filter(file -> Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS))
+                    .filter(StageTemplateStore::isLegacyTemplate).sorted().toList()) {
+                try {
+                    StageTemplate template = readLegacyTemplate(legacy);
+                    Path manifest = templateFile(root, template.id());
+                    if (Files.isRegularFile(manifest, LinkOption.NOFOLLOW_LINKS)) {
+                        readFile(manifest, arenas);
+                    } else {
+                        save(root, arenas, template);
+                        migrated++;
+                    }
+                    Files.delete(legacy);
+                } catch (IOException | RuntimeException e) {
+                    errors.add(legacy.getFileName() + ": " + rootMessage(e));
+                }
+            }
+        }
+        return new MigrationResult(migrated, List.copyOf(errors));
+    }
+
+    private static StageTemplate readLegacyTemplate(Path path) throws IOException {
+        long size = Files.size(path);
+        if (size <= 0L || size > MAX_COMPRESSED_ARENA_BYTES) {
+            throw new IOException("invalid retired template size");
+        }
+        try (DataInputStream input = new DataInputStream(new BufferedInputStream(
+                new GZIPInputStream(Files.newInputStream(path))))) {
+            CompoundTag tag = NbtIo.read(input, new NbtAccounter(MAX_ARENA_NBT_BYTES));
+            if (tag == null) {
+                throw new IOException("empty retired template");
+            }
+            StageTemplate template = StageTemplate.load(tag);
+            validateTemplateId(template.id());
+            String expected = ContentHash.sha256Hex(template.id().getBytes(StandardCharsets.UTF_8))
+                    .substring(0, 32) + ".dat";
+            if (!expected.equals(path.getFileName().toString())) {
+                throw new IOException("retired template identity does not match its file name");
+            }
+            return template;
+        } catch (RuntimeException e) {
+            throw new IOException("invalid retired template", e);
         }
     }
 
@@ -449,6 +508,11 @@ public final class StageTemplateStore {
         return name.endsWith(".json") && TEMPLATE_ID.matcher(name.substring(0, name.length() - 5)).matches();
     }
 
+    private static boolean isLegacyTemplate(Path path) {
+        String name = path.getFileName().toString();
+        return name.matches("[0-9a-f]{32}\\.dat");
+    }
+
     private static void validateTemplateId(String id) {
         if (id == null || !TEMPLATE_ID.matcher(id).matches()) {
             throw new IllegalArgumentException("Template id must use 1-64 letters, digits, '_' or '-'");
@@ -464,6 +528,9 @@ public final class StageTemplateStore {
                 ? current.getClass().getSimpleName() : current.getMessage();
     }
 
-    public record ReloadResult(int templates, List<String> errors) {
+    private record MigrationResult(int migrated, List<String> errors) {
+    }
+
+    public record ReloadResult(int templates, int migratedTemplates, List<String> errors) {
     }
 }
