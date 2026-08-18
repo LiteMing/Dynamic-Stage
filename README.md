@@ -324,8 +324,8 @@ Build and run tests:
 .\gradlew.bat clean build
 ```
 
-The release outputs are `fabric/build/libs/dstage-fabric-1.3.0.jar` and
-`forge/build/libs/dstage-forge-1.3.0.jar`. They do not embed DH, Voxy, CMDCam,
+The release outputs are `fabric/build/libs/dstage-fabric-1.5.0.jar` and
+`forge/build/libs/dstage-forge-1.5.0.jar`. They do not embed DH, Voxy, CMDCam,
 SQLite, RocksDB, or compression libraries.
 
 Run the default Forge client with DH and Oculus shader compatibility:
@@ -387,5 +387,12 @@ Run the CMDCam compatibility client (CMDCam and CreativeCore are development run
 ```
 
 DH 3.2.0-b has been verified on Forge 1.20.1 with a real external database: both Dynamic Stage mixins apply, DH opens the selected package, anchor updates succeed, two package paths can be selected in one connection, and exit restores DH state without a level-change error. Multiplayer timing and visual comparison of CMDCam XYZ/yaw/pitch/roll/zoom still require acceptance tests.
+
+## License
+
+Dynamic Stage is licensed under the [MIT License](LICENSE). Optional
+dependencies and user-provided stage resources retain their own licenses; see
+[THIRD_PARTY.md](THIRD_PARTY.md) for the boundary between this project and its
+integrations.
 
 See [docs/REPOSITORY_REVIEW.md](docs/REPOSITORY_REVIEW.md) for the current architecture review and remaining work.

@@ -40,6 +40,13 @@ allprojects {
 
 configure(subprojects.findAll { it.name == "fabric" || it.name == "forge" }) { platformProject ->
     afterEvaluate {
+        tasks.named("shadowJar") {
+            from(rootProject.file("LICENSE")) {
+                into "META-INF"
+                rename { "LICENSE_dynamicstage" }
+            }
+        }
+
         def remapJarTask = tasks.named("remapJar")
         def releaseJar = remapJarTask.flatMap { it.archiveFile }
         def verifyMixinRefmaps = tasks.register("verifyMixinRefmaps") {
@@ -55,6 +62,8 @@ configure(subprojects.findAll { it.name == "fabric" || it.name == "forge" }) { p
                         }
                         jar.getInputStream(entry).withCloseable { it.getText("UTF-8") }
                     }
+
+                    readEntry("META-INF/LICENSE_dynamicstage")
 
                     def configs = ["dynamicstage.mixins.json", "dynamicstage.client.mixins.json"]
                     def parsedConfigs = configs.collectEntries { name ->
