@@ -395,4 +395,4 @@ dependencies and user-provided stage resources retain their own licenses; see
 [THIRD_PARTY.md](THIRD_PARTY.md) for the boundary between this project and its
 integrations.
 
-See [docs/REPOSITORY_REVIEW.md](docs/REPOSITORY_REVIEW.md) for the current architecture review and remaining work.
+See [docs/REPOSITORY_REVIEW.md](docs/REPOSITORY_REVIEW.md) for the current architecture review and remaining work. The proposed return to a legally distributable, stage-specialized DH backend is tracked in [docs/DH_STAGE_BACKEND_RESEARCH_PLAN.md](docs/DH_STAGE_BACKEND_RESEARCH_PLAN.md).
