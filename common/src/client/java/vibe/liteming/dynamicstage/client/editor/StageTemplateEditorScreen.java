@@ -12,6 +12,7 @@ import vibe.liteming.dynamicstage.client.command.StageLodClientCommands;
 import vibe.liteming.dynamicstage.client.config.StageClientConfig;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
+import vibe.liteming.dynamicstage.network.StageEditorAdminPacket;
 import vibe.liteming.dynamicstage.network.StageTemplatePackets;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageClientScene;
@@ -36,7 +37,9 @@ public final class StageTemplateEditorScreen extends Screen {
     private boolean statusPending;
     private boolean awaitingInitialTemplate = true;
     private long observedRevision = -1L;
+    private long observedAdminRevision = -1L;
     private int selectedTemplate = -1;
+    private int selectedInstance = -1;
     private StageClientConfig.BoundaryDisplay clientBoundary;
 
     private EditBox templateId;
@@ -81,6 +84,7 @@ public final class StageTemplateEditorScreen extends Screen {
         }
         buildWidgets();
         DynamicStageNetwork.requestTemplates();
+        DynamicStageNetwork.requestEditorAdmin(StageEditorAdminPacket.Request.refresh());
     }
 
     private void buildWidgets() {
@@ -101,14 +105,16 @@ public final class StageTemplateEditorScreen extends Screen {
                 button -> DynamicStageNetwork.requestTemplates());
 
         int tabsY = top + 25;
-        int tabWidth = panelWidth / 4;
+        int tabWidth = panelWidth / 5;
         addButton(left, tabsY, tabWidth - 2, text("tab.stage"), button -> switchTab(Tab.STAGE));
         addButton(left + tabWidth, tabsY, tabWidth - 2, text("tab.backdrop"),
                 button -> switchTab(Tab.BACKDROP));
         addButton(left + tabWidth * 2, tabsY, tabWidth - 2, text("tab.time"),
                 button -> switchTab(Tab.TIME));
-        addButton(left + tabWidth * 3, tabsY, panelWidth - tabWidth * 3, text("tab.client"),
+        addButton(left + tabWidth * 3, tabsY, tabWidth - 2, text("tab.client"),
                 button -> switchTab(Tab.CLIENT));
+        addButton(left + tabWidth * 4, tabsY, panelWidth - tabWidth * 4, text("tab.instances"),
+                button -> switchTab(Tab.INSTANCES));
 
         int contentY = tabsY + 29;
         switch (tab) {
@@ -116,6 +122,7 @@ public final class StageTemplateEditorScreen extends Screen {
             case BACKDROP -> buildBackdropTab(left, contentY, panelWidth);
             case TIME -> buildTimeTab(left, contentY, panelWidth);
             case CLIENT -> buildClientTab(left, contentY, panelWidth);
+            case INSTANCES -> buildInstancesTab(left, contentY, panelWidth);
         }
         buildActions(left, panelWidth);
     }
@@ -263,6 +270,60 @@ public final class StageTemplateEditorScreen extends Screen {
                 });
     }
 
+    private void buildInstancesTab(int left, int top, int panelWidth) {
+        StageEditorAdminPacket.State state = StageTemplateEditorState.admin();
+        Button editing = addButton(left, top, panelWidth,
+                text("setting.instance_editing", toggle(state.editing())), button -> {
+                    DynamicStageNetwork.requestEditorAdmin(StageEditorAdminPacket.Request.toggleEditing());
+                    setPendingStatus("status.updating_instance");
+                });
+        editing.active = state.editAvailable() || state.editing();
+
+        List<StageEditorAdminPacket.Instance> instances = state.instances();
+        if (instances.isEmpty()) {
+            selectedInstance = -1;
+            label(text("status.no_instances"), left, top + ROW_HEIGHT + 6);
+            addButton(left, top + ROW_HEIGHT * 2, panelWidth, text("action.refresh_instances"),
+                    button -> requestInstanceAction(StageEditorAdminPacket.Request.refresh(), false));
+            return;
+        }
+        selectedInstance = selectedInstance < 0 ? 0 : Math.floorMod(selectedInstance, instances.size());
+        StageEditorAdminPacket.Instance instance = instances.get(selectedInstance);
+        int y = top + ROW_HEIGHT;
+        int navButton = 38;
+        addButton(left, y, navButton, Component.literal("<"), button -> selectInstance(-1));
+        label(text("status.instance_index", selectedInstance + 1, instances.size()),
+                left + navButton + 8, y + 6);
+        addButton(left + panelWidth - navButton, y, navButton, Component.literal(">"),
+                button -> selectInstance(1));
+
+        y += ROW_HEIGHT;
+        label(text("instance.template", instance.stageId()), left, y + 4);
+        label(text("instance.slot", instance.slot()), left + panelWidth / 2, y + 4);
+        y += 16;
+        label(text("instance.uuid", instance.instanceId()), left, y + 4);
+        y += 16;
+        label(text("instance.members", instance.members(), instance.capacity()), left, y + 4);
+        label(text("instance.lifecycle", instance.persistent()
+                ? text("value.retain") : text("value.release_when_empty")), left + panelWidth / 2, y + 4);
+        y += 22;
+
+        int gap = 3;
+        int third = (panelWidth - gap * 2) / 3;
+        Button join = addButton(left, y, third, text("action.join_instance"), button ->
+                requestInstanceAction(new StageEditorAdminPacket.Request(
+                        StageEditorAdminPacket.Action.JOIN, instance.instanceId()), false));
+        join.active = ClientStageSession.active() == null && instance.members() < instance.capacity();
+        addButton(left + third + gap, y, third, text("action.toggle_instance_lifecycle"), button ->
+                requestInstanceAction(new StageEditorAdminPacket.Request(
+                        StageEditorAdminPacket.Action.TOGGLE_PERSISTENT, instance.instanceId()), false));
+        Button release = addButton(left + (third + gap) * 2, y,
+                panelWidth - (third + gap) * 2, text("action.release_instance"), button ->
+                        requestInstanceAction(new StageEditorAdminPacket.Request(
+                                StageEditorAdminPacket.Action.RELEASE, instance.instanceId()), false));
+        release.active = instance.members() == 0;
+    }
+
     private void buildActions(int left, int panelWidth) {
         int y = height - 26;
         int gap = 3;
@@ -270,6 +331,14 @@ public final class StageTemplateEditorScreen extends Screen {
             int half = (panelWidth - gap) / 2;
             addButton(left, y, half, text("action.save_client_config"), button -> saveClientConfig());
             addButton(left + half + gap, y, panelWidth - half - gap, text("action.close"), button -> onClose());
+            return;
+        }
+        if (tab == Tab.INSTANCES) {
+            int half = (panelWidth - gap) / 2;
+            addButton(left, y, half, text("action.refresh_instances"), button ->
+                    requestInstanceAction(StageEditorAdminPacket.Request.refresh(), false));
+            addButton(left + half + gap, y, panelWidth - half - gap, text("action.close"),
+                    button -> onClose());
             return;
         }
         int buttonWidth = (panelWidth - gap * 4) / 5;
@@ -305,6 +374,24 @@ public final class StageTemplateEditorScreen extends Screen {
         draft = Draft.from(templates.get(selectedTemplate));
         setStatus("status.template_index", selectedTemplate + 1, templates.size());
         buildWidgets();
+    }
+
+    private void selectInstance(int direction) {
+        List<StageEditorAdminPacket.Instance> instances = StageTemplateEditorState.admin().instances();
+        if (instances.isEmpty()) {
+            selectedInstance = -1;
+            return;
+        }
+        selectedInstance = Math.floorMod(selectedInstance + direction, instances.size());
+        buildWidgets();
+    }
+
+    private void requestInstanceAction(StageEditorAdminPacket.Request request, boolean close) {
+        DynamicStageNetwork.requestEditorAdmin(request);
+        setPendingStatus("status.updating_instance");
+        if (close) {
+            onClose();
+        }
     }
 
     private void prepareCurrentLod() {
@@ -405,6 +492,8 @@ public final class StageTemplateEditorScreen extends Screen {
                             clientBoundaryColor.getValue().trim());
                     clientMaxServerLodDownloadMib = Integer.parseInt(clientMaxServerLodMib.getValue());
                 }
+                case INSTANCES -> {
+                }
             }
             clearStatus();
             return true;
@@ -432,6 +521,20 @@ public final class StageTemplateEditorScreen extends Screen {
             }
             if (status.getString().isEmpty() || statusPending) {
                 setStatus("status.template_count", StageTemplateEditorState.templates().size());
+            }
+        }
+        long adminRevision = StageTemplateEditorState.adminRevision();
+        if (adminRevision != observedAdminRevision) {
+            observedAdminRevision = adminRevision;
+            StageEditorAdminPacket.State admin = StageTemplateEditorState.admin();
+            if (selectedInstance >= admin.instances().size()) {
+                selectedInstance = admin.instances().isEmpty() ? -1 : admin.instances().size() - 1;
+            }
+            if (!admin.message().isEmpty()) {
+                setStatus(Component.literal(admin.message()), admin.error(), false);
+            }
+            if (tab == Tab.INSTANCES) {
+                buildWidgets();
             }
         }
     }
@@ -598,7 +701,7 @@ public final class StageTemplateEditorScreen extends Screen {
         return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
-    private enum Tab { STAGE, BACKDROP, TIME, CLIENT }
+    private enum Tab { STAGE, BACKDROP, TIME, CLIENT, INSTANCES }
 
     private record Label(Component text, int x, int y) {
     }

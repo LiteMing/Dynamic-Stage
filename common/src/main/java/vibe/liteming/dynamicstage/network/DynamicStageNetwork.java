@@ -6,6 +6,8 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import vibe.liteming.dynamicstage.DynamicStage;
 import vibe.liteming.dynamicstage.stage.StageSession;
+import vibe.liteming.dynamicstage.stage.StageInstance;
+import vibe.liteming.dynamicstage.stage.StageSessionData;
 import vibe.liteming.dynamicstage.stage.StageSessionManager;
 import vibe.liteming.dynamicstage.template.StageTemplate;
 import vibe.liteming.dynamicstage.template.StageTemplateStore;
@@ -32,6 +34,8 @@ public final class DynamicStageNetwork {
     public static final net.minecraft.resources.ResourceLocation TEMPLATE_REQUEST = DynamicStage.id("template_request");
     public static final net.minecraft.resources.ResourceLocation TEMPLATE_LIST = DynamicStage.id("template_list");
     public static final net.minecraft.resources.ResourceLocation TEMPLATE_EDIT = DynamicStage.id("template_edit");
+    public static final net.minecraft.resources.ResourceLocation EDITOR_ADMIN_REQUEST = DynamicStage.id("editor_admin_request");
+    public static final net.minecraft.resources.ResourceLocation EDITOR_ADMIN_STATE = DynamicStage.id("editor_admin_state");
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_REQUEST = DynamicStage.id("lod_download_request");
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_CHUNK = DynamicStage.id("lod_download_chunk");
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_RESULT = DynamicStage.id("lod_download_result");
@@ -75,6 +79,14 @@ public final class DynamicStageNetwork {
             context.queue(() -> {
                 if (context.getPlayer() instanceof ServerPlayer player && player.hasPermissions(2)) {
                     handleTemplateEdit(player, packet);
+                }
+            });
+        });
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, EDITOR_ADMIN_REQUEST, (buf, context) -> {
+            StageEditorAdminPacket.Request packet = StageEditorAdminPacket.decodeRequest(buf);
+            context.queue(() -> {
+                if (context.getPlayer() instanceof ServerPlayer player) {
+                    handleEditorAdminRequest(player, packet);
                 }
             });
         });
@@ -152,6 +164,12 @@ public final class DynamicStageNetwork {
         NetworkManager.sendToServer(TEMPLATE_EDIT, buf);
     }
 
+    public static void requestEditorAdmin(StageEditorAdminPacket.Request packet) {
+        FriendlyByteBuf buf = buffer();
+        StageEditorAdminPacket.encodeRequest(packet, buf);
+        NetworkManager.sendToServer(EDITOR_ADMIN_REQUEST, buf);
+    }
+
     public static void requestLodDownload(LodDownloadRequestPacket packet) {
         FriendlyByteBuf buf = buffer();
         LodDownloadRequestPacket.encode(packet, buf);
@@ -197,6 +215,71 @@ public final class DynamicStageNetwork {
             player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
                     "Could not list stage templates: " + e.getMessage()));
         }
+    }
+
+    public static void sendEditorAdminState(ServerPlayer player, String message, boolean error) {
+        StageSessionData data = StageSessionData.get(player.getServer());
+        java.util.List<StageEditorAdminPacket.Instance> instances = data.instances().stream()
+                .sorted(java.util.Comparator.comparingInt(StageInstance::slot))
+                .limit(StageEditorAdminPacket.MAX_INSTANCES)
+                .map(instance -> new StageEditorAdminPacket.Instance(instance.instanceId(), instance.stageId(),
+                        instance.slot(), data.members(instance.instanceId()).size(), instance.capacity(),
+                        instance.persistent()))
+                .toList();
+        boolean permitted = player.hasPermissions(2);
+        boolean editAvailable = permitted && player.isCreative()
+                && StageWorlds.isStageLevel(player.level()) && StageSessionManager.get(player).isPresent();
+        StageEditorAdminPacket.State state = new StageEditorAdminPacket.State(
+                permitted ? instances : java.util.List.of(), StageSessionManager.isEditing(player),
+                editAvailable, bounded(message), error);
+        FriendlyByteBuf buf = buffer();
+        StageEditorAdminPacket.encodeState(state, buf);
+        NetworkManager.sendToPlayer(player, EDITOR_ADMIN_STATE, buf);
+    }
+
+    private static void handleEditorAdminRequest(ServerPlayer player, StageEditorAdminPacket.Request packet) {
+        if (!player.hasPermissions(2)) {
+            sendEditorAdminState(player, "Operator permission is required.", true);
+            return;
+        }
+        boolean success = true;
+        String message = "";
+        switch (packet.action()) {
+            case REFRESH -> {
+            }
+            case TOGGLE_EDITING -> {
+                boolean enabled = !StageSessionManager.isEditing(player);
+                success = StageSessionManager.setEditing(player, enabled);
+                message = success ? "Stage editing " + (enabled ? "enabled." : "disabled.")
+                        : "Enter a stage in creative mode before enabling editing.";
+            }
+            case JOIN -> {
+                success = StageSessionManager.join(player, packet.instanceId());
+                message = success ? "Preparing the selected stage instance..."
+                        : "Could not join the selected stage instance.";
+            }
+            case TOGGLE_PERSISTENT -> {
+                StageSessionData data = StageSessionData.get(player.getServer());
+                StageInstance instance = data.findInstance(packet.instanceId()).orElse(null);
+                success = instance != null && StageSessionManager.setInstancePersistent(
+                        player, packet.instanceId(), !instance.persistent());
+                message = success ? "Updated the selected instance lifecycle."
+                        : "Could not update the selected stage instance.";
+            }
+            case RELEASE -> {
+                success = StageSessionManager.releaseEmptyInstance(player, packet.instanceId());
+                message = success ? "Released the selected stage instance."
+                        : "Only an empty stage instance can be released.";
+            }
+        }
+        sendEditorAdminState(player, message, !success);
+    }
+
+    private static String bounded(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.length() <= 256 ? value : value.substring(0, 256);
     }
 
     private static void handleTemplateEdit(ServerPlayer player, StageTemplatePackets.EditPacket packet) {

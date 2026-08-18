@@ -43,6 +43,11 @@ public final class DynamicStageClientNetwork {
                     StageTemplatePackets.ListPacket packet = StageTemplatePackets.decodeList(buf);
                     context.queue(() -> StageTemplateEditorState.accept(packet.templates()));
                 });
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.EDITOR_ADMIN_STATE,
+                (buf, context) -> {
+                    StageEditorAdminPacket.State packet = StageEditorAdminPacket.decodeState(buf);
+                    context.queue(() -> StageTemplateEditorState.acceptAdmin(packet));
+                });
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.LOD_DOWNLOAD_CHUNK,
                 (buf, context) -> {
                     LodDownloadChunkPacket packet = LodDownloadChunkPacket.decode(buf);

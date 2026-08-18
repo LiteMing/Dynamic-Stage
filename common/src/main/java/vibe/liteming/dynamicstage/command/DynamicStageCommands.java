@@ -175,12 +175,6 @@ public final class DynamicStageCommands {
         time.then(Commands.literal("cycle").then(cyclePeriod));
         root.then(time);
         root.then(Commands.literal("exit").executes(ctx -> exit(ctx.getSource())));
-        LiteralArgumentBuilder<CommandSourceStack> edit = Commands.literal("edit")
-                .requires(source -> source.hasPermission(2));
-        edit.then(Commands.literal("status").executes(ctx -> editStatus(ctx.getSource())));
-        edit.then(Commands.literal("on").executes(ctx -> editMode(ctx.getSource(), true)));
-        edit.then(Commands.literal("off").executes(ctx -> editMode(ctx.getSource(), false)));
-        root.then(edit);
         root.then(Commands.literal("sky").requires(source -> source.hasPermission(2))
                 .then(Commands.literal("overworld").executes(ctx -> sky(ctx.getSource(),
                         StageClientScene.SkyMode.OVERWORLD)))
@@ -439,33 +433,6 @@ public final class DynamicStageCommands {
             source.sendFailure(Component.literal("Could not save stage template: " + e.getMessage()));
             return 0;
         }
-    }
-
-    private static int editMode(CommandSourceStack source, boolean enabled) {
-        if (!(source.getEntity() instanceof ServerPlayer player)) {
-            source.sendFailure(Component.literal("Only a player can change Dynamic Stage edit mode."));
-            return 0;
-        }
-        if (enabled && !player.isCreative()) {
-            source.sendFailure(Component.literal("Dynamic Stage edit mode requires creative mode."));
-            return 0;
-        }
-        if (!StageSessionManager.setEditing(player, enabled)) {
-            source.sendFailure(Component.literal("Enter a stage in creative mode before enabling edit mode."));
-            return 0;
-        }
-        source.sendSuccess(() -> Component.literal("Dynamic Stage edit mode "
-                + (enabled ? "enabled" : "disabled") + '.'), false);
-        return 1;
-    }
-
-    private static int editStatus(CommandSourceStack source) {
-        if (!(source.getEntity() instanceof ServerPlayer player)) {
-            return 0;
-        }
-        source.sendSuccess(() -> Component.literal("Dynamic Stage edit mode: "
-                + (StageSessionManager.isEditing(player) ? "on" : "off") + '.'), false);
-        return StageSessionManager.isEditing(player) ? 1 : 0;
     }
 
     private static int templateStart(CommandSourceStack source, String id) {
