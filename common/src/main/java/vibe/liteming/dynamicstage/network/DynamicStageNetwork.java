@@ -36,6 +36,8 @@ public final class DynamicStageNetwork {
     public static final net.minecraft.resources.ResourceLocation TEMPLATE_EDIT = DynamicStage.id("template_edit");
     public static final net.minecraft.resources.ResourceLocation EDITOR_ADMIN_REQUEST = DynamicStage.id("editor_admin_request");
     public static final net.minecraft.resources.ResourceLocation EDITOR_ADMIN_STATE = DynamicStage.id("editor_admin_state");
+    public static final net.minecraft.resources.ResourceLocation BROWSER_REQUEST = DynamicStage.id("browser_request");
+    public static final net.minecraft.resources.ResourceLocation BROWSER_STATE = DynamicStage.id("browser_state");
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_REQUEST = DynamicStage.id("lod_download_request");
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_CHUNK = DynamicStage.id("lod_download_chunk");
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_RESULT = DynamicStage.id("lod_download_result");
@@ -87,6 +89,14 @@ public final class DynamicStageNetwork {
             context.queue(() -> {
                 if (context.getPlayer() instanceof ServerPlayer player) {
                     handleEditorAdminRequest(player, packet);
+                }
+            });
+        });
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, BROWSER_REQUEST, (buf, context) -> {
+            StageBrowserPacket.Request packet = StageBrowserPacket.decodeRequest(buf);
+            context.queue(() -> {
+                if (context.getPlayer() instanceof ServerPlayer player) {
+                    handleBrowserRequest(player, packet);
                 }
             });
         });
@@ -170,6 +180,12 @@ public final class DynamicStageNetwork {
         NetworkManager.sendToServer(EDITOR_ADMIN_REQUEST, buf);
     }
 
+    public static void requestBrowser(StageBrowserPacket.Request packet) {
+        FriendlyByteBuf buf = buffer();
+        StageBrowserPacket.encodeRequest(packet, buf);
+        NetworkManager.sendToServer(BROWSER_REQUEST, buf);
+    }
+
     public static void requestLodDownload(LodDownloadRequestPacket packet) {
         FriendlyByteBuf buf = buffer();
         LodDownloadRequestPacket.encode(packet, buf);
@@ -223,7 +239,7 @@ public final class DynamicStageNetwork {
                 .sorted(java.util.Comparator.comparingInt(StageInstance::slot))
                 .limit(StageEditorAdminPacket.MAX_INSTANCES)
                 .map(instance -> new StageEditorAdminPacket.Instance(instance.instanceId(), instance.stageId(),
-                        instance.slot(), data.members(instance.instanceId()).size(), instance.capacity(),
+                        instance.slot(), data.participants(instance.instanceId()).size(), instance.capacity(),
                         instance.persistent()))
                 .toList();
         boolean permitted = player.hasPermissions(2);
@@ -235,6 +251,27 @@ public final class DynamicStageNetwork {
         FriendlyByteBuf buf = buffer();
         StageEditorAdminPacket.encodeState(state, buf);
         NetworkManager.sendToPlayer(player, EDITOR_ADMIN_STATE, buf);
+    }
+
+    public static void sendBrowserState(ServerPlayer player, String message, boolean error) {
+        java.util.List<StageBrowserPacket.Instance> instances = StageSessionManager.visibleInstances(player).stream()
+                .limit(StageBrowserPacket.MAX_INSTANCES)
+                .map(instance -> new StageBrowserPacket.Instance(instance.instanceId(), instance.stageId(),
+                        instance.slot(), instance.members(), instance.capacity(), instance.available()))
+                .toList();
+        StageBrowserPacket.State state = new StageBrowserPacket.State(instances, bounded(message), error);
+        FriendlyByteBuf buf = buffer();
+        StageBrowserPacket.encodeState(state, buf);
+        NetworkManager.sendToPlayer(player, BROWSER_STATE, buf);
+    }
+
+    private static void handleBrowserRequest(ServerPlayer player, StageBrowserPacket.Request packet) {
+        if (packet.action() == StageBrowserPacket.Action.JOIN) {
+            boolean success = StageSessionManager.join(player, packet.instanceId());
+            sendBrowserState(player, success ? "status.preparing" : "status.join_failed", !success);
+            return;
+        }
+        sendBrowserState(player, "", false);
     }
 
     private static void handleEditorAdminRequest(ServerPlayer player, StageEditorAdminPacket.Request packet) {

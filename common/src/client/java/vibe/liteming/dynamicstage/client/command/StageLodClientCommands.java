@@ -24,6 +24,7 @@ import vibe.liteming.dynamicstage.client.lod.VoxyPackOptimizer;
 import vibe.liteming.dynamicstage.client.config.StageClientConfig;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 import vibe.liteming.dynamicstage.client.editor.StageTemplateEditorScreen;
+import vibe.liteming.dynamicstage.client.gui.StageBrowserScreen;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -60,6 +61,7 @@ public final class StageLodClientCommands {
                 .then(RequiredArgumentBuilder.<S, String>argument("stage", StringArgumentType.string())
                         .executes(StageLodClientCommands::startAutomatic)));
         root.then(LiteralArgumentBuilder.<S>literal("editor").executes(context -> openEditor()));
+        root.then(LiteralArgumentBuilder.<S>literal("gui").executes(context -> openBrowser()));
         LiteralArgumentBuilder<S> lod = LiteralArgumentBuilder.literal("lod");
         lod.then(LiteralArgumentBuilder.<S>literal("root")
                 .executes(context -> showRoot()));
@@ -226,6 +228,12 @@ public final class StageLodClientCommands {
     private static int openEditor() {
         Minecraft minecraft = Minecraft.getInstance();
         minecraft.execute(() -> minecraft.setScreen(new StageTemplateEditorScreen()));
+        return 1;
+    }
+
+    private static int openBrowser() {
+        Minecraft minecraft = Minecraft.getInstance();
+        minecraft.execute(() -> minecraft.setScreen(new StageBrowserScreen()));
         return 1;
     }
 

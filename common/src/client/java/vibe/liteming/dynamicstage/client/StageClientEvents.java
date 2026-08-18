@@ -8,6 +8,7 @@ import vibe.liteming.dynamicstage.client.lod.VoxyLodCollision;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 import vibe.liteming.dynamicstage.stage.StageBoundaryAccess;
 import vibe.liteming.dynamicstage.client.editor.StageTemplateEditorState;
+import vibe.liteming.dynamicstage.client.gui.StageBrowserState;
 
 public final class StageClientEvents {
     private StageClientEvents() {
@@ -18,6 +19,7 @@ public final class StageClientEvents {
         VoxyLodCollision.reset();
         ClientStageSession.clearLocal();
         StageTemplateEditorState.clear();
+        StageBrowserState.clear();
     }
 
     public static void tick() {

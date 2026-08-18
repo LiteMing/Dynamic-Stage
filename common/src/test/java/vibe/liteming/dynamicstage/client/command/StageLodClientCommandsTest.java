@@ -31,6 +31,7 @@ class StageLodClientCommandsTest {
         assertNotNull(stage.getChild("lod_pack"));
         assertNotNull(root.getChild("lod"));
         assertNotNull(root.getChild("editor"));
+        assertNotNull(root.getChild("gui"));
         assertNotNull(root.getChild("lod").getChild("import").getChild("link"));
         assertNotNull(root.getChild("lod").getChild("import").getChild("link-relative"));
         assertNotNull(root.getChild("lod").getChild("import").getChild("copy"));
