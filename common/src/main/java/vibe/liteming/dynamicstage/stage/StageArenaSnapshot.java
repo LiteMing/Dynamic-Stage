@@ -4,7 +4,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.core.Vec3i;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
@@ -15,17 +17,30 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.phys.AABB;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import vibe.liteming.dynamicstage.mixin.PersistentEntitySectionManagerInvoker;
+import vibe.liteming.dynamicstage.mixin.ServerLevelEntityManagerAccessor;
 import vibe.liteming.dynamicstage.template.StageStructurePlacement;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /** Vanilla structure snapshot for blocks, block entities, and non-player entities inside a stage boundary. */
 public final class StageArenaSnapshot {
+    private static final Logger LOGGER = LoggerFactory.getLogger(StageArenaSnapshot.class);
     public static final int MAX_HORIZONTAL_SIZE = 256;
     public static final int MAX_HEIGHT = 128;
     public static final long MAX_VOLUME = 4L * 1024L * 1024L;
+    private static final int ENTITY_CHUNK_TICKET_RADIUS = 0;
+    private static final long ENTITY_LOAD_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(10L);
+    private static final TicketType<UUID> ENTITY_CLEANUP_TICKET = TicketType.create(
+            "dynamicstage_entity_cleanup", Comparator.comparing(UUID::toString));
 
     private StageArenaSnapshot() {
     }
@@ -50,7 +65,7 @@ public final class StageArenaSnapshot {
         AABB region = regionBounds(level, origin);
         LoquatArenaCompat.clearAreas(level, region);
         clearBoundary(level, origin, boundary);
-        discardNonPlayers(level, region);
+        discardNonPlayers(level, region, boundaryChunks(origin, boundary));
         if (structure != null) {
             place(level, origin, boundary, structure);
         }
@@ -64,7 +79,7 @@ public final class StageArenaSnapshot {
                                CompoundTag snapshot, List<StageStructurePlacement> structures) throws IOException {
         StructureTemplate structure = snapshot.isEmpty() ? null : read(level, boundary, snapshot);
         List<ResolvedStructure> resolved = resolveStructures(level, origin, boundary, structures);
-        discardNonPlayers(level, regionBounds(level, origin));
+        discardNonPlayers(level, regionBounds(level, origin), boundaryChunks(origin, boundary));
         if (structure != null) {
             place(level, origin, boundary, structure);
         }
@@ -78,7 +93,7 @@ public final class StageArenaSnapshot {
         AABB region = regionBounds(level, origin);
         LoquatArenaCompat.clearAreas(level, region);
         clearBoundary(level, origin, boundary);
-        discardNonPlayers(level, region);
+        discardNonPlayers(level, region, boundaryChunks(origin, boundary));
     }
 
     public static void validate(ServerLevel level, StageBoundary boundary, CompoundTag snapshot) throws IOException {
@@ -113,7 +128,7 @@ public final class StageArenaSnapshot {
         LoquatArenaCompat.clearAreas(level, affected);
         clearPreviousRemainder(level, origin, previousBoundary, boundary);
         clearBoundary(level, origin, boundary);
-        discardNonPlayers(level, affected);
+        discardNonPlayers(level, affected, boundaryChunks(origin, previousBoundary, boundary));
         if (structure != null) {
             place(level, origin, boundary, structure);
         }
@@ -250,9 +265,56 @@ public final class StageArenaSnapshot {
                 minimum.getY() + boundary.height(), minimum.getZ() + boundary.depth());
     }
 
-    private static void discardNonPlayers(ServerLevel level, AABB bounds) {
-        List<Entity> entities = level.getEntities((Entity) null, bounds, entity -> !(entity instanceof Player));
-        entities.forEach(StageArenaSnapshot::discardEntityTree);
+    private static void discardNonPlayers(ServerLevel level, AABB bounds, List<ChunkPos> chunks) throws IOException {
+        UUID ticketKey = UUID.randomUUID();
+        ServerChunkCache chunkSource = level.getChunkSource();
+        for (ChunkPos chunk : chunks) {
+            chunkSource.addRegionTicket(ENTITY_CLEANUP_TICKET, chunk,
+                    ENTITY_CHUNK_TICKET_RADIUS, ticketKey);
+        }
+        try {
+            for (ChunkPos chunk : chunks) {
+                level.getChunk(chunk.x, chunk.z);
+            }
+            awaitEntityChunks(level, chunks);
+            List<Entity> entities = level.getEntities((Entity) null, bounds,
+                    entity -> !(entity instanceof Player));
+            entities.forEach(StageArenaSnapshot::discardEntityTree);
+            if (!entities.isEmpty()) {
+                LOGGER.info("Removed {} non-player entities while rebuilding stage area {}", entities.size(), bounds);
+            }
+        } finally {
+            for (ChunkPos chunk : chunks) {
+                chunkSource.removeRegionTicket(ENTITY_CLEANUP_TICKET, chunk,
+                        ENTITY_CHUNK_TICKET_RADIUS, ticketKey);
+            }
+        }
+    }
+
+    private static void awaitEntityChunks(ServerLevel level, List<ChunkPos> chunks) throws IOException {
+        long deadline = System.nanoTime() + ENTITY_LOAD_TIMEOUT_NANOS;
+        boolean[] loaded = {false};
+        var entityManager = ((ServerLevelEntityManagerAccessor) (Object) level)
+                .dynamicstage$getEntityManager();
+        level.getServer().managedBlock(() -> {
+            ((PersistentEntitySectionManagerInvoker) (Object) entityManager)
+                    .dynamicstage$processPendingLoads();
+            loaded[0] = chunks.stream().allMatch(chunk -> level.areEntitiesLoaded(chunk.toLong()));
+            return loaded[0] || System.nanoTime() >= deadline;
+        });
+        if (!loaded[0]) {
+            throw new IOException("timed out while loading arena entities for cleanup");
+        }
+    }
+
+    private static List<ChunkPos> boundaryChunks(BlockPos origin, StageBoundary boundary) {
+        return coveredChunks(minimum(origin, boundary), size(boundary));
+    }
+
+    private static List<ChunkPos> boundaryChunks(BlockPos origin, StageBoundary first, StageBoundary second) {
+        LinkedHashSet<ChunkPos> chunks = new LinkedHashSet<>(boundaryChunks(origin, first));
+        chunks.addAll(boundaryChunks(origin, second));
+        return List.copyOf(chunks);
     }
 
     private static void discardEntityTree(Entity entity) {
