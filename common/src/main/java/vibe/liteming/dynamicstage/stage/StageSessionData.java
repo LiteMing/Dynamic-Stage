@@ -93,6 +93,12 @@ public final class StageSessionData extends SavedData {
         return sessions.values().stream().filter(session -> session.instanceId().equals(instanceId)).toList();
     }
 
+    /** Capacity-bearing members; observers still receive the instance scene but do not occupy a slot. */
+    public List<StageSession> participants(UUID instanceId) {
+        return sessions.values().stream().filter(session -> session.instanceId().equals(instanceId))
+                .filter(session -> !session.observer()).toList();
+    }
+
     public void put(StageSession session, boolean persistent) {
         put(session, persistent, StageTemplate.InteractionPolicy.ADVENTURE);
     }

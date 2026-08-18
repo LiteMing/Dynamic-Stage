@@ -6,6 +6,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -80,9 +81,29 @@ class StageSessionDataTest {
         assertTrue(data.findInstance(session.instanceId()).isEmpty());
     }
 
+    @Test
+    void observersPersistWithoutConsumingCapacity() {
+        StageSessionData data = new StageSessionData();
+        StageSession observer = session(UUID.randomUUID(), UUID.randomUUID(), 4, true);
+
+        data.put(observer, true);
+
+        assertEquals(1, data.members(observer.instanceId()).size());
+        assertTrue(data.participants(observer.instanceId()).isEmpty());
+        StageSession loaded = StageSessionData.load(data.save(new CompoundTag()))
+                .get(observer.playerId()).orElseThrow();
+        assertTrue(loaded.observer());
+        assertEquals(GameType.SURVIVAL, loaded.returnGameMode());
+    }
+
     private static StageSession session(UUID playerId, UUID instanceId, int slot) {
+        return session(playerId, instanceId, slot, false);
+    }
+
+    private static StageSession session(UUID playerId, UUID instanceId, int slot, boolean observer) {
         return new StageSession(playerId, instanceId, "arena", new ResourceLocation("dynamicstage", "none"),
                 BlockPos.ZERO, slot, 4, StageBoundary.defaults(), StageClientScene.defaults(0L, 0L),
-                Level.OVERWORLD, Vec3.ZERO, 0.0F, 0.0F, "", 0, 0L, -1L);
+                Level.OVERWORLD, Vec3.ZERO, 0.0F, 0.0F, observer, GameType.SURVIVAL,
+                "", 0, 0L, -1L);
     }
 }

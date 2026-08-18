@@ -15,12 +15,14 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.ResourceLocationArgument;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.storage.LevelResource;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
+import vibe.liteming.dynamicstage.config.StageServerConfig;
 import vibe.liteming.dynamicstage.lod.LodDistributionStore;
 import vibe.liteming.dynamicstage.lod.LodPackageOffer;
 import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
@@ -72,9 +74,16 @@ public final class DynamicStageCommands {
                                                                                 IntegerArgumentType.getInteger(ctx, "z"),
                                                                                 IntegerArgumentType.getInteger(ctx, "capacity"))))))))));
         root.then(Commands.literal("join")
-                .then(Commands.argument("instance", StringArgumentType.word())
+                .then(Commands.argument("instance", StringArgumentType.string())
                         .suggests(DynamicStageCommands::suggestJoinableInstances)
                                 .executes(ctx -> join(ctx.getSource(), StringArgumentType.getString(ctx, "instance")))));
+        root.then(Commands.literal("invite")
+                .then(Commands.literal("accept")
+                        .then(Commands.argument("token", StringArgumentType.word())
+                                .executes(ctx -> acceptInvite(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "token")))))
+                .then(Commands.argument("player", EntityArgument.player())
+                        .executes(ctx -> invite(ctx.getSource(), EntityArgument.getPlayer(ctx, "player")))));
         LiteralArgumentBuilder<CommandSourceStack> templates = Commands.literal("template")
                 .requires(source -> source.hasPermission(2));
         templates.then(Commands.literal("list").executes(ctx -> templateList(ctx.getSource())));
@@ -317,11 +326,16 @@ public final class DynamicStageCommands {
         root.then(distribution);
         root.then(Commands.literal("reload").requires(source -> source.hasPermission(2))
                 .executes(ctx -> reload(ctx.getSource())));
+        root.then(Commands.literal("guide").requires(source -> source.hasPermission(2))
+                .then(Commands.literal("on").executes(ctx -> setGuide(ctx.getSource(), true)))
+                .then(Commands.literal("off").executes(ctx -> setGuide(ctx.getSource(), false)))
+                .then(Commands.literal("status").executes(ctx -> guideStatus(ctx.getSource()))));
         return root;
     }
 
     private static int reload(CommandSourceStack source) {
         try {
+            StageServerConfig.reload();
             StageTemplateStore.ReloadResult templates = StageTemplateStore.reload(source.getServer());
             LodDistributionStore.ReloadResult lods = LodDistributionStore.reload(source.getServer());
             StageFlightAssets.LibraryReloadResult flights = StageFlightAssets.reloadLibrary();
@@ -420,26 +434,64 @@ public final class DynamicStageCommands {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
             return 0;
         }
-        try {
-            UUID instanceId = UUID.fromString(rawInstance);
-            if (!StageSessionManager.join(player, instanceId)) {
-                source.sendFailure(Component.literal("Could not join that stage instance."));
-                return 0;
-            }
-            return 1;
-        } catch (IllegalArgumentException e) {
-            source.sendFailure(Component.literal("Invalid stage instance UUID."));
+        if (!StageSessionManager.join(player, rawInstance)) {
             return 0;
         }
+        return 1;
     }
 
     private static CompletableFuture<Suggestions> suggestJoinableInstances(CommandContext<CommandSourceStack> context,
                                                                              SuggestionsBuilder builder) {
         if (context.getSource().getEntity() instanceof ServerPlayer player) {
-            return SharedSuggestionProvider.suggest(StageSessionManager.joinableInstances(player).stream()
-                    .map(UUID::toString), builder);
+            return SharedSuggestionProvider.suggest(StageSessionManager.visibleInstances(player).stream()
+                    .filter(instance -> instance.available() && instance.members() < instance.capacity())
+                    .map(StageSessionManager.InstanceSummary::label)
+                    .map(StringArgumentType::escapeIfRequired), builder);
         }
         return builder.buildFuture();
+    }
+
+    private static int invite(CommandSourceStack source, ServerPlayer target) {
+        if (!(source.getEntity() instanceof ServerPlayer inviter)
+                || !StageSessionManager.invite(inviter, target)) {
+            return 0;
+        }
+        return 1;
+    }
+
+    private static int acceptInvite(CommandSourceStack source, String rawToken) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            return 0;
+        }
+        try {
+            return StageSessionManager.acceptInvite(player, UUID.fromString(rawToken)) ? 1 : 0;
+        } catch (IllegalArgumentException e) {
+            source.sendFailure(Component.translatable("message.dynamicstage.invite.expired"));
+            return 0;
+        }
+    }
+
+    private static int setGuide(CommandSourceStack source, boolean enabled) {
+        try {
+            StageServerConfig.setGuideMessages(enabled);
+            source.sendSuccess(() -> Component.translatable("message.dynamicstage.guide.setting",
+                    guideValue(enabled)), true);
+            return 1;
+        } catch (IOException e) {
+            source.sendFailure(Component.literal("Could not save Dynamic Stage server config: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int guideStatus(CommandSourceStack source) {
+        source.sendSuccess(() -> Component.translatable("message.dynamicstage.guide.status",
+                guideValue(StageServerConfig.guideMessages())), false);
+        return 1;
+    }
+
+    private static Component guideValue(boolean enabled) {
+        return Component.translatable(enabled
+                ? "message.dynamicstage.value.on" : "message.dynamicstage.value.off");
     }
 
     private static int templateSave(CommandSourceStack source, String id, StageTemplate.InstanceMode instanceMode,

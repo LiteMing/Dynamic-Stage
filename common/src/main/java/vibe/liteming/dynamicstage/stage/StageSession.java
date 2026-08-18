@@ -6,6 +6,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import vibe.liteming.dynamicstage.flight.StageFlightCodec;
@@ -28,6 +29,8 @@ public record StageSession(
         Vec3 returnPosition,
         float returnYRot,
         float returnXRot,
+        boolean observer,
+        GameType returnGameMode,
         String flightHash,
         int flightBytes,
         long flightDurationMillis,
@@ -39,7 +42,7 @@ public record StageSession(
     public StageSession {
         if (playerId == null || instanceId == null || lodPackId == null || lodAnchor == null || boundary == null
                 || clientScene == null
-                || returnDimension == null || returnPosition == null) {
+                || returnDimension == null || returnPosition == null || returnGameMode == null) {
             throw new IllegalArgumentException("Stage session contains null identity or position state");
         }
         if (stageId == null || stageId.isBlank() || stageId.length() > 128) {
@@ -101,6 +104,7 @@ public record StageSession(
     public StageSession withLodPack(ResourceLocation pack) {
         return new StageSession(playerId, instanceId, stageId, pack, lodAnchor, slot, capacity, boundary,
                 clientScene, returnDimension, returnPosition, returnYRot, returnXRot,
+                observer, returnGameMode,
                 flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
@@ -109,12 +113,14 @@ public record StageSession(
                                              StageClientScene scene) {
         return new StageSession(playerId, instanceId, newStageId, pack, anchor, slot, newCapacity,
                 newBoundary, scene, returnDimension, returnPosition, returnYRot, returnXRot,
+                observer, returnGameMode,
                 flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
     public StageSession withFlight(String hash, int bytes, long durationMillis, long startGameTime) {
         return new StageSession(playerId, instanceId, stageId, lodPackId, lodAnchor, slot, capacity, boundary,
                 clientScene, returnDimension, returnPosition, returnYRot, returnXRot,
+                observer, returnGameMode,
                 hash, bytes, durationMillis, startGameTime);
     }
 
@@ -129,6 +135,7 @@ public record StageSession(
     public StageSession withClientScene(StageClientScene scene) {
         return new StageSession(playerId, instanceId, stageId, lodPackId, lodAnchor, slot, capacity, boundary, scene,
                 returnDimension, returnPosition, returnYRot, returnXRot,
+                observer, returnGameMode,
                 flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
@@ -136,6 +143,7 @@ public record StageSession(
         return new StageSession(playerId, instanceId, stageId, lodPackId, anchor, slot, capacity, newBoundary,
                 clientScene,
                 returnDimension, returnPosition, returnYRot, returnXRot,
+                observer, returnGameMode,
                 flightHash, flightBytes, flightDurationMillis, flightStart);
     }
 
@@ -156,6 +164,8 @@ public record StageSession(
         tag.putDouble("ReturnZ", returnPosition.z);
         tag.putFloat("ReturnYRot", returnYRot);
         tag.putFloat("ReturnXRot", returnXRot);
+        tag.putBoolean("Observer", observer);
+        tag.putString("ReturnGameMode", returnGameMode.getName());
         if (hasFlight()) {
             tag.putString("FlightHash", flightHash);
             tag.putInt("FlightBytes", flightBytes);
@@ -186,6 +196,10 @@ public record StageSession(
                 new Vec3(tag.getDouble("ReturnX"), tag.getDouble("ReturnY"), tag.getDouble("ReturnZ")),
                 tag.getFloat("ReturnYRot"),
                 tag.getFloat("ReturnXRot"),
+                tag.getBoolean("Observer"),
+                tag.contains("ReturnGameMode", Tag.TAG_STRING)
+                        ? GameType.byName(tag.getString("ReturnGameMode"), GameType.SURVIVAL)
+                        : GameType.SURVIVAL,
                 tag.getString("FlightHash"),
                 tag.getInt("FlightBytes"),
                 tag.getLong("FlightDuration"),
