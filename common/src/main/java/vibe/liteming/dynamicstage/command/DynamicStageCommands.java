@@ -792,31 +792,62 @@ public final class DynamicStageCommands {
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> flightPlayCommand() {
-        RequiredArgumentBuilder<CommandSourceStack, String> name =
-                Commands.argument("flight", StringArgumentType.word())
+        RequiredArgumentBuilder<CommandSourceStack, String> specification =
+                Commands.argument("flight", StringArgumentType.greedyString())
                         .suggests((ctx, builder) -> {
                             java.util.ArrayList<String> choices = new java.util.ArrayList<>();
                             choices.add("configured");
-                            choices.addAll(StageFlightAssets.listLibraryFlights());
+                            choices.add("configured fade ");
+                            choices.add("configured blur ");
+                            for (String name : StageFlightAssets.listLibraryFlights()) {
+                                choices.add(name);
+                                choices.add(name + " fade ");
+                                choices.add(name + " blur ");
+                            }
                             return SharedSuggestionProvider.suggest(choices, builder);
                         });
-        name.executes(ctx -> playFlight(ctx.getSource(), StringArgumentType.getString(ctx, "flight"),
-                StageClientScene.Transition.INSTANT, 0));
-        name.then(Commands.literal("fade")
-                .then(Commands.argument("ticks", IntegerArgumentType.integer(
-                                2, StageClientScene.MAX_TRANSITION_TICKS))
-                        .executes(ctx -> playFlight(ctx.getSource(),
-                                StringArgumentType.getString(ctx, "flight"),
-                                StageClientScene.Transition.FADE,
-                                IntegerArgumentType.getInteger(ctx, "ticks")))));
-        name.then(Commands.literal("blur")
-                .then(Commands.argument("ticks", IntegerArgumentType.integer(
-                                2, StageClientScene.MAX_TRANSITION_TICKS))
-                        .executes(ctx -> playFlight(ctx.getSource(),
-                                StringArgumentType.getString(ctx, "flight"),
-                                StageClientScene.Transition.BLUR,
-                                IntegerArgumentType.getInteger(ctx, "ticks")))));
-        return Commands.literal("play").then(name);
+        specification.executes(ctx -> playFlight(ctx.getSource(),
+                parseFlightPlay(StringArgumentType.getString(ctx, "flight"))));
+        return Commands.literal("play").then(specification);
+    }
+
+    private static int playFlight(CommandSourceStack source, FlightPlaySpec specification) {
+        if (specification == null) {
+            source.sendFailure(Component.literal(
+                    "Usage: /dstage flight play <flight> [fade|blur] [ticks]"));
+            return 0;
+        }
+        return playFlight(source, specification.name(), specification.transition(), specification.ticks());
+    }
+
+    static FlightPlaySpec parseFlightPlay(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String[] parts = raw.trim().split("\\s+");
+        if (parts.length == 1 && !parts[0].isBlank()) {
+            return new FlightPlaySpec(parts[0], StageClientScene.Transition.INSTANT, 0);
+        }
+        if (parts.length != 3 || parts[0].isBlank()) {
+            return null;
+        }
+        StageClientScene.Transition transition;
+        if ("fade".equalsIgnoreCase(parts[1])) {
+            transition = StageClientScene.Transition.FADE;
+        } else if ("blur".equalsIgnoreCase(parts[1])) {
+            transition = StageClientScene.Transition.BLUR;
+        } else {
+            return null;
+        }
+        try {
+            int ticks = Integer.parseInt(parts[2]);
+            if (ticks < 2 || ticks > StageClientScene.MAX_TRANSITION_TICKS) {
+                return null;
+            }
+            return new FlightPlaySpec(parts[0], transition, ticks);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> flightStopCommand() {
@@ -875,6 +906,9 @@ public final class DynamicStageCommands {
         source.sendSuccess(() -> Component.literal("Stopped the active stage flight"
                 + transitionSuffix(transition, ticks)), true);
         return 1;
+    }
+
+    record FlightPlaySpec(String name, StageClientScene.Transition transition, int ticks) {
     }
 
     private static String transitionSuffix(StageClientScene.Transition transition, int ticks) {
