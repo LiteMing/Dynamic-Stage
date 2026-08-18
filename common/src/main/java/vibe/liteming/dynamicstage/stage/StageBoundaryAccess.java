@@ -29,9 +29,18 @@ public final class StageBoundaryAccess {
             return instance == null ? null : new Located(instance.stageOrigin(), instance.boundary());
         }
         ClientBoundary local = clientBoundary;
-        return entity.level().isClientSide && local != null && entity.getUUID().equals(local.playerId)
-                ? new Located(local.origin, local.boundary)
-                : null;
+        if (!entity.level().isClientSide || local == null) {
+            return null;
+        }
+        // Client-side entities run their own movement prediction. Give every
+        // entity in the active instance the same virtual collision volume as
+        // the server, otherwise items fall through locally and snap back on
+        // the next server position update.
+        if (entity.getUUID().equals(local.playerId)
+                || StagePlacement.containsRegion(local.origin, entity.getX(), entity.getZ())) {
+            return new Located(local.origin, local.boundary);
+        }
+        return null;
     }
 
     public static void setClient(UUID instanceId, BlockPos origin, StageBoundary boundary) {
