@@ -1,20 +1,24 @@
 package vibe.liteming.dynamicstage.stage;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.core.Vec3i;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.phys.AABB;
 import vibe.liteming.dynamicstage.template.StageStructurePlacement;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /** Vanilla structure snapshot for blocks, block entities, and non-player entities inside a stage boundary. */
@@ -142,9 +146,45 @@ public final class StageArenaSnapshot {
     private static void place(ServerLevel level, BlockPos position, StructureTemplate structure) throws IOException {
         StructurePlaceSettings settings = new StructurePlaceSettings()
                 .setIgnoreEntities(false).setFinalizeEntities(true).setKeepLiquids(false);
-        if (!structure.placeInWorld(level, position, position, settings, RandomSource.create(), Block.UPDATE_ALL)) {
+        List<LevelChunk> loadedChunks = preloadChunks(level, position, structure.getSize());
+        boolean placed;
+        try {
+            // Match vanilla structure-block placement: neighbors must not react while
+            // support blocks from the same large template are still being installed.
+            placed = structure.placeInWorld(level, position, position, settings,
+                    RandomSource.create(), Block.UPDATE_CLIENTS);
+        } finally {
+            loadedChunks.forEach(chunk -> chunk.setUnsaved(true));
+        }
+        if (!placed) {
             throw new IOException("the arena structure could not be placed");
         }
+    }
+
+    private static List<LevelChunk> preloadChunks(ServerLevel level, BlockPos position, Vec3i size) {
+        List<ChunkPos> positions = coveredChunks(position, size);
+        List<LevelChunk> chunks = new ArrayList<>(positions.size());
+        for (ChunkPos chunk : positions) {
+            chunks.add(level.getChunk(chunk.x, chunk.z));
+        }
+        return chunks;
+    }
+
+    static List<ChunkPos> coveredChunks(BlockPos position, Vec3i size) {
+        if (size.getX() < 1 || size.getY() < 1 || size.getZ() < 1) {
+            return List.of();
+        }
+        int minChunkX = SectionPos.blockToSectionCoord(position.getX());
+        int minChunkZ = SectionPos.blockToSectionCoord(position.getZ());
+        int maxChunkX = SectionPos.blockToSectionCoord(position.getX() + size.getX() - 1);
+        int maxChunkZ = SectionPos.blockToSectionCoord(position.getZ() + size.getZ() - 1);
+        List<ChunkPos> chunks = new ArrayList<>((maxChunkX - minChunkX + 1) * (maxChunkZ - minChunkZ + 1));
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                chunks.add(new ChunkPos(chunkX, chunkZ));
+            }
+        }
+        return List.copyOf(chunks);
     }
 
     private static List<ResolvedStructure> resolveStructures(ServerLevel level, BlockPos origin,
