@@ -147,15 +147,18 @@ DH 3.2 still requires the database file and its directory to be writable when op
 
 ## Commands
 
-Server-side commands currently require permission level 2. The short
+Stage creation, editing, distribution, and server settings require permission
+level 2. Player-facing join, invite, exit, and GUI commands do not. The short
 `/dstage start <stage>` form is registered on the client and forwards the
 expanded command to the server:
 
 ```text
 /dstage start <stage>
 /dstage editor
+/dstage gui
 /dstage start <stage> <lod_pack> <source_x> <source_y> <source_z> [capacity]
-/dstage join <instance_uuid>
+/dstage join <slot(stage_name)>
+/dstage invite <player>
 /dstage template save <template> [parallel|shared] [on_create|manual]
 /dstage template start <template>
 /dstage template reset
@@ -198,6 +201,7 @@ expanded command to the server:
 /dstage distribution set <pack_id> <optional|required> <bytes> <sha256> <url>
 /dstage distribution remove <pack_id>
 /dstage reload
+/dstage guide on|off|status
 ```
 
 `/dstage start <stage>` is a client-side convenience shortcut. It captures the
@@ -217,6 +221,18 @@ and applies settings that can change on a live instance. LOD package and
 capacity changes take effect on the next instance. The editor sends only
 bounded template summaries and flight bind/clear actions; LOD databases, arena snapshots, and flight files
 remain local to their existing client/server stores.
+
+`/dstage gui` opens the player-facing instance browser and local render
+settings. Active instances use a stable one-based slot label such as `3(gr1)`;
+hover the label to see its UUID for diagnostics. `/dstage invite <player>` sends
+a two-minute clickable invitation for the sender's current instance. Capacity
+is checked again when the invitation is accepted.
+
+Players teleported directly into the isolated region of another active
+instance are attached to that instance automatically. If capacity is
+available they become a normal member; otherwise they receive the same client
+scene and boundary as a spectator without consuming capacity. Leaving restores
+the pre-stage game mode and last tracked non-stage return point.
 
 While inside a stage, select any saved template with the editor's arrow controls
 and press `Reload` to replace the current instance in place. The instance UUID,
