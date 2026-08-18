@@ -34,15 +34,14 @@ public final class StageArenaSnapshot {
 
     public static void restore(ServerLevel level, BlockPos origin, StageBoundary boundary,
                                CompoundTag snapshot) throws IOException {
-        if (snapshot.isEmpty()) {
-            return;
-        }
-        StructureTemplate structure = read(level, boundary, snapshot);
+        StructureTemplate structure = snapshot.isEmpty() ? null : read(level, boundary, snapshot);
         AABB bounds = boundary.bounds(origin);
-        LoquatArenaCompat.clearTargetAreas(level, bounds, snapshot);
-        level.getEntities((Entity) null, bounds, entity -> !(entity instanceof Player)).forEach(Entity::discard);
+        LoquatArenaCompat.clearAreas(level, bounds);
         clearBoundary(level, origin, boundary);
-        place(level, origin, boundary, structure);
+        discardNonPlayers(level, bounds);
+        if (structure != null) {
+            place(level, origin, boundary, structure);
+        }
     }
 
     public static void validate(ServerLevel level, StageBoundary boundary, CompoundTag snapshot) throws IOException {
@@ -54,10 +53,7 @@ public final class StageArenaSnapshot {
     /** Replaces a live arena and removes blocks left outside a smaller new boundary. */
     public static void replace(ServerLevel level, BlockPos origin, StageBoundary previousBoundary,
                                StageBoundary boundary, CompoundTag snapshot) throws IOException {
-        if (snapshot.isEmpty()) {
-            return;
-        }
-        StructureTemplate structure = read(level, boundary, snapshot);
+        StructureTemplate structure = snapshot.isEmpty() ? null : read(level, boundary, snapshot);
         AABB previousBounds = previousBoundary.bounds(origin);
         AABB nextBounds = boundary.bounds(origin);
         AABB affected = new AABB(Math.min(previousBounds.minX, nextBounds.minX),
@@ -65,10 +61,12 @@ public final class StageArenaSnapshot {
                 Math.max(previousBounds.maxX, nextBounds.maxX), Math.max(previousBounds.maxY, nextBounds.maxY),
                 Math.max(previousBounds.maxZ, nextBounds.maxZ));
         LoquatArenaCompat.clearAreas(level, affected);
-        level.getEntities((Entity) null, affected, entity -> !(entity instanceof Player)).forEach(Entity::discard);
         clearPreviousRemainder(level, origin, previousBoundary, boundary);
         clearBoundary(level, origin, boundary);
-        place(level, origin, boundary, structure);
+        discardNonPlayers(level, affected);
+        if (structure != null) {
+            place(level, origin, boundary, structure);
+        }
     }
 
     private static StructureTemplate read(ServerLevel level, StageBoundary boundary,
@@ -134,6 +132,11 @@ public final class StageArenaSnapshot {
         BlockPos minimum = minimum(origin, boundary);
         clearBox(level, minimum, minimum.getX() + boundary.width(),
                 minimum.getY() + boundary.height(), minimum.getZ() + boundary.depth());
+    }
+
+    private static void discardNonPlayers(ServerLevel level, AABB bounds) {
+        level.getEntities((Entity) null, bounds, entity -> !(entity instanceof Player))
+                .forEach(Entity::discard);
     }
 
     private static void clearBox(ServerLevel level, BlockPos minimum, int maxX, int maxY, int maxZ) {
