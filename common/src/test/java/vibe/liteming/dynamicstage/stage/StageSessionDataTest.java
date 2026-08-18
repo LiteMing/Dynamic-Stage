@@ -54,6 +54,32 @@ class StageSessionDataTest {
         assertFalse(loaded.get(session.playerId()).isPresent());
     }
 
+    @Test
+    void keepsNonPersistentInstanceWhileAnotherMemberIsPending() {
+        StageSessionData data = new StageSessionData();
+        StageSession session = session(UUID.randomUUID(), UUID.randomUUID(), 2);
+
+        data.put(session, false);
+        data.remove(session.playerId(), true);
+
+        StageInstance waiting = data.findInstance(session.instanceId()).orElseThrow();
+        assertFalse(waiting.persistent());
+        assertTrue(data.members(session.instanceId()).isEmpty());
+    }
+
+    @Test
+    void updatesAndExplicitlyRemovesAnEmptyInstance() {
+        StageSessionData data = new StageSessionData();
+        StageSession session = session(UUID.randomUUID(), UUID.randomUUID(), 3);
+
+        data.put(session, true);
+        data.remove(session.playerId());
+        assertTrue(data.updateInstancePersistent(session.instanceId(), false));
+        assertFalse(data.findInstance(session.instanceId()).orElseThrow().persistent());
+        assertTrue(data.removeEmptyInstance(session.instanceId()));
+        assertTrue(data.findInstance(session.instanceId()).isEmpty());
+    }
+
     private static StageSession session(UUID playerId, UUID instanceId, int slot) {
         return new StageSession(playerId, instanceId, "arena", new ResourceLocation("dynamicstage", "none"),
                 BlockPos.ZERO, slot, 4, StageBoundary.defaults(), StageClientScene.defaults(0L, 0L),

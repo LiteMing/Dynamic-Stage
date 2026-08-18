@@ -14,6 +14,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import net.minecraft.world.phys.AABB;
 
 import java.io.IOException;
+import java.util.List;
 
 /** Vanilla structure snapshot for blocks, block entities, and non-player entities inside a stage boundary. */
 public final class StageArenaSnapshot {
@@ -35,13 +36,21 @@ public final class StageArenaSnapshot {
     public static void restore(ServerLevel level, BlockPos origin, StageBoundary boundary,
                                CompoundTag snapshot) throws IOException {
         StructureTemplate structure = snapshot.isEmpty() ? null : read(level, boundary, snapshot);
-        AABB bounds = boundary.bounds(origin);
-        LoquatArenaCompat.clearAreas(level, bounds);
+        AABB region = regionBounds(level, origin);
+        LoquatArenaCompat.clearAreas(level, region);
         clearBoundary(level, origin, boundary);
-        discardNonPlayers(level, bounds);
+        discardNonPlayers(level, region);
         if (structure != null) {
             place(level, origin, boundary, structure);
         }
+    }
+
+    /** Releases every resource owned by an empty, non-persistent instance slot. */
+    public static void release(ServerLevel level, BlockPos origin, StageBoundary boundary) throws IOException {
+        AABB region = regionBounds(level, origin);
+        LoquatArenaCompat.clearAreas(level, region);
+        clearBoundary(level, origin, boundary);
+        discardNonPlayers(level, region);
     }
 
     public static void validate(ServerLevel level, StageBoundary boundary, CompoundTag snapshot) throws IOException {
@@ -135,8 +144,26 @@ public final class StageArenaSnapshot {
     }
 
     private static void discardNonPlayers(ServerLevel level, AABB bounds) {
-        level.getEntities((Entity) null, bounds, entity -> !(entity instanceof Player))
-                .forEach(Entity::discard);
+        List<Entity> entities = level.getEntities((Entity) null, bounds, entity -> !(entity instanceof Player));
+        entities.forEach(StageArenaSnapshot::discardEntityTree);
+    }
+
+    private static void discardEntityTree(Entity entity) {
+        if (entity.isRemoved() || entity instanceof Player) {
+            return;
+        }
+        for (Entity passenger : List.copyOf(entity.getPassengers())) {
+            if (passenger instanceof Player) {
+                passenger.stopRiding();
+            } else {
+                discardEntityTree(passenger);
+            }
+        }
+        entity.discard();
+    }
+
+    private static AABB regionBounds(ServerLevel level, BlockPos origin) {
+        return StagePlacement.regionBounds(origin, level.getMinBuildHeight(), level.getMaxBuildHeight());
     }
 
     private static void clearBox(ServerLevel level, BlockPos minimum, int maxX, int maxY, int maxZ) {

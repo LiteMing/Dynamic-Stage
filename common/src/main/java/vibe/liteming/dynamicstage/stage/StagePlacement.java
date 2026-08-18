@@ -1,6 +1,7 @@
 package vibe.liteming.dynamicstage.stage;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.AABB;
 
 /** Minimal spatial isolation for players sharing the otherwise empty stage dimension. */
 public final class StagePlacement {
@@ -27,5 +28,16 @@ public final class StagePlacement {
         double halfSpacing = REGION_SPACING * 0.5D;
         return x >= origin.getX() - halfSpacing && x < origin.getX() + halfSpacing
                 && z >= origin.getZ() - halfSpacing && z < origin.getZ() + halfSpacing;
+    }
+
+    /** Full isolated slot bounds used to remove entities that escaped the configured arena. */
+    public static AABB regionBounds(BlockPos origin, int minY, int maxY) {
+        if (maxY <= minY) {
+            throw new IllegalArgumentException("maxY must be greater than minY");
+        }
+        double halfSpacing = REGION_SPACING * 0.5D;
+        return new AABB(origin.getX() - halfSpacing, minY, origin.getZ() - halfSpacing,
+                origin.getX() + halfSpacing - 1.0E-4D, maxY,
+                origin.getZ() + halfSpacing - 1.0E-4D);
     }
 }

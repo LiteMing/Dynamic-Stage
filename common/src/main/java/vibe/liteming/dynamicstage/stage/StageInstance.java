@@ -82,6 +82,11 @@ public record StageInstance(
                 flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
     }
 
+    public StageInstance withPersistent(boolean value) {
+        return copy(stageId, lodPackId, lodAnchor, capacity, boundary, clientScene, value,
+                flightHash, flightBytes, flightDurationMillis, flightStartGameTime);
+    }
+
     public StageInstance withFlight(String hash, int bytes, long durationMillis, long startGameTime) {
         return copy(stageId, lodPackId, lodAnchor, capacity, boundary, clientScene, persistent,
                 hash, bytes, durationMillis, startGameTime);

@@ -34,4 +34,14 @@ class StagePlacementTest {
         assertFalse(StagePlacement.containsRegion(origin,
                 origin.getX(), origin.getZ() - halfSpacing - 0.001D));
     }
+
+    @Test
+    void fullRegionBoundsDoNotOverlapTheNextSlot() {
+        var first = StagePlacement.regionBounds(StagePlacement.originForSlot(0), -64, 320);
+        var next = StagePlacement.regionBounds(StagePlacement.originForSlot(1), -64, 320);
+
+        assertFalse(first.intersects(next));
+        assertTrue(first.contains(-1023.5D, 80.0D, 0.0D));
+        assertFalse(first.contains(1024.0D, 80.0D, 0.0D));
+    }
 }

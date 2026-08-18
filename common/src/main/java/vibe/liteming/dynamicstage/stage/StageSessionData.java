@@ -202,6 +202,27 @@ public final class StageSessionData extends SavedData {
         }
     }
 
+    public boolean updateInstancePersistent(UUID instanceId, boolean persistent) {
+        StageInstance instance = instances.get(instanceId);
+        if (instance == null || instance.persistent() == persistent) {
+            return instance != null;
+        }
+        instances.put(instanceId, instance.withPersistent(persistent));
+        setDirty();
+        return true;
+    }
+
+    public boolean removeEmptyInstance(UUID instanceId) {
+        if (sessions.values().stream().anyMatch(session -> session.instanceId().equals(instanceId))) {
+            return false;
+        }
+        if (instances.remove(instanceId) == null) {
+            return false;
+        }
+        setDirty();
+        return true;
+    }
+
     public void updateInstanceFlightStart(UUID instanceId, long startGameTime) {
         boolean changed = false;
         for (StageSession session : List.copyOf(sessions.values())) {
@@ -240,12 +261,16 @@ public final class StageSessionData extends SavedData {
     }
 
     public Optional<StageSession> remove(UUID playerId) {
+        return remove(playerId, false);
+    }
+
+    public Optional<StageSession> remove(UUID playerId, boolean keepEmptyInstance) {
         StageSession removed = sessions.remove(playerId);
         if (removed != null) {
             StageInstance instance = instances.get(removed.instanceId());
             boolean hasMembers = sessions.values().stream()
                     .anyMatch(session -> session.instanceId().equals(removed.instanceId()));
-            if (!hasMembers && instance != null && !instance.persistent()) {
+            if (!hasMembers && !keepEmptyInstance && instance != null && !instance.persistent()) {
                 instances.remove(removed.instanceId());
             }
             setDirty();

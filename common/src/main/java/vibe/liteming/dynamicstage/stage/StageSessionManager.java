@@ -11,6 +11,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import vibe.liteming.dynamicstage.flight.StageFlightAssets;
 import vibe.liteming.dynamicstage.lod.LodDistributionStore;
 import vibe.liteming.dynamicstage.lod.LodPackageOffer;
@@ -36,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Server authority for stage instances, membership, and client backdrop readiness. */
 public final class StageSessionManager {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(StageSessionManager.class);
     public static final String INSTANCE_NBT = "DynamicStageInstance";
     private static final int BACKDROP_SWITCH_TIMEOUT_MARGIN_TICKS = 20 * 15;
     private static final ConcurrentHashMap<UUID, PendingEntry> PENDING = new ConcurrentHashMap<>();
@@ -730,6 +733,7 @@ public final class StageSessionManager {
         if (pending != null && pending.session.instanceId().equals(instanceId)) {
             PENDING.remove(player.getUUID(), pending);
             if (!ready) {
+                releasePendingArenaIfUnused(server, pending);
                 DynamicStageNetwork.clearSession(player);
                 player.sendSystemMessage(Component.literal("LOD backdrop unavailable: " + boundedError(error)));
                 return;
@@ -758,8 +762,13 @@ public final class StageSessionManager {
         if (server == null) {
             return false;
         }
-        boolean cancelled = PENDING.remove(player.getUUID()) != null;
-        Optional<StageSession> removed = StageSessionData.get(server).remove(player.getUUID());
+        PendingEntry cancelledPending = PENDING.remove(player.getUUID());
+        boolean cancelled = cancelledPending != null;
+        player.stopRiding();
+        Optional<StageSession> removed = removeMembership(server, player.getUUID());
+        if (removed.isEmpty() && cancelledPending != null) {
+            releasePendingArenaIfUnused(server, cancelledPending);
+        }
         SENT_FLIGHTS.remove(player.getUUID());
         EDITING_PLAYERS.remove(player.getUUID());
         DynamicStageNetwork.forgetLodCollisionReports(player.getUUID());
@@ -774,7 +783,6 @@ public final class StageSessionManager {
         if (returnLevel == null) {
             returnLevel = server.overworld();
         }
-        player.stopRiding();
         player.fallDistance = 0.0F;
         // Release the client-side LOD package before the respawn packet makes
         // the new level renderer open Voxy's normal world storage.
@@ -786,10 +794,13 @@ public final class StageSessionManager {
 
     public static void releaseWithoutTeleport(ServerPlayer player) {
         MinecraftServer server = player.getServer();
+        PendingEntry cancelledPending = PENDING.remove(player.getUUID());
         if (server != null) {
-            StageSessionData.get(server).remove(player.getUUID());
+            Optional<StageSession> removed = removeMembership(server, player.getUUID());
+            if (removed.isEmpty() && cancelledPending != null) {
+                releasePendingArenaIfUnused(server, cancelledPending);
+            }
         }
-        PENDING.remove(player.getUUID());
         SENT_FLIGHTS.remove(player.getUUID());
         EDITING_PLAYERS.remove(player.getUUID());
         DynamicStageNetwork.forgetLodCollisionReports(player.getUUID());
@@ -799,7 +810,10 @@ public final class StageSessionManager {
     }
 
     public static void onLogout(ServerPlayer player) {
-        PENDING.remove(player.getUUID());
+        PendingEntry cancelledPending = PENDING.remove(player.getUUID());
+        if (cancelledPending != null && player.getServer() != null) {
+            releasePendingArenaIfUnused(player.getServer(), cancelledPending);
+        }
         SENT_FLIGHTS.remove(player.getUUID());
         EDITING_PLAYERS.remove(player.getUUID());
         DynamicStageNetwork.forgetLodCollisionReports(player.getUUID());
@@ -846,7 +860,7 @@ public final class StageSessionManager {
             return;
         }
         if (!StageWorlds.isStageLevel(player.level())) {
-            StageSessionData.get(server).remove(player.getUUID());
+            removeMembership(server, player.getUUID());
             clearPlayerMarker(player);
             DynamicStageNetwork.clearSession(player);
             return;
@@ -863,6 +877,69 @@ public final class StageSessionManager {
     public static Optional<StageSession> get(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         return server == null ? Optional.empty() : StageSessionData.get(server).get(player.getUUID());
+    }
+
+    public static boolean setInstancePersistent(ServerPlayer administrator, UUID instanceId,
+                                                boolean persistent) {
+        MinecraftServer server = administrator.getServer();
+        if (server == null || instanceId == null || !administrator.hasPermissions(2)) {
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        StageInstance instance = data.findInstance(instanceId).orElse(null);
+        if (instance == null || !data.updateInstancePersistent(instanceId, persistent)) {
+            administrator.sendSystemMessage(Component.literal("Unknown Dynamic Stage instance."));
+            return false;
+        }
+        PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(instanceId)
+                ? new PendingEntry(entry.session, persistent) : entry);
+        boolean hasPendingMembers = PENDING.values().stream()
+                .anyMatch(entry -> entry.session.instanceId().equals(instanceId));
+        if (!persistent && data.members(instanceId).isEmpty() && !hasPendingMembers) {
+            if (!releaseArena(server, instance.withPersistent(false))) {
+                data.updateInstancePersistent(instanceId, true);
+                administrator.sendSystemMessage(Component.literal(
+                        "Could not clear the empty stage instance; it remains retained."));
+                return false;
+            }
+            data.removeEmptyInstance(instanceId);
+            administrator.sendSystemMessage(Component.literal("Released empty stage instance " + instanceId + '.'));
+            return true;
+        }
+        administrator.sendSystemMessage(Component.literal("Stage instance " + instanceId + " will "
+                + (persistent ? "be retained when empty." : "be released when empty.")));
+        return true;
+    }
+
+    public static boolean releaseEmptyInstance(ServerPlayer administrator, UUID instanceId) {
+        MinecraftServer server = administrator.getServer();
+        if (server == null || instanceId == null || !administrator.hasPermissions(2)) {
+            return false;
+        }
+        StageSessionData data = StageSessionData.get(server);
+        StageInstance instance = data.findInstance(instanceId).orElse(null);
+        if (instance == null) {
+            administrator.sendSystemMessage(Component.literal("Unknown Dynamic Stage instance."));
+            return false;
+        }
+        boolean pending = PENDING.values().stream()
+                .anyMatch(entry -> entry.session.instanceId().equals(instanceId));
+        if (pending || !data.members(instanceId).isEmpty()) {
+            administrator.sendSystemMessage(Component.literal(
+                    "Only an empty stage instance can be released from the editor."));
+            return false;
+        }
+        if (!releaseArena(server, instance)) {
+            administrator.sendSystemMessage(Component.literal(
+                    "Could not clear the selected stage instance; it remains retained."));
+            return false;
+        }
+        if (!data.removeEmptyInstance(instanceId)) {
+            administrator.sendSystemMessage(Component.literal("The stage instance changed before release."));
+            return false;
+        }
+        administrator.sendSystemMessage(Component.literal("Released stage instance " + instanceId + '.'));
+        return true;
     }
 
     /** Enables block editing for this player only while they are a creative member of a stage. */
@@ -1071,6 +1148,59 @@ public final class StageSessionManager {
 
     private static boolean validStageId(String stageId) {
         return stageId != null && !stageId.isBlank() && stageId.length() <= 128;
+    }
+
+    private static Optional<StageSession> removeMembership(MinecraftServer server, UUID playerId) {
+        StageSessionData data = StageSessionData.get(server);
+        StageSession membership = data.get(playerId).orElse(null);
+        if (membership == null) {
+            return Optional.empty();
+        }
+        StageInstance instance = data.findInstance(membership.instanceId())
+                .orElseGet(() -> StageInstance.from(membership, false));
+        boolean hasPendingMembers = PENDING.values().stream()
+                .anyMatch(entry -> !entry.session.playerId().equals(playerId)
+                        && entry.session.instanceId().equals(membership.instanceId()));
+        // Keep the slot claimed until cleanup succeeds so a failed release cannot
+        // expose stale arena contents to the next allocated instance.
+        Optional<StageSession> removed = data.remove(playerId, true);
+        if (!instance.persistent() && !hasPendingMembers
+                && data.members(instance.instanceId()).isEmpty()) {
+            if (releaseArena(server, instance)) {
+                data.removeEmptyInstance(instance.instanceId());
+            } else {
+                data.updateInstancePersistent(instance.instanceId(), true);
+            }
+        }
+        return removed;
+    }
+
+    private static boolean releaseArena(MinecraftServer server, StageInstance instance) {
+        ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
+        if (stageLevel == null) {
+            LOGGER.warn("Could not release stage instance {} because the stage dimension is unavailable",
+                    instance.instanceId());
+            return false;
+        }
+        try {
+            StageArenaSnapshot.release(stageLevel, instance.stageOrigin(), instance.boundary());
+            return true;
+        } catch (java.io.IOException | RuntimeException e) {
+            LOGGER.warn("Could not release stage instance {} in slot {}", instance.instanceId(),
+                    instance.slot(), e);
+            return false;
+        }
+    }
+
+    private static void releasePendingArenaIfUnused(MinecraftServer server, PendingEntry pending) {
+        UUID instanceId = pending.session.instanceId();
+        StageSessionData data = StageSessionData.get(server);
+        if (data.findInstance(instanceId).isPresent() || PENDING.values().stream()
+                .anyMatch(entry -> entry.session.instanceId().equals(instanceId))) {
+            return;
+        }
+        // Retention begins only after the first member has successfully entered.
+        releaseArena(server, StageInstance.from(pending.session, false));
     }
 
     private static String boundedError(String error) {
