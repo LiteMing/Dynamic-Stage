@@ -27,7 +27,7 @@ public record StageClientScene(
     public static final float DEFAULT_DH_NEAR_FADE_SCALE = 0.01F;
     public static final float MIN_DH_NEAR_FADE_SCALE = 0.001F;
     public static final float MAX_DH_NEAR_FADE_SCALE = 1.0F;
-    public static final float DEFAULT_VOXY_NEAR_PLANE = 0.1F;
+    public static final float DEFAULT_VOXY_NEAR_PLANE = 0.5F;
     public static final float MIN_VOXY_NEAR_PLANE = 0.01F;
     public static final float MAX_VOXY_NEAR_PLANE = 16.0F;
     /** Voxy's camera-containing section is preserved by default in a stage. */
