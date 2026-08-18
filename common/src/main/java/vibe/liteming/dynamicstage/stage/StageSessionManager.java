@@ -90,6 +90,10 @@ public final class StageSessionManager {
                     .filter(candidate -> !candidate.hasFlight() || validFlight(server, candidate))
                     .findFirst().orElse(null);
             if (instance != null) {
+                if (memberCount(data, instance.instanceId()) == 0
+                        && !resetEmptyTemplateArena(server, instance, template)) {
+                    return false;
+                }
                 return joinExisting(player, instance);
             }
             PendingEntry pending = PENDING.values().stream()
@@ -1271,6 +1275,21 @@ public final class StageSessionManager {
         } else {
             StageArenaSnapshot.restore(level, origin, template.boundary(),
                     template.arenaSnapshot(), template.structures());
+        }
+    }
+
+    private static boolean resetEmptyTemplateArena(MinecraftServer server, StageInstance instance,
+                                                   StageTemplate template) {
+        ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
+        if (stageLevel == null) {
+            return false;
+        }
+        try {
+            resetArena(stageLevel, instance.stageOrigin(), template);
+            return true;
+        } catch (java.io.IOException | RuntimeException e) {
+            LOGGER.warn("Could not refresh retained stage instance {}", instance.instanceId(), e);
+            return false;
         }
     }
 
