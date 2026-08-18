@@ -146,6 +146,12 @@ public final class ClientStageSession {
                 gameTime(), SwitchPhase.PREPARE);
         backdropSwitch = state;
         long serial = ++preparationSerial;
+        if (StageLodPacks.NONE.equals(target.lodPackId())) {
+            state.phase = animate ? SwitchPhase.OUT : SwitchPhase.MOUNT;
+            state.phaseStart = gameTime();
+            state.preparationWarning = "";
+            return;
+        }
         LodPackDownloadManager.prepare(target.lodPackId(), target.lodOffer())
                 .whenComplete((download, error) -> Minecraft.getInstance().execute(() -> {
                     if (serial != preparationSerial || backdropSwitch != state) {
@@ -264,6 +270,10 @@ public final class ClientStageSession {
         StageBackdropRuntime.unmount();
         active = state.target;
         applySnapshotState(state.target);
+        if (StageLodPacks.NONE.equals(state.target.lodPackId())) {
+            finishMount(state, now, state.preparationWarning);
+            return;
+        }
         StageBackdropRuntime.Result result = StageBackdropRuntime.mount(state.target);
         if (result.unavailable()) {
             finishMount(state, now, joinWarnings(state.preparationWarning, result.error()));
