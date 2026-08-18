@@ -44,6 +44,14 @@ class CurrentLodCacheTest {
                 CurrentLodCache.missingPackId("1", new ResourceLocation("minecraft", "overworld")));
     }
 
+    @Test
+    void retainsNativeCacheAvailabilityDiagnostic() throws IOException {
+        CurrentLodCache empty = new CurrentLodCache(LodPackImporter.Backend.VOXY,
+                temporaryDirectory.resolve("empty"), "world", "Voxy cache is empty");
+
+        assertEquals("Voxy cache is empty", CurrentLodCache.select(List.of(empty)).unavailableReason());
+    }
+
     private CurrentLodCache cache(LodPackImporter.Backend backend, String identity) {
         return new CurrentLodCache(backend, temporaryDirectory.resolve(backend.name()), identity);
     }

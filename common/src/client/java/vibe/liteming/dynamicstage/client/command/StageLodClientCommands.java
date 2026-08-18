@@ -178,6 +178,12 @@ public final class StageLodClientCommands {
             sendStart(connection, stage, missing, anchor);
             return 1;
         }
+        if (cache.unavailableReason() != null) {
+            ResourceLocation missing = CurrentLodCache.missingPackId(stage, dimension.location());
+            message(Component.literal(cache.unavailableReason() + "; entering without native LOD."));
+            sendStart(connection, stage, missing, anchor);
+            return 1;
+        }
 
         Path gameDirectory = minecraft.gameDirectory.toPath().toAbsolutePath().normalize();
         ResourceLocation packId = cache.automaticPackId(gameDirectory);
@@ -224,6 +230,14 @@ public final class StageLodClientCommands {
     }
 
     public static CompletableFuture<ResourceLocation> prepareCurrentLod() {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.level == null || minecraft.player == null) {
+            return CompletableFuture.failedFuture(new IOException("No active client level"));
+        }
+        if (StageWorlds.isStageLevel(minecraft.level)) {
+            return CompletableFuture.failedFuture(new IOException(
+                    "Exit the active stage before selecting its source LOD cache"));
+        }
         final CurrentLodCache cache;
         try {
             cache = CurrentLodCache.discover();
@@ -233,7 +247,9 @@ public final class StageLodClientCommands {
         if (cache == null) {
             return CompletableFuture.completedFuture(null);
         }
-        Minecraft minecraft = Minecraft.getInstance();
+        if (cache.unavailableReason() != null) {
+            return CompletableFuture.failedFuture(new IOException(cache.unavailableReason()));
+        }
         Path gameDirectory = minecraft.gameDirectory.toPath().toAbsolutePath().normalize();
         ResourceLocation packId = cache.automaticPackId(gameDirectory);
         if (!ACTIVE_IMPORTS.add(packId)) {

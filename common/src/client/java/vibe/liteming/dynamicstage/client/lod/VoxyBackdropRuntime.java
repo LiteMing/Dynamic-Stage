@@ -107,10 +107,16 @@ public final class VoxyBackdropRuntime {
                 }
                 String worldId = String.valueOf(identifier.getClass().getMethod("getWorldId").invoke(identifier));
                 Field storageField = findField(world.getClass(), "storage");
-                Field backendField = findField(storageField.get(world).getClass(), "backend");
-                Object backend = backendField.get(storageField.get(world));
+                Object storageObject = storageField.get(world);
+                Field backendField = findField(storageObject.getClass(), "backend");
+                Object backend = backendField.get(storageObject);
                 Path storage = findRocksDbPath(backend);
-                sources.putIfAbsent(storage, new CurrentSource(storage, worldId));
+                boolean ingestEnabled = (boolean) instance.getClass()
+                        .getMethod("isIngestEnabled", Class.forName(
+                                "me.cortex.voxy.commonImpl.WorldIdentifier"))
+                        .invoke(instance, identifier);
+                sources.putIfAbsent(storage, new CurrentSource(storage, worldId,
+                        hasStoredSections(backend), ingestEnabled));
             }
             return new ArrayList<>(sources.values());
         } catch (ClassNotFoundException e) {
@@ -348,17 +354,39 @@ public final class VoxyBackdropRuntime {
     }
 
     private static Path findRocksDbPath(Object backend) throws ReflectiveOperationException {
+        Object candidate = findRocksDbBackend(backend);
+        Object db = findField(candidate.getClass(), "db").get(candidate);
+        Object name = db.getClass().getMethod("getName").invoke(db);
+        return Path.of(String.valueOf(name)).toAbsolutePath().normalize();
+    }
+
+    private static Object findRocksDbBackend(Object backend) throws ReflectiveOperationException {
         Object backends = backend.getClass().getMethod("collectAllBackends").invoke(backend);
         if (backends instanceof Iterable<?> iterable) {
             for (Object candidate : iterable) {
                 if (candidate != null && candidate.getClass().getName().endsWith("RocksDBStorageBackend")) {
-                    Object db = findField(candidate.getClass(), "db").get(candidate);
-                    Object name = db.getClass().getMethod("getName").invoke(db);
-                    return Path.of(String.valueOf(name)).toAbsolutePath().normalize();
+                    return candidate;
                 }
             }
         }
         throw new IllegalStateException("Voxy storage config does not contain RocksDB");
+    }
+
+    private static boolean hasStoredSections(Object backend) throws ReflectiveOperationException {
+        Object rocks = findRocksDbBackend(backend);
+        Object db = findField(rocks.getClass(), "db").get(rocks);
+        Object worldSections = findField(rocks.getClass(), "worldSections").get(rocks);
+        Class<?> handleClass = Class.forName("org.rocksdb.ColumnFamilyHandle");
+        Object iterator = db.getClass().getMethod("newIterator", handleClass).invoke(db, worldSections);
+        try {
+            iterator.getClass().getMethod("seekToFirst").invoke(iterator);
+            return (boolean) iterator.getClass().getMethod("isValid").invoke(iterator);
+        } finally {
+            try {
+                iterator.getClass().getMethod("close").invoke(iterator);
+            } catch (ReflectiveOperationException ignored) {
+            }
+        }
     }
 
     private static void verifyVoxyVersion() throws ReflectiveOperationException {
@@ -405,7 +433,8 @@ public final class VoxyBackdropRuntime {
     private record Mounted(UUID instanceId, LodPackRegistry.VoxyPack pack) {
     }
 
-    public record CurrentSource(Path storage, String worldId) {
+    public record CurrentSource(Path storage, String worldId, boolean hasStoredSections,
+                                boolean ingestEnabled) {
     }
 
     public static final class BlockLookup implements AutoCloseable {

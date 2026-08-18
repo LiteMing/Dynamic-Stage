@@ -14,12 +14,20 @@ import java.util.HexFormat;
 import java.util.List;
 
 /** Identifies the native LOD storage currently opened for the client's source level. */
-public record CurrentLodCache(LodPackImporter.Backend backend, Path source, String worldIdentifier) {
+public record CurrentLodCache(LodPackImporter.Backend backend, Path source, String worldIdentifier,
+                              @Nullable String unavailableReason) {
+
+    public CurrentLodCache(LodPackImporter.Backend backend, Path source, String worldIdentifier) {
+        this(backend, source, worldIdentifier, null);
+    }
 
     public CurrentLodCache {
         source = source.toAbsolutePath().normalize();
         if (worldIdentifier == null || worldIdentifier.isBlank()) {
             throw new IllegalArgumentException("LOD world identifier is empty");
+        }
+        if (unavailableReason != null && unavailableReason.isBlank()) {
+            unavailableReason = null;
         }
     }
 
@@ -29,12 +37,16 @@ public record CurrentLodCache(LodPackImporter.Backend backend, Path source, Stri
         DhBackdropRuntime.CurrentSource dh = DhBackdropRuntime.currentSource();
         if (dh != null && Files.isRegularFile(dh.database())) {
             candidates.add(new CurrentLodCache(
-                    LodPackImporter.Backend.DISTANT_HORIZONS, dh.database(), dh.worldIdentifier()));
+                    LodPackImporter.Backend.DISTANT_HORIZONS, dh.database(), dh.worldIdentifier(), null));
         }
         for (VoxyBackdropRuntime.CurrentSource voxy : VoxyBackdropRuntime.currentSources()) {
             if (Files.isDirectory(voxy.storage())) {
+                String unavailable = voxy.hasStoredSections() ? null
+                        : voxy.ingestEnabled()
+                        ? "The current Voxy cache contains no terrain LOD sections yet"
+                        : "The current Voxy cache is empty because Voxy chunk ingestion is disabled";
                 candidates.add(new CurrentLodCache(
-                        LodPackImporter.Backend.VOXY, voxy.storage(), voxy.worldId()));
+                        LodPackImporter.Backend.VOXY, voxy.storage(), voxy.worldId(), unavailable));
             }
         }
         return select(candidates);
