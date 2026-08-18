@@ -11,17 +11,6 @@ import vibe.liteming.dynamicstage.client.lod.VoxyBackdropRuntime;
 @Mixin(targets = "me.cortex.voxy.client.core.VoxyRenderSystem", remap = false)
 public abstract class VoxyNearClipMixin {
 
-    @Redirect(method = "computeProjectionMat(Lorg/joml/Matrix4fc;)Lorg/joml/Matrix4f;",
-            at = @At(value = "INVOKE",
-                    target = "Lme/cortex/voxy/client/VoxyClient;disableSodiumChunkRender()Z"),
-            require = 1,
-            remap = false)
-    private static boolean dynamicstage$renderUpToStageCamera() {
-        // Voxy 0.2.14 normally returns false here. Returning true selects its
-        // fixed 0.1 near plane without changing Sodium's own chunk renderer.
-        return VoxyBackdropRuntime.shouldOverrideCurrentStage();
-    }
-
     @Redirect(method = "renderOpaque(Lme/cortex/voxy/client/core/rendering/Viewport;)V",
             at = @At(value = "INVOKE",
                     target = "Lme/cortex/voxy/client/VoxyClient;disableSodiumChunkRender()Z"),
