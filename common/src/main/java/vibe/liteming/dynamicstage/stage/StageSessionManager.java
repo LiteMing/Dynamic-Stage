@@ -66,7 +66,7 @@ public final class StageSessionManager {
         UUID instanceId = UUID.randomUUID();
         StageSession session = createMembership(player, instanceId, stageId, lodPackId, lodAnchor,
                 slot, capacity, flightFor(server, stageId), -1L);
-        return prepare(player, session, false);
+        return prepare(player, session, false, BlockPos.ZERO);
     }
 
     public static boolean createAndEnterTemplate(ServerPlayer player, StageTemplate template) {
@@ -99,7 +99,7 @@ public final class StageSessionManager {
                     .filter(entry -> !entry.session.hasFlight() || validFlight(server, entry.session))
                     .findFirst().orElse(null);
             if (pending != null) {
-                return joinExisting(player, pending.session, pending.persistent);
+                return joinExisting(player, pending.session, pending.persistent, pending.entryOffset);
             }
         }
         if (!canPrepare(player, server)) {
@@ -118,7 +118,7 @@ public final class StageSessionManager {
         }
         try {
             StageArenaSnapshot.restore(stageLevel, StagePlacement.originForSlot(slot),
-                    template.boundary(), template.arenaSnapshot());
+                    template.boundary(), template.arenaSnapshot(), template.structures());
         } catch (java.io.IOException | RuntimeException e) {
             player.sendSystemMessage(Component.literal(
                     "Could not initialize the template arena: " + e.getMessage()));
@@ -128,7 +128,8 @@ public final class StageSessionManager {
         StageClientScene scene = template.sceneForNewInstance(server.overworld().getDayTime(), gameTime);
         StageSession session = createMembership(player, UUID.randomUUID(), template.id(), template.lodPackId(),
                 template.lodAnchor(), slot, template.capacity(), template.boundary(), scene, flight, -1L);
-        return prepare(player, session, template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN);
+        return prepare(player, session, template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN,
+                template.entryOffset());
     }
 
     public static boolean resetTemplateArena(ServerPlayer player, StageTemplate template) {
@@ -144,7 +145,7 @@ public final class StageSessionManager {
         }
         try {
             StageArenaSnapshot.restore(stageLevel, session.stageOrigin(),
-                    template.boundary(), template.arenaSnapshot());
+                    template.boundary(), template.arenaSnapshot(), template.structures());
             return true;
         } catch (java.io.IOException | RuntimeException e) {
             player.sendSystemMessage(Component.literal("Could not reset the template arena: " + e.getMessage()));
@@ -180,7 +181,8 @@ public final class StageSessionManager {
         final StageFlightAssets.Asset flight;
         try {
             flight = StageTemplateStore.installFlight(server, template);
-            StageArenaSnapshot.validate(stageLevel, template.boundary(), template.arenaSnapshot());
+            StageArenaSnapshot.validate(stageLevel, template.boundary(), template.arenaSnapshot(),
+                    template.structures());
         } catch (java.io.IOException | RuntimeException e) {
             player.sendSystemMessage(Component.literal("Could not reload stage template: " + e.getMessage()));
             return false;
@@ -216,7 +218,7 @@ public final class StageSessionManager {
         }
         try {
             StageArenaSnapshot.replace(stageLevel, current.stageOrigin(), current.boundary(),
-                    template.boundary(), template.arenaSnapshot());
+                    template.boundary(), template.arenaSnapshot(), template.structures());
         } catch (java.io.IOException | RuntimeException e) {
             sendReloadMessage(server, plan, "Could not reload stage template: " + e.getMessage());
             return false;
@@ -235,7 +237,8 @@ public final class StageSessionManager {
                 template.lodAnchor(), template.capacity(), template.boundary(), scene)
                 .withFlight(flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
                         flight == null ? 0L : flight.durationMillis(), flightStart),
-                template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN) : entry);
+                template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN)
+                .withEntryOffset(template.entryOffset()) : entry);
         for (StageSession member : data.members(instanceId)) {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
             if (target == null) {
@@ -296,7 +299,7 @@ public final class StageSessionManager {
             player.sendSystemMessage(Component.literal("Unknown or inactive Dynamic Stage instance."));
             return false;
         }
-        return joinExisting(player, pending.session, pending.persistent);
+        return joinExisting(player, pending.session, pending.persistent, pending.entryOffset);
     }
 
     /** Lists active or preparing stage instances the given player can currently join. */
@@ -324,10 +327,16 @@ public final class StageSessionManager {
     }
 
     private static boolean joinExisting(ServerPlayer player, StageInstance instance) {
-        return joinExisting(player, createMembership(player, instance), instance.persistent());
+        return joinExisting(player, createMembership(player, instance), instance.persistent(),
+                entryOffsetFor(player.getServer(), instance.stageId()));
     }
 
     private static boolean joinExisting(ServerPlayer player, StageSession membership, boolean persistent) {
+        return joinExisting(player, membership, persistent, entryOffsetFor(player.getServer(), membership.stageId()));
+    }
+
+    private static boolean joinExisting(ServerPlayer player, StageSession membership, boolean persistent,
+                                        BlockPos entryOffset) {
         MinecraftServer server = player.getServer();
         if (!canPrepare(player, server)) {
             return false;
@@ -346,7 +355,7 @@ public final class StageSessionManager {
             player.sendSystemMessage(Component.literal("That Dynamic Stage instance's flight is unavailable."));
             return false;
         }
-        return prepare(player, membership, persistent);
+        return prepare(player, membership, persistent, entryOffset);
     }
 
     public static boolean setAnchor(ServerPlayer player, BlockPos anchor) {
@@ -892,7 +901,7 @@ public final class StageSessionManager {
             return false;
         }
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(instanceId)
-                ? new PendingEntry(entry.session, persistent) : entry);
+                ? new PendingEntry(entry.session, persistent, entry.entryOffset) : entry);
         boolean hasPendingMembers = PENDING.values().stream()
                 .anyMatch(entry -> entry.session.instanceId().equals(instanceId));
         if (!persistent && data.members(instanceId).isEmpty() && !hasPendingMembers) {
@@ -1001,8 +1010,9 @@ public final class StageSessionManager {
                 && switching.target().equals(lodPackId);
     }
 
-    private static boolean prepare(ServerPlayer player, StageSession session, boolean persistent) {
-        PENDING.put(player.getUUID(), new PendingEntry(session, persistent));
+    private static boolean prepare(ServerPlayer player, StageSession session, boolean persistent,
+                                   BlockPos entryOffset) {
+        PENDING.put(player.getUUID(), new PendingEntry(session, persistent, entryOffset));
         DynamicStageNetwork.sendSession(player, session);
         player.sendSystemMessage(Component.literal("Checking local LOD pack '" + session.lodPackId() + "'..."));
         return true;
@@ -1029,9 +1039,10 @@ public final class StageSessionManager {
         data.put(session, pending.persistent);
         markPlayer(player, session.instanceId());
         BlockPos origin = session.stageOrigin();
+        BlockPos entry = origin.offset(pending.entryOffset);
         player.stopRiding();
         player.fallDistance = 0.0F;
-        player.teleportTo(stageLevel, origin.getX() + 0.5D, origin.getY(), origin.getZ() + 0.5D,
+        player.teleportTo(stageLevel, entry.getX() + 0.5D, entry.getY(), entry.getZ() + 0.5D,
                 player.getYRot(), player.getXRot());
         player.sendSystemMessage(Component.literal("Entered stage '" + session.stageId() + "' instance "
                 + session.instanceId() + '.'));
@@ -1227,6 +1238,19 @@ public final class StageSessionManager {
         }
     }
 
+    private static BlockPos entryOffsetFor(MinecraftServer server, String stageId) {
+        if (server == null) {
+            return BlockPos.ZERO;
+        }
+        try {
+            StageTemplate template = StageTemplateStore.load(server, stageId);
+            return template == null ? BlockPos.ZERO : template.entryOffset();
+        } catch (java.io.IOException | RuntimeException e) {
+            LOGGER.warn("Could not load entry offset for stage template {}", stageId, e);
+            return BlockPos.ZERO;
+        }
+    }
+
     private static void markPlayer(ServerPlayer player, UUID instanceId) {
         StagePlatform.setInstanceMarker(player, instanceId);
     }
@@ -1265,13 +1289,17 @@ public final class StageSessionManager {
         }
     }
 
-    private record PendingEntry(StageSession session, boolean persistent) {
+    private record PendingEntry(StageSession session, boolean persistent, BlockPos entryOffset) {
         private PendingEntry withSession(StageSession updated) {
-            return new PendingEntry(updated, persistent);
+            return new PendingEntry(updated, persistent, entryOffset);
         }
 
         private PendingEntry withSession(StageSession updated, boolean newPersistent) {
-            return new PendingEntry(updated, newPersistent);
+            return new PendingEntry(updated, newPersistent, entryOffset);
+        }
+
+        private PendingEntry withEntryOffset(BlockPos updated) {
+            return new PendingEntry(session, persistent, updated);
         }
     }
 

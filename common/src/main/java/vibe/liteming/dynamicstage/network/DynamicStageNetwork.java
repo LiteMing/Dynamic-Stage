@@ -206,7 +206,7 @@ public final class DynamicStageNetwork {
 
     public static void sendTemplateList(ServerPlayer player) {
         try {
-            java.util.List<StageTemplateSummary> summaries = StageTemplateStore.listTemplates().stream()
+            java.util.List<StageTemplateSummary> summaries = StageTemplateStore.listTemplates(player.getServer()).stream()
                     .limit(StageTemplatePackets.MAX_TEMPLATES).map(StageTemplateSummary::from).toList();
             FriendlyByteBuf buf = buffer();
             StageTemplatePackets.encodeList(new StageTemplatePackets.ListPacket(summaries), buf);
@@ -288,7 +288,7 @@ public final class DynamicStageNetwork {
             StageTemplate template;
             boolean arenaCleared = false;
             if (packet.action() == StageTemplatePackets.Action.RELOAD_ACTIVE) {
-                template = StageTemplateStore.load(summary.id());
+                template = StageTemplateStore.load(player.getServer(), summary.id());
                 if (template == null) {
                     throw new IllegalStateException("Unknown stage template '" + summary.id() + "'");
                 }
@@ -302,7 +302,7 @@ public final class DynamicStageNetwork {
                         new IllegalStateException("No active stage instance to capture"));
                 template = StageTemplateStore.capture(player.getServer(), session, summary);
             } else if (packet.action() == StageTemplatePackets.Action.USE_CONFIGURED_FLIGHT) {
-                StageTemplate existing = StageTemplateStore.load(summary.id());
+                StageTemplate existing = StageTemplateStore.load(player.getServer(), summary.id());
                 arenaCleared = arenaWillBeCleared(existing, summary);
                 if (summary.flightName().isEmpty()) {
                     throw new IllegalStateException("Select a Flight from the Dynamic Stage library");
@@ -312,11 +312,11 @@ public final class DynamicStageNetwork {
                         summary.id(), summary.flightName());
                 template = summary.applyTo(existing, asset.sceneJson(), summary.flightName());
             } else if (packet.action() == StageTemplatePackets.Action.CLEAR_FLIGHT) {
-                StageTemplate existing = StageTemplateStore.load(summary.id());
+                StageTemplate existing = StageTemplateStore.load(player.getServer(), summary.id());
                 arenaCleared = arenaWillBeCleared(existing, summary);
                 template = summary.applyTo(existing, new byte[0], "");
             } else {
-                StageTemplate existing = StageTemplateStore.load(summary.id());
+                StageTemplate existing = StageTemplateStore.load(player.getServer(), summary.id());
                 arenaCleared = arenaWillBeCleared(existing, summary);
                 template = summary.applyTo(existing);
             }

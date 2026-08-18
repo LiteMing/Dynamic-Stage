@@ -12,6 +12,7 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.phys.AABB;
+import vibe.liteming.dynamicstage.template.StageStructurePlacement;
 
 import java.io.IOException;
 import java.util.List;
@@ -35,13 +36,22 @@ public final class StageArenaSnapshot {
 
     public static void restore(ServerLevel level, BlockPos origin, StageBoundary boundary,
                                CompoundTag snapshot) throws IOException {
+        restore(level, origin, boundary, snapshot, List.of());
+    }
+
+    public static void restore(ServerLevel level, BlockPos origin, StageBoundary boundary,
+                               CompoundTag snapshot, List<StageStructurePlacement> structures) throws IOException {
         StructureTemplate structure = snapshot.isEmpty() ? null : read(level, boundary, snapshot);
+        List<ResolvedStructure> resolved = resolveStructures(level, origin, boundary, structures);
         AABB region = regionBounds(level, origin);
         LoquatArenaCompat.clearAreas(level, region);
         clearBoundary(level, origin, boundary);
         discardNonPlayers(level, region);
         if (structure != null) {
             place(level, origin, boundary, structure);
+        }
+        for (ResolvedStructure placement : resolved) {
+            place(level, placement.position(), placement.structure());
         }
     }
 
@@ -54,15 +64,28 @@ public final class StageArenaSnapshot {
     }
 
     public static void validate(ServerLevel level, StageBoundary boundary, CompoundTag snapshot) throws IOException {
+        validate(level, boundary, snapshot, List.of());
+    }
+
+    public static void validate(ServerLevel level, StageBoundary boundary, CompoundTag snapshot,
+                                List<StageStructurePlacement> structures) throws IOException {
         if (!snapshot.isEmpty()) {
             read(level, boundary, snapshot);
         }
+        resolveStructures(level, BlockPos.ZERO, boundary, structures);
     }
 
     /** Replaces a live arena and removes blocks left outside a smaller new boundary. */
     public static void replace(ServerLevel level, BlockPos origin, StageBoundary previousBoundary,
                                StageBoundary boundary, CompoundTag snapshot) throws IOException {
+        replace(level, origin, previousBoundary, boundary, snapshot, List.of());
+    }
+
+    public static void replace(ServerLevel level, BlockPos origin, StageBoundary previousBoundary,
+                               StageBoundary boundary, CompoundTag snapshot,
+                               List<StageStructurePlacement> structures) throws IOException {
         StructureTemplate structure = snapshot.isEmpty() ? null : read(level, boundary, snapshot);
+        List<ResolvedStructure> resolved = resolveStructures(level, origin, boundary, structures);
         AABB previousBounds = previousBoundary.bounds(origin);
         AABB nextBounds = boundary.bounds(origin);
         AABB affected = new AABB(Math.min(previousBounds.minX, nextBounds.minX),
@@ -75,6 +98,9 @@ public final class StageArenaSnapshot {
         discardNonPlayers(level, affected);
         if (structure != null) {
             place(level, origin, boundary, structure);
+        }
+        for (ResolvedStructure placement : resolved) {
+            place(level, placement.position(), placement.structure());
         }
     }
 
@@ -96,11 +122,38 @@ public final class StageArenaSnapshot {
     private static void place(ServerLevel level, BlockPos origin, StageBoundary boundary,
                               StructureTemplate structure) throws IOException {
         BlockPos minimum = minimum(origin, boundary);
+        place(level, minimum, structure);
+    }
+
+    private static void place(ServerLevel level, BlockPos position, StructureTemplate structure) throws IOException {
         StructurePlaceSettings settings = new StructurePlaceSettings()
                 .setIgnoreEntities(false).setFinalizeEntities(true).setKeepLiquids(false);
-        if (!structure.placeInWorld(level, minimum, minimum, settings, RandomSource.create(), Block.UPDATE_ALL)) {
+        if (!structure.placeInWorld(level, position, position, settings, RandomSource.create(), Block.UPDATE_ALL)) {
             throw new IOException("the arena structure could not be placed");
         }
+    }
+
+    private static List<ResolvedStructure> resolveStructures(ServerLevel level, BlockPos origin,
+                                                              StageBoundary boundary,
+                                                              List<StageStructurePlacement> placements)
+            throws IOException {
+        validateSize(boundary);
+        AABB bounds = boundary.bounds(origin);
+        java.util.ArrayList<ResolvedStructure> resolved = new java.util.ArrayList<>();
+        for (StageStructurePlacement placement : placements) {
+            StructureTemplate structure = level.getStructureManager().get(placement.structureId())
+                    .orElseThrow(() -> new IOException("missing stage structure " + placement.structureId()));
+            BlockPos position = origin.offset(placement.offset());
+            Vec3i size = structure.getSize();
+            if (position.getX() < bounds.minX || position.getY() < bounds.minY || position.getZ() < bounds.minZ
+                    || position.getX() + size.getX() > bounds.maxX
+                    || position.getY() + size.getY() > bounds.maxY
+                    || position.getZ() + size.getZ() > bounds.maxZ) {
+                throw new IOException("stage structure " + placement.structureId() + " is outside the boundary");
+            }
+            resolved.add(new ResolvedStructure(structure, position));
+        }
+        return List.copyOf(resolved);
     }
 
     private static void clearPreviousRemainder(ServerLevel level, BlockPos origin,
@@ -196,5 +249,8 @@ public final class StageArenaSnapshot {
 
     private static BlockPos minimum(BlockPos origin, StageBoundary boundary) {
         return origin.offset(-boundary.width() / 2, 0, -boundary.depth() / 2);
+    }
+
+    private record ResolvedStructure(StructureTemplate structure, BlockPos position) {
     }
 }

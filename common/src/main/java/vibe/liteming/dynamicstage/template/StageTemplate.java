@@ -12,13 +12,16 @@ import vibe.liteming.dynamicstage.stage.StageSession;
 import vibe.liteming.dynamicstage.util.ContentHash;
 
 import java.util.Arrays;
+import java.util.List;
 
 /** Portable, game-instance-level configuration used to create stage instances. */
 public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
                             StageBoundary boundary, StageClientScene clientScene, int capacity,
                             InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy, byte[] flightJson,
-                            CompoundTag arenaSnapshot, String flightName) {
-    public static final int FORMAT_VERSION = 1;
+                            CompoundTag arenaSnapshot, String flightName, BlockPos entryOffset,
+                            List<StageStructurePlacement> structures) {
+    public static final int FORMAT_VERSION = 2;
+    private static final int MAX_STRUCTURES = 16;
 
     public StageTemplate {
         if (id == null || id.isBlank() || id.length() > 128) {
@@ -26,7 +29,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         }
         if (lodPackId == null || lodAnchor == null || boundary == null || clientScene == null
                 || instanceMode == null || lifecyclePolicy == null || flightJson == null || arenaSnapshot == null
-                || flightName == null) {
+                || flightName == null || entryOffset == null || structures == null) {
             throw new IllegalArgumentException("Stage template contains null state");
         }
         if (capacity < 1 || capacity > StageSession.MAX_CAPACITY) {
@@ -34,6 +37,14 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         }
         flightJson = flightJson.clone();
         arenaSnapshot = arenaSnapshot.copy();
+        structures = List.copyOf(structures);
+        if (structures.size() > MAX_STRUCTURES || structures.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new IllegalArgumentException("Invalid stage structure placement list");
+        }
+        if (!boundary.bounds(BlockPos.ZERO).contains(entryOffset.getX() + 0.5D,
+                entryOffset.getY(), entryOffset.getZ() + 0.5D)) {
+            throw new IllegalArgumentException("Stage entry offset is outside the boundary");
+        }
         if (!flightName.isEmpty() && !validFlightName(flightName)) {
             throw new IllegalArgumentException("Invalid template flight name");
         }
@@ -54,7 +65,15 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                          InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy, byte[] flightJson,
                          CompoundTag arenaSnapshot) {
         this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
-                flightJson, arenaSnapshot, "");
+                flightJson, arenaSnapshot, "", BlockPos.ZERO, List.of());
+    }
+
+    public StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
+                         StageBoundary boundary, StageClientScene clientScene, int capacity,
+                         InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy, byte[] flightJson,
+                         CompoundTag arenaSnapshot, String flightName) {
+        this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
+                flightJson, arenaSnapshot, flightName, BlockPos.ZERO, List.of());
     }
 
     public static boolean validFlightName(String name) {
@@ -69,6 +88,11 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
     @Override
     public CompoundTag arenaSnapshot() {
         return arenaSnapshot.copy();
+    }
+
+    @Override
+    public List<StageStructurePlacement> structures() {
+        return List.copyOf(structures);
     }
 
     public boolean hasFlight() {
@@ -143,23 +167,39 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         if (hasArenaSnapshot()) {
             tag.put("Arena", arenaSnapshot);
         }
+        if (!entryOffset.equals(BlockPos.ZERO)) {
+            tag.putLong("EntryOffset", entryOffset.asLong());
+        }
+        if (!structures.isEmpty()) {
+            net.minecraft.nbt.ListTag list = new net.minecraft.nbt.ListTag();
+            structures.forEach(placement -> list.add(placement.save()));
+            tag.put("Structures", list);
+        }
         return tag;
     }
 
     public static StageTemplate load(CompoundTag tag) {
-        if (tag.getInt("Format") != FORMAT_VERSION) {
+        int format = tag.getInt("Format");
+        if (format < 1 || format > FORMAT_VERSION) {
             throw new IllegalArgumentException("Unsupported stage template format: " + tag.getInt("Format"));
         }
         if (!tag.contains("Boundary", Tag.TAG_COMPOUND) || !tag.contains("ClientScene", Tag.TAG_COMPOUND)) {
             throw new IllegalArgumentException("Stage template is missing scene data");
         }
+        List<StageStructurePlacement> structures = format >= 2 && tag.contains("Structures", Tag.TAG_LIST)
+                ? tag.getList("Structures", Tag.TAG_COMPOUND).stream()
+                .map(value -> StageStructurePlacement.load((CompoundTag) value)).toList()
+                : List.of();
         return new StageTemplate(tag.getString("Id"), new ResourceLocation(tag.getString("LodPack")),
                 BlockPos.of(tag.getLong("LodAnchor")), StageBoundary.load(tag.getCompound("Boundary")),
                 StageClientScene.load(tag.getCompound("ClientScene")), tag.getInt("Capacity"),
                 InstanceMode.valueOf(tag.getString("InstanceMode")),
                 loadLifecyclePolicy(tag), tag.getByteArray("Flight"),
                 tag.contains("Arena", Tag.TAG_COMPOUND) ? tag.getCompound("Arena") : new CompoundTag(),
-                tag.contains("FlightName", Tag.TAG_STRING) ? tag.getString("FlightName") : "");
+                tag.contains("FlightName", Tag.TAG_STRING) ? tag.getString("FlightName") : "",
+                format >= 2 && tag.contains("EntryOffset", Tag.TAG_LONG)
+                        ? BlockPos.of(tag.getLong("EntryOffset")) : BlockPos.ZERO,
+                structures);
     }
 
     @Override
@@ -169,13 +209,14 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 && boundary.equals(that.boundary) && clientScene.equals(that.clientScene) && capacity == that.capacity
                 && instanceMode == that.instanceMode && lifecyclePolicy == that.lifecyclePolicy
                 && Arrays.equals(flightJson, that.flightJson) && arenaSnapshot.equals(that.arenaSnapshot)
-                && flightName.equals(that.flightName);
+                && flightName.equals(that.flightName) && entryOffset.equals(that.entryOffset)
+                && structures.equals(that.structures);
     }
 
     @Override
     public int hashCode() {
         int result = java.util.Objects.hash(id, lodPackId, lodAnchor, boundary, clientScene,
-                capacity, instanceMode, lifecyclePolicy, flightName);
+                capacity, instanceMode, lifecyclePolicy, flightName, entryOffset, structures);
         result = 31 * result + Arrays.hashCode(flightJson);
         return 31 * result + arenaSnapshot.hashCode();
     }

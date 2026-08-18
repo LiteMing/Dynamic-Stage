@@ -1,5 +1,6 @@
 package vibe.liteming.dynamicstage.template;
 
+import com.google.gson.JsonParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.nbt.CompoundTag;
@@ -33,6 +34,32 @@ class StageTemplateStoreTest {
 
         assertEquals(template, StageTemplateStore.load(temporaryDirectory, "boss_1"));
         assertNull(StageTemplateStore.load(temporaryDirectory, "missing"));
+    }
+
+    @Test
+    void parsesDataPackTemplateStructuresAndEntryOffset() {
+        StageTemplate template = StageDataTemplateStore.parse(JsonParser.parseString("""
+                {
+                  "id": "cirno",
+                  "boundary": {"width": 32, "depth": 72, "height": 17, "color": "48B8FF"},
+                  "entry_offset": [0, 8, -35],
+                  "capacity": 4,
+                  "instance_mode": "shared",
+                  "scene": {"lod_visible": false, "sky": "overworld"},
+                  "structures": [
+                    {"id": "touhou:level1", "offset": [-16, 0, -32]},
+                    {"id": "touhou:platform", "offset": [0, 6, -35]}
+                  ]
+                }
+                """).getAsJsonObject());
+
+        assertEquals("cirno", template.id());
+        assertEquals(new ResourceLocation("dynamicstage", "none"), template.lodPackId());
+        assertEquals(new BlockPos(0, 8, -35), template.entryOffset());
+        assertEquals(4, template.capacity());
+        assertEquals(StageTemplate.InstanceMode.SHARED, template.instanceMode());
+        assertEquals(2, template.structures().size());
+        assertEquals(template, StageTemplate.load(template.save()));
     }
 
     @Test

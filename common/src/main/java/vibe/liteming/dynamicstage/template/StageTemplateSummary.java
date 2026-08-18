@@ -37,19 +37,31 @@ public record StageTemplateSummary(String id, ResourceLocation lodPackId, BlockP
         byte[] flight = existing == null ? new byte[0] : existing.flightJson();
         CompoundTag arena = compatibleArena(existing);
         return new StageTemplate(id, lodPackId, lodAnchor, boundary, clientScene, capacity,
-                instanceMode, lifecyclePolicy, flight, arena, existing == null ? "" : existing.flightName());
+                instanceMode, lifecyclePolicy, flight, arena, existing == null ? "" : existing.flightName(),
+                compatibleEntryOffset(existing), compatibleStructures(existing));
     }
 
     public StageTemplate applyTo(StageTemplate existing, byte[] flight, String selectedFlightName) {
         CompoundTag arena = compatibleArena(existing);
         return new StageTemplate(id, lodPackId, lodAnchor, boundary, clientScene, capacity,
                 instanceMode, lifecyclePolicy, flight == null ? new byte[0] : flight, arena,
-                selectedFlightName == null ? "" : selectedFlightName);
+                selectedFlightName == null ? "" : selectedFlightName,
+                compatibleEntryOffset(existing), compatibleStructures(existing));
     }
 
     private CompoundTag compatibleArena(StageTemplate existing) {
         return existing == null || !sameBoundarySize(existing.boundary(), boundary)
                 ? new CompoundTag() : existing.arenaSnapshot();
+    }
+
+    private BlockPos compatibleEntryOffset(StageTemplate existing) {
+        return existing == null || !sameBoundarySize(existing.boundary(), boundary)
+                ? BlockPos.ZERO : existing.entryOffset();
+    }
+
+    private java.util.List<StageStructurePlacement> compatibleStructures(StageTemplate existing) {
+        return existing == null || !sameBoundarySize(existing.boundary(), boundary)
+                ? java.util.List.of() : existing.structures();
     }
 
     public static boolean sameBoundarySize(StageBoundary first, StageBoundary second) {

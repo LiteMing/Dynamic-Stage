@@ -59,7 +59,8 @@ public final class StageTemplateStore {
         CompoundTag arena = StageArenaSnapshot.capture(stageLevel, session.stageOrigin(), session.boundary());
         return new StageTemplate(id, session.lodPackId(), session.lodAnchor(), session.boundary(),
                 session.clientScene(), session.capacity(), instanceMode, lifecyclePolicy,
-                flight == null ? new byte[0] : flight.sceneJson(), arena);
+                flight == null ? new byte[0] : flight.sceneJson(), arena, "",
+                compatibleEntryOffset(load(server, id), session.boundary()), java.util.List.of());
     }
 
     public static StageTemplate capture(MinecraftServer server, StageSession session,
@@ -77,7 +78,18 @@ public final class StageTemplateStore {
         return new StageTemplate(summary.id(), summary.lodPackId(), summary.lodAnchor(), summary.boundary(),
                 summary.clientScene(), summary.capacity(), summary.instanceMode(), summary.lifecyclePolicy(),
                 flight == null ? new byte[0] : flight.sceneJson(), arena,
-                flight == null ? "" : summary.flightName());
+                flight == null ? "" : summary.flightName(),
+                compatibleEntryOffset(load(server, summary.id()), summary.boundary()), java.util.List.of());
+    }
+
+    private static net.minecraft.core.BlockPos compatibleEntryOffset(StageTemplate existing,
+                                                                       vibe.liteming.dynamicstage.stage.StageBoundary boundary) {
+        if (existing == null || existing.entryOffset() == null) {
+            return net.minecraft.core.BlockPos.ZERO;
+        }
+        return boundary.bounds(net.minecraft.core.BlockPos.ZERO).contains(existing.entryOffset().getX() + 0.5D,
+                existing.entryOffset().getY(), existing.entryOffset().getZ() + 0.5D)
+                ? existing.entryOffset() : net.minecraft.core.BlockPos.ZERO;
     }
 
     public static void save(StageTemplate template) throws IOException {
@@ -112,6 +124,12 @@ public final class StageTemplateStore {
         migrateLegacyTemplates();
         StageTemplate template = load(rootDirectory(), id);
         return template != null ? template : load(legacyRootDirectory(), id);
+    }
+
+    @Nullable
+    public static StageTemplate load(MinecraftServer server, String id) throws IOException {
+        StageTemplate local = load(id);
+        return local != null ? local : StageDataTemplateStore.load(server).get(id);
     }
 
     @Nullable
@@ -165,6 +183,18 @@ public final class StageTemplateStore {
         return templates.stream().sorted(java.util.Comparator.comparing(StageTemplate::id)).toList();
     }
 
+    public static List<StageTemplate> listTemplates(MinecraftServer server) throws IOException {
+        Map<String, StageTemplate> templates = new LinkedHashMap<>(StageDataTemplateStore.load(server));
+        for (StageTemplate template : listTemplates()) {
+            templates.put(template.id(), template);
+        }
+        return templates.values().stream().sorted(java.util.Comparator.comparing(StageTemplate::id)).toList();
+    }
+
+    public static List<String> list(MinecraftServer server) throws IOException {
+        return listTemplates(server).stream().map(StageTemplate::id).toList();
+    }
+
     public static boolean delete(String id) throws IOException {
         boolean deleted = Files.deleteIfExists(file(rootDirectory(), id));
         Path legacy = legacyRootDirectory();
@@ -195,6 +225,12 @@ public final class StageTemplateStore {
             }
         }
         return new ReloadResult(valid, migrated, List.copyOf(errors));
+    }
+
+    public static ReloadResult reload(MinecraftServer server) throws IOException {
+        ReloadResult local = reload();
+        int dataTemplates = StageDataTemplateStore.load(server).size();
+        return new ReloadResult(local.templates() + dataTemplates, local.migratedTemplates(), local.errors());
     }
 
     private static synchronized int migrateLegacyTemplates() throws IOException {

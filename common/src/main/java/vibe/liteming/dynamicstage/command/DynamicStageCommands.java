@@ -291,7 +291,7 @@ public final class DynamicStageCommands {
 
     private static int reload(CommandSourceStack source) {
         try {
-            StageTemplateStore.ReloadResult templates = StageTemplateStore.reload();
+            StageTemplateStore.ReloadResult templates = StageTemplateStore.reload(source.getServer());
             LodDistributionStore.ReloadResult lods = LodDistributionStore.reload(source.getServer());
             StageFlightAssets.LibraryReloadResult flights = StageFlightAssets.reloadLibrary();
             for (String error : templates.errors()) {
@@ -440,7 +440,7 @@ public final class DynamicStageCommands {
             return 0;
         }
         try {
-            StageTemplate template = StageTemplateStore.load(id);
+            StageTemplate template = StageTemplateStore.load(source.getServer(), id);
             if (template == null) {
                 source.sendFailure(Component.literal("Unknown stage template '" + id + "'."));
                 return 0;
@@ -480,7 +480,7 @@ public final class DynamicStageCommands {
             return 0;
         }
         try {
-            StageTemplate template = StageTemplateStore.load(session.stageId());
+            StageTemplate template = StageTemplateStore.load(source.getServer(), session.stageId());
             if (template == null || !StageSessionManager.resetTemplateArena(player, template)) {
                 source.sendFailure(Component.literal("The active stage is not backed by a resettable template."));
                 return 0;
@@ -496,7 +496,7 @@ public final class DynamicStageCommands {
 
     private static int templateList(CommandSourceStack source) {
         try {
-            java.util.List<String> ids = StageTemplateStore.list();
+            java.util.List<String> ids = StageTemplateStore.list(source.getServer());
             source.sendSuccess(() -> Component.literal(ids.isEmpty()
                     ? "No portable stage templates are saved."
                     : "Stage templates: " + String.join(", ", ids)), false);
@@ -510,7 +510,7 @@ public final class DynamicStageCommands {
     private static CompletableFuture<Suggestions> suggestTemplates(CommandContext<CommandSourceStack> context,
                                                                     SuggestionsBuilder builder) {
         try {
-            return SharedSuggestionProvider.suggest(StageTemplateStore.list(), builder);
+            return SharedSuggestionProvider.suggest(StageTemplateStore.list(context.getSource().getServer()), builder);
         } catch (IOException | RuntimeException e) {
             return builder.buildFuture();
         }

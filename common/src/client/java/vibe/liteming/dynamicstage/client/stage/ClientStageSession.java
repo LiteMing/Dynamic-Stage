@@ -16,6 +16,7 @@ import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageClientScene;
 import vibe.liteming.dynamicstage.stage.StageBoundaryAccess;
 import vibe.liteming.dynamicstage.lod.LodPackageOffer;
+import vibe.liteming.dynamicstage.lod.StageLodPacks;
 
 import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
@@ -70,6 +71,12 @@ public final class ClientStageSession {
 
     private static void prepareInitialMount(Snapshot snapshot) {
         long serial = ++preparationSerial;
+        if (StageLodPacks.NONE.equals(snapshot.lodPackId())) {
+            StageBackdropRuntime.unmount();
+            readyAfterActivation = null;
+            DynamicStageNetwork.clientReady(snapshot.instanceId(), true, "");
+            return;
+        }
         LodPackDownloadManager.prepare(snapshot.lodPackId(), snapshot.lodOffer())
                 .whenComplete((download, error) -> Minecraft.getInstance().execute(() -> {
                     Snapshot current = active;
