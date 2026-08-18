@@ -9,14 +9,16 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import vibe.liteming.dynamicstage.client.lod.DhMixinMarkers;
 import vibe.liteming.dynamicstage.client.lod.StageLodCompositor;
 
 import java.lang.reflect.Method;
 
 /** Filters DH's final LOD color attachment while retaining its original depth application shader. */
 @Pseudo
-@Mixin(targets = "com.seibel.distanthorizons.core.render.renderer.shaders.DhApplyShader", remap = false)
-public abstract class DhCompositeMixin {
+@Mixin(targets = "com.seibel.distanthorizons.common.render.openGl.postProcessing.apply.GlDhApplyShader_forge",
+        remap = false)
+public abstract class DhCompositeMixin implements DhMixinMarkers.Composite {
     @Inject(method = {"renderToFrameBuffer", "renderToMcTexture"}, at = @At("HEAD"),
             cancellable = true, require = 0, remap = false)
     private void dynamicstage$skipHiddenLod(CallbackInfo callback) {
@@ -26,14 +28,14 @@ public abstract class DhCompositeMixin {
     }
 
     @ModifyArg(method = {"renderToFrameBuffer", "renderToMcTexture"}, at = @At(value = "INVOKE",
-            target = "Lcom/seibel/distanthorizons/core/wrapperInterfaces/minecraft/IMinecraftGLWrapper;"
+            target = "Lcom/seibel/distanthorizons/common/wrappers/minecraft/MinecraftGLWrapper;"
                     + "glBindTexture(I)V", ordinal = 0), index = 0, require = 0, remap = false)
     private int dynamicstage$filterLodColor(int sourceTexture) {
         return StageLodCompositor.filterColorTexture(sourceTexture);
     }
 
     @Redirect(method = {"renderToFrameBuffer", "renderToMcTexture"}, at = @At(value = "INVOKE",
-            target = "Lcom/seibel/distanthorizons/core/wrapperInterfaces/minecraft/IMinecraftGLWrapper;"
+            target = "Lcom/seibel/distanthorizons/common/wrappers/minecraft/MinecraftGLWrapper;"
                     + "disableBlend()V"), require = 0, remap = false)
     private void dynamicstage$configureLodBlend(@Coerce Object wrapper) {
         try {

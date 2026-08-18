@@ -1,6 +1,6 @@
 package vibe.liteming.dynamicstage.client.lod;
 
-/** Runtime markers proving that the optional DH coordinate mixins were applied. */
+/** Runtime markers proving that the optional DH integration mixins were applied. */
 public final class DhMixinMarkers {
     private DhMixinMarkers() {
     }
@@ -9,5 +9,8 @@ public final class DhMixinMarkers {
     }
 
     public interface PlayerPosition {
+    }
+
+    public interface Composite {
     }
 }
