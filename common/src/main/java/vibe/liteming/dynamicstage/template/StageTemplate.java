@@ -7,6 +7,7 @@ import net.minecraft.resources.ResourceLocation;
 import vibe.liteming.dynamicstage.flight.StageFlightCodec;
 import vibe.liteming.dynamicstage.stage.StageBoundary;
 import vibe.liteming.dynamicstage.stage.StageClientScene;
+import vibe.liteming.dynamicstage.stage.StageInstance;
 import vibe.liteming.dynamicstage.stage.StageSession;
 import vibe.liteming.dynamicstage.util.ContentHash;
 
@@ -15,7 +16,7 @@ import java.util.Arrays;
 /** Portable, game-instance-level configuration used to create stage instances. */
 public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
                             StageBoundary boundary, StageClientScene clientScene, int capacity,
-                            InstanceMode instanceMode, ResetPolicy resetPolicy, byte[] flightJson,
+                            InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy, byte[] flightJson,
                             CompoundTag arenaSnapshot, String flightName) {
     public static final int FORMAT_VERSION = 1;
 
@@ -24,7 +25,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
             throw new IllegalArgumentException("Invalid template id");
         }
         if (lodPackId == null || lodAnchor == null || boundary == null || clientScene == null
-                || instanceMode == null || resetPolicy == null || flightJson == null || arenaSnapshot == null
+                || instanceMode == null || lifecyclePolicy == null || flightJson == null || arenaSnapshot == null
                 || flightName == null) {
             throw new IllegalArgumentException("Stage template contains null state");
         }
@@ -50,9 +51,9 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
 
     public StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
                          StageBoundary boundary, StageClientScene clientScene, int capacity,
-                         InstanceMode instanceMode, ResetPolicy resetPolicy, byte[] flightJson,
+                         InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy, byte[] flightJson,
                          CompoundTag arenaSnapshot) {
-        this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, resetPolicy,
+        this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
                 flightJson, arenaSnapshot, "");
     }
 
@@ -98,6 +99,14 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 && equivalentScene(clientScene, session.clientScene());
     }
 
+    public boolean matches(StageInstance instance) {
+        return id.equals(instance.stageId()) && lodPackId.equals(instance.lodPackId())
+                && lodAnchor.equals(instance.lodAnchor()) && boundary.equals(instance.boundary())
+                && capacity == instance.capacity() && flightHash().equals(instance.flightHash())
+                && instance.persistent() == (lifecyclePolicy == LifecyclePolicy.RETAIN)
+                && equivalentScene(clientScene, instance.clientScene());
+    }
+
     private static boolean equivalentScene(StageClientScene expected, StageClientScene actual) {
         return expected.followPlayer() == actual.followPlayer()
                 && Float.compare(expected.lodMovementScale(), actual.lodMovementScale()) == 0
@@ -124,7 +133,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         tag.put("ClientScene", clientScene.save());
         tag.putInt("Capacity", capacity);
         tag.putString("InstanceMode", instanceMode.name());
-        tag.putString("ResetPolicy", resetPolicy.name());
+        tag.putString("LifecyclePolicy", lifecyclePolicy.name());
         if (hasFlight()) {
             tag.putByteArray("Flight", flightJson);
             if (!flightName.isEmpty()) {
@@ -148,7 +157,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 BlockPos.of(tag.getLong("LodAnchor")), StageBoundary.load(tag.getCompound("Boundary")),
                 StageClientScene.load(tag.getCompound("ClientScene")), tag.getInt("Capacity"),
                 InstanceMode.valueOf(tag.getString("InstanceMode")),
-                ResetPolicy.valueOf(tag.getString("ResetPolicy")), tag.getByteArray("Flight"),
+                loadLifecyclePolicy(tag), tag.getByteArray("Flight"),
                 tag.contains("Arena", Tag.TAG_COMPOUND) ? tag.getCompound("Arena") : new CompoundTag(),
                 tag.contains("FlightName", Tag.TAG_STRING) ? tag.getString("FlightName") : "");
     }
@@ -158,7 +167,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         return other instanceof StageTemplate that
                 && id.equals(that.id) && lodPackId.equals(that.lodPackId) && lodAnchor.equals(that.lodAnchor)
                 && boundary.equals(that.boundary) && clientScene.equals(that.clientScene) && capacity == that.capacity
-                && instanceMode == that.instanceMode && resetPolicy == that.resetPolicy
+                && instanceMode == that.instanceMode && lifecyclePolicy == that.lifecyclePolicy
                 && Arrays.equals(flightJson, that.flightJson) && arenaSnapshot.equals(that.arenaSnapshot)
                 && flightName.equals(that.flightName);
     }
@@ -166,12 +175,22 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
     @Override
     public int hashCode() {
         int result = java.util.Objects.hash(id, lodPackId, lodAnchor, boundary, clientScene,
-                capacity, instanceMode, resetPolicy, flightName);
+                capacity, instanceMode, lifecyclePolicy, flightName);
         result = 31 * result + Arrays.hashCode(flightJson);
         return 31 * result + arenaSnapshot.hashCode();
     }
 
     public enum InstanceMode { SHARED, PARALLEL }
 
-    public enum ResetPolicy { ON_CREATE, MANUAL }
+    public enum LifecyclePolicy { RELEASE_WHEN_EMPTY, RETAIN }
+
+    private static LifecyclePolicy loadLifecyclePolicy(CompoundTag tag) {
+        if (tag.contains("LifecyclePolicy", Tag.TAG_STRING)) {
+            return LifecyclePolicy.valueOf(tag.getString("LifecyclePolicy"));
+        }
+        // Format 1 originally called this a reset policy. Its actual useful
+        // distinction maps directly onto whether an empty instance is retained.
+        return "MANUAL".equals(tag.getString("ResetPolicy"))
+                ? LifecyclePolicy.RETAIN : LifecyclePolicy.RELEASE_WHEN_EMPTY;
+    }
 }

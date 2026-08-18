@@ -34,6 +34,7 @@ public final class StageTemplateEditorScreen extends Screen {
     private Component status = Component.empty();
     private boolean statusError;
     private boolean statusPending;
+    private boolean awaitingInitialTemplate = true;
     private long observedRevision = -1L;
     private int selectedTemplate = -1;
     private StageClientConfig.BoundaryDisplay clientBoundary;
@@ -141,15 +142,17 @@ public final class StageTemplateEditorScreen extends Screen {
                 Integer.toString(draft.capacity));
         y += ROW_HEIGHT;
         addButton(left, y, half, text("setting.instances", value(draft.instanceMode)), button -> {
+            awaitingInitialTemplate = false;
             draft.instanceMode = draft.instanceMode == StageTemplate.InstanceMode.SHARED
                     ? StageTemplate.InstanceMode.PARALLEL : StageTemplate.InstanceMode.SHARED;
             button.setMessage(text("setting.instances", value(draft.instanceMode)));
         });
         addButton(left + half + 4, y, panelWidth - half - 4,
-                text("setting.reset", value(draft.resetPolicy)), button -> {
-            draft.resetPolicy = draft.resetPolicy == StageTemplate.ResetPolicy.ON_CREATE
-                    ? StageTemplate.ResetPolicy.MANUAL : StageTemplate.ResetPolicy.ON_CREATE;
-            button.setMessage(text("setting.reset", value(draft.resetPolicy)));
+                text("setting.lifecycle", value(draft.lifecyclePolicy)), button -> {
+            awaitingInitialTemplate = false;
+            draft.lifecyclePolicy = draft.lifecyclePolicy == StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY
+                    ? StageTemplate.LifecyclePolicy.RETAIN : StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY;
+            button.setMessage(text("setting.lifecycle", value(draft.lifecyclePolicy)));
         });
         y += ROW_HEIGHT;
         addButton(left, y, panelWidth, text("action.use_current_lod"), button -> prepareCurrentLod());
@@ -158,12 +161,14 @@ public final class StageTemplateEditorScreen extends Screen {
     private void buildBackdropTab(int left, int top, int panelWidth) {
         int half = (panelWidth - 4) / 2;
         addButton(left, top, half, text("setting.player_movement", toggle(draft.followPlayer)), button -> {
+            awaitingInitialTemplate = false;
             draft.followPlayer = !draft.followPlayer;
             button.setMessage(text("setting.player_movement", toggle(draft.followPlayer)));
         });
         addButton(left + half + 4, top, panelWidth - half - 4,
                 text("setting.lod_visible", toggle(draft.lodVisible)),
                 button -> {
+                    awaitingInitialTemplate = false;
                     draft.lodVisible = !draft.lodVisible;
                     button.setMessage(text("setting.lod_visible", toggle(draft.lodVisible)));
                 });
@@ -174,6 +179,7 @@ public final class StageTemplateEditorScreen extends Screen {
                 Float.toString(draft.dhNearFadeScale));
         y += ROW_HEIGHT;
         addButton(left, y, half, text("setting.voxy_near_culling", toggle(draft.voxyNearCulling)), button -> {
+            awaitingInitialTemplate = false;
             draft.voxyNearCulling = !draft.voxyNearCulling;
             button.setMessage(text("setting.voxy_near_culling", toggle(draft.voxyNearCulling)));
         });
@@ -181,6 +187,7 @@ public final class StageTemplateEditorScreen extends Screen {
                 Float.toString(draft.blurRadius));
         y += ROW_HEIGHT;
         addButton(left, y, half, text("setting.transition", value(draft.transition)), button -> {
+            awaitingInitialTemplate = false;
             draft.transition = switch (draft.transition) {
                 case INSTANT -> StageClientScene.Transition.FADE;
                 case FADE -> StageClientScene.Transition.BLUR;
@@ -195,6 +202,7 @@ public final class StageTemplateEditorScreen extends Screen {
                 panelWidth - half - 4, Integer.toString(draft.transitionTicks));
         y += ROW_HEIGHT;
         addButton(left, y, half, text("setting.sky", value(draft.skyMode)), button -> {
+            awaitingInitialTemplate = false;
             draft.skyMode = switch (draft.skyMode) {
                 case OVERWORLD -> StageClientScene.SkyMode.END;
                 case END -> StageClientScene.SkyMode.OFF;
@@ -214,6 +222,7 @@ public final class StageTemplateEditorScreen extends Screen {
 
     private void buildTimeTab(int left, int top, int panelWidth) {
         addButton(left, top, panelWidth, text("setting.time", value(draft.timeMode)), button -> {
+            awaitingInitialTemplate = false;
             draft.timeMode = switch (draft.timeMode) {
                 case FOLLOW -> StageClientScene.TimeMode.FIXED;
                 case FIXED -> StageClientScene.TimeMode.CYCLE;
@@ -286,6 +295,7 @@ public final class StageTemplateEditorScreen extends Screen {
     }
 
     private void selectTemplate(int direction) {
+        awaitingInitialTemplate = false;
         List<StageTemplateSummary> templates = StageTemplateEditorState.templates();
         if (templates.isEmpty()) {
             setStatus("status.no_templates");
@@ -364,6 +374,7 @@ public final class StageTemplateEditorScreen extends Screen {
     }
 
     private boolean captureVisible() {
+        awaitingInitialTemplate = false;
         try {
             draft.id = nonBlank(templateId.getValue(), text("field.template").getString());
             switch (tab) {
@@ -410,6 +421,15 @@ public final class StageTemplateEditorScreen extends Screen {
         long revision = StageTemplateEditorState.revision();
         if (revision != observedRevision) {
             observedRevision = revision;
+            if (awaitingInitialTemplate || statusPending) {
+                int index = templateIndex(draft.id);
+                awaitingInitialTemplate = false;
+                if (index >= 0) {
+                    selectedTemplate = index;
+                    draft = Draft.from(StageTemplateEditorState.templates().get(index));
+                    buildWidgets();
+                }
+            }
             if (status.getString().isEmpty() || statusPending) {
                 setStatus("status.template_count", StageTemplateEditorState.templates().size());
             }
@@ -453,6 +473,7 @@ public final class StageTemplateEditorScreen extends Screen {
         EditBox box = new EditBox(font, x, y, Math.max(24, width), FIELD_HEIGHT, narration);
         box.setMaxLength(maxLength);
         box.setValue(value);
+        box.setResponder(ignored -> awaitingInitialTemplate = false);
         editBoxes.add(box);
         return addRenderableWidget(box);
     }
@@ -468,10 +489,18 @@ public final class StageTemplateEditorScreen extends Screen {
 
     private Draft initialDraft() {
         ClientStageSession.Snapshot active = ClientStageSession.active();
+        String preferredId = active == null ? "stage_1" : active.stageId();
+        int savedIndex = templateIndex(preferredId);
+        if (savedIndex >= 0) {
+            selectedTemplate = savedIndex;
+            awaitingInitialTemplate = false;
+            return Draft.from(StageTemplateEditorState.templates().get(savedIndex));
+        }
         if (active != null) {
             return Draft.from(new StageTemplateSummary(active.stageId(), active.lodPackId(), active.lodAnchor(),
                     active.boundary(), active.clientScene(), active.capacity(),
-                    StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE, ""));
+                    StageTemplate.InstanceMode.PARALLEL,
+                    StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY, ""));
         }
         Minecraft mc = Minecraft.getInstance();
         BlockPos anchor = mc.player == null ? BlockPos.ZERO : mc.player.blockPosition();
@@ -479,7 +508,18 @@ public final class StageTemplateEditorScreen extends Screen {
         long dayTime = mc.level == null ? 0L : mc.level.getDayTime();
         return Draft.from(new StageTemplateSummary("stage_1", new ResourceLocation("dynamicstage", "none"),
                 anchor, StageBoundary.defaults(), StageClientScene.defaults(dayTime, gameTime), 1,
-                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE, ""));
+                StageTemplate.InstanceMode.PARALLEL,
+                StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY, ""));
+    }
+
+    private static int templateIndex(String id) {
+        List<StageTemplateSummary> templates = StageTemplateEditorState.templates();
+        for (int i = 0; i < templates.size(); i++) {
+            if (templates.get(i).id().equals(id)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private long currentGameTime() {
@@ -570,7 +610,7 @@ public final class StageTemplateEditorScreen extends Screen {
         private StageBoundary boundary;
         private int capacity;
         private StageTemplate.InstanceMode instanceMode;
-        private StageTemplate.ResetPolicy resetPolicy;
+        private StageTemplate.LifecyclePolicy lifecyclePolicy;
         private boolean followPlayer;
         private float movementScale;
         private float dhNearFadeScale;
@@ -594,7 +634,7 @@ public final class StageTemplateEditorScreen extends Screen {
             draft.boundary = summary.boundary();
             draft.capacity = summary.capacity();
             draft.instanceMode = summary.instanceMode();
-            draft.resetPolicy = summary.resetPolicy();
+            draft.lifecyclePolicy = summary.lifecyclePolicy();
             draft.followPlayer = scene.followPlayer();
             draft.movementScale = scene.lodMovementScale();
             draft.dhNearFadeScale = scene.dhNearFadeScale();
@@ -621,8 +661,8 @@ public final class StageTemplateEditorScreen extends Screen {
                     transition, transition == StageClientScene.Transition.INSTANT ? 0 : transitionTicks,
                     gameTime, timeMode, normalizedDayTime, gameTime,
                     timeMode == StageClientScene.TimeMode.CYCLE ? cycleTicks : 0L, skyMode);
-            return new StageTemplateSummary(id, pack, anchor, boundary, scene, capacity, instanceMode, resetPolicy,
-                    flightName);
+            return new StageTemplateSummary(id, pack, anchor, boundary, scene, capacity, instanceMode,
+                    lifecyclePolicy, flightName);
         }
     }
 }

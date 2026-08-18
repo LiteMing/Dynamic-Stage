@@ -46,7 +46,7 @@ public final class StageTemplateStore {
 
     public static StageTemplate capture(MinecraftServer server, StageSession session, String id,
                                         StageTemplate.InstanceMode instanceMode,
-                                        StageTemplate.ResetPolicy resetPolicy) throws IOException {
+                                        StageTemplate.LifecyclePolicy lifecyclePolicy) throws IOException {
         StageFlightAssets.Asset flight = session.hasFlight()
                 ? StageFlightAssets.load(server, session.stageId(), session.flightHash()) : null;
         if (session.hasFlight() && flight == null) {
@@ -58,7 +58,7 @@ public final class StageTemplateStore {
         }
         CompoundTag arena = StageArenaSnapshot.capture(stageLevel, session.stageOrigin(), session.boundary());
         return new StageTemplate(id, session.lodPackId(), session.lodAnchor(), session.boundary(),
-                session.clientScene(), session.capacity(), instanceMode, resetPolicy,
+                session.clientScene(), session.capacity(), instanceMode, lifecyclePolicy,
                 flight == null ? new byte[0] : flight.sceneJson(), arena);
     }
 
@@ -75,7 +75,7 @@ public final class StageTemplateStore {
         }
         CompoundTag arena = StageArenaSnapshot.capture(stageLevel, session.stageOrigin(), summary.boundary());
         return new StageTemplate(summary.id(), summary.lodPackId(), summary.lodAnchor(), summary.boundary(),
-                summary.clientScene(), summary.capacity(), summary.instanceMode(), summary.resetPolicy(),
+                summary.clientScene(), summary.capacity(), summary.instanceMode(), summary.lifecyclePolicy(),
                 flight == null ? new byte[0] : flight.sceneJson(), arena,
                 flight == null ? "" : summary.flightName());
     }

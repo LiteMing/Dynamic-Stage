@@ -17,12 +17,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-/** World-persisted per-player stage sessions. */
+/** World-persisted stage instances and their current player memberships. */
 public final class StageSessionData extends SavedData {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(StageSessionData.class);
     private static final String NAME = "dynamicstage_sessions";
     private final Map<UUID, StageSession> sessions = new HashMap<>();
+    private final Map<UUID, StageInstance> instances = new HashMap<>();
 
     public static StageSessionData get(MinecraftServer server) {
         return server.overworld().getDataStorage()
@@ -31,11 +32,22 @@ public final class StageSessionData extends SavedData {
 
     public static StageSessionData load(CompoundTag tag) {
         StageSessionData data = new StageSessionData();
+        ListTag instanceEntries = tag.getList("Instances", Tag.TAG_COMPOUND);
+        for (int i = 0; i < instanceEntries.size(); i++) {
+            try {
+                StageInstance instance = StageInstance.load(instanceEntries.getCompound(i));
+                data.instances.put(instance.instanceId(), instance);
+            } catch (RuntimeException e) {
+                LOGGER.warn("Ignoring invalid persisted stage instance: {}", e.getMessage());
+            }
+        }
         ListTag entries = tag.getList("Sessions", Tag.TAG_COMPOUND);
         for (int i = 0; i < entries.size(); i++) {
             try {
                 StageSession session = StageSession.load(entries.getCompound(i));
                 data.sessions.put(session.playerId(), session);
+                // Saves written before instances were separated contain only memberships.
+                data.instances.putIfAbsent(session.instanceId(), StageInstance.from(session, false));
             } catch (RuntimeException e) {
                 LOGGER.warn("Ignoring invalid persisted stage session: {}", e.getMessage());
             }
@@ -45,6 +57,9 @@ public final class StageSessionData extends SavedData {
 
     @Override
     public CompoundTag save(CompoundTag tag) {
+        ListTag instanceEntries = new ListTag();
+        instances.values().forEach(instance -> instanceEntries.add(instance.save()));
+        tag.put("Instances", instanceEntries);
         ListTag entries = new ListTag();
         sessions.values().forEach(session -> entries.add(session.save()));
         tag.put("Sessions", entries);
@@ -59,13 +74,17 @@ public final class StageSessionData extends SavedData {
         return sessions.values();
     }
 
-    public Optional<StageSession> findInstance(UUID instanceId) {
-        return sessions.values().stream().filter(session -> session.instanceId().equals(instanceId)).findFirst();
+    public Collection<StageInstance> instances() {
+        return instances.values();
     }
 
-    public Optional<StageSession> findRegion(double x, double z) {
-        return sessions.values().stream()
-                .filter(session -> StagePlacement.containsRegion(session.stageOrigin(), x, z))
+    public Optional<StageInstance> findInstance(UUID instanceId) {
+        return Optional.ofNullable(instances.get(instanceId));
+    }
+
+    public Optional<StageInstance> findRegion(double x, double z) {
+        return instances.values().stream()
+                .filter(instance -> StagePlacement.containsRegion(instance.stageOrigin(), x, z))
                 .findFirst();
     }
 
@@ -73,7 +92,13 @@ public final class StageSessionData extends SavedData {
         return sessions.values().stream().filter(session -> session.instanceId().equals(instanceId)).toList();
     }
 
-    public void put(StageSession session) {
+    public void put(StageSession session, boolean persistent) {
+        StageInstance existing = instances.get(session.instanceId());
+        if (existing == null) {
+            instances.put(session.instanceId(), StageInstance.from(session, persistent));
+        } else if (existing.persistent() != persistent) {
+            instances.put(session.instanceId(), StageInstance.from(session, persistent));
+        }
         sessions.put(session.playerId(), session);
         setDirty();
     }
@@ -85,6 +110,11 @@ public final class StageSessionData extends SavedData {
                 sessions.put(session.playerId(), session.withLodAnchor(anchor));
                 changed = true;
             }
+        }
+        StageInstance instance = instances.get(instanceId);
+        if (instance != null) {
+            instances.put(instanceId, instance.withLodAnchor(anchor));
+            changed = true;
         }
         if (changed) {
             setDirty();
@@ -99,6 +129,11 @@ public final class StageSessionData extends SavedData {
                 changed = true;
             }
         }
+        StageInstance instance = instances.get(instanceId);
+        if (instance != null) {
+            instances.put(instanceId, instance.withLodPack(lodPackId));
+            changed = true;
+        }
         if (changed) {
             setDirty();
         }
@@ -107,7 +142,8 @@ public final class StageSessionData extends SavedData {
     public void updateInstanceTemplate(UUID instanceId, String stageId, ResourceLocation lodPackId,
                                        BlockPos lodAnchor, int capacity, StageBoundary boundary,
                                        StageClientScene scene, String flightHash, int flightBytes,
-                                       long flightDurationMillis, long flightStartGameTime) {
+                                       long flightDurationMillis, long flightStartGameTime,
+                                       boolean persistent) {
         boolean changed = false;
         for (StageSession session : List.copyOf(sessions.values())) {
             if (session.instanceId().equals(instanceId)) {
@@ -117,6 +153,13 @@ public final class StageSessionData extends SavedData {
                 sessions.put(session.playerId(), updated);
                 changed = true;
             }
+        }
+        StageInstance instance = instances.get(instanceId);
+        if (instance != null) {
+            instances.put(instanceId, instance.withTemplateSettings(stageId, lodPackId, lodAnchor,
+                    capacity, boundary, scene, persistent).withFlight(flightHash, flightBytes,
+                    flightDurationMillis, flightStartGameTime));
+            changed = true;
         }
         if (changed) {
             setDirty();
@@ -131,6 +174,11 @@ public final class StageSessionData extends SavedData {
                 changed = true;
             }
         }
+        StageInstance instance = instances.get(instanceId);
+        if (instance != null) {
+            instances.put(instanceId, instance.withBoundary(boundary));
+            changed = true;
+        }
         if (changed) {
             setDirty();
         }
@@ -144,6 +192,11 @@ public final class StageSessionData extends SavedData {
                 changed = true;
             }
         }
+        StageInstance instance = instances.get(instanceId);
+        if (instance != null) {
+            instances.put(instanceId, instance.withClientScene(scene));
+            changed = true;
+        }
         if (changed) {
             setDirty();
         }
@@ -156,6 +209,11 @@ public final class StageSessionData extends SavedData {
                 sessions.put(session.playerId(), session.withFlightStart(startGameTime));
                 changed = true;
             }
+        }
+        StageInstance instance = instances.get(instanceId);
+        if (instance != null && instance.hasFlight()) {
+            instances.put(instanceId, instance.withFlightStart(startGameTime));
+            changed = true;
         }
         if (changed) {
             setDirty();
@@ -171,6 +229,11 @@ public final class StageSessionData extends SavedData {
                 changed = true;
             }
         }
+        StageInstance instance = instances.get(instanceId);
+        if (instance != null) {
+            instances.put(instanceId, instance.withFlight(hash, bytes, durationMillis, startGameTime));
+            changed = true;
+        }
         if (changed) {
             setDirty();
         }
@@ -179,6 +242,12 @@ public final class StageSessionData extends SavedData {
     public Optional<StageSession> remove(UUID playerId) {
         StageSession removed = sessions.remove(playerId);
         if (removed != null) {
+            StageInstance instance = instances.get(removed.instanceId());
+            boolean hasMembers = sessions.values().stream()
+                    .anyMatch(session -> session.instanceId().equals(removed.instanceId()));
+            if (!hasMembers && instance != null && !instance.persistent()) {
+                instances.remove(removed.instanceId());
+            }
             setDirty();
         }
         return Optional.ofNullable(removed);

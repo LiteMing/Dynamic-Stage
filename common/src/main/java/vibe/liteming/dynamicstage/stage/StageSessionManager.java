@@ -63,7 +63,7 @@ public final class StageSessionManager {
         UUID instanceId = UUID.randomUUID();
         StageSession session = createMembership(player, instanceId, stageId, lodPackId, lodAnchor,
                 slot, capacity, flightFor(server, stageId), -1L);
-        return prepare(player, session);
+        return prepare(player, session, false);
     }
 
     public static boolean createAndEnterTemplate(ServerPlayer player, StageTemplate template) {
@@ -79,11 +79,24 @@ public final class StageSessionManager {
             return false;
         }
         if (template.instanceMode() == StageTemplate.InstanceMode.SHARED) {
-            StageSession exemplar = StageSessionData.get(server).all().stream()
-                    .filter(template::matches).findFirst().orElseGet(() -> PENDING.values().stream()
-                            .map(PendingEntry::session).filter(template::matches).findFirst().orElse(null));
-            if (exemplar != null) {
-                return joinExisting(player, exemplar);
+            StageSessionData data = StageSessionData.get(server);
+            StageInstance instance = data.instances().stream().filter(template::matches)
+                    .filter(candidate -> !BACKDROP_SWITCHES.containsKey(candidate.instanceId()))
+                    .filter(candidate -> memberCount(data, candidate.instanceId()) < candidate.capacity())
+                    .filter(candidate -> !candidate.hasFlight() || validFlight(server, candidate))
+                    .findFirst().orElse(null);
+            if (instance != null) {
+                return joinExisting(player, instance);
+            }
+            PendingEntry pending = PENDING.values().stream()
+                    .filter(entry -> template.matches(entry.session))
+                    .filter(entry -> entry.persistent
+                            == (template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN))
+                    .filter(entry -> memberCount(data, entry.session.instanceId()) < entry.session.capacity())
+                    .filter(entry -> !entry.session.hasFlight() || validFlight(server, entry.session))
+                    .findFirst().orElse(null);
+            if (pending != null) {
+                return joinExisting(player, pending.session, pending.persistent);
             }
         }
         if (!canPrepare(player, server)) {
@@ -100,21 +113,19 @@ public final class StageSessionManager {
             player.sendSystemMessage(Component.literal("The Dynamic Stage dimension is unavailable."));
             return false;
         }
-        if (template.resetPolicy() == StageTemplate.ResetPolicy.ON_CREATE) {
-            try {
-                StageArenaSnapshot.restore(stageLevel, StagePlacement.originForSlot(slot),
-                        template.boundary(), template.arenaSnapshot());
-            } catch (java.io.IOException | RuntimeException e) {
-                player.sendSystemMessage(Component.literal(
-                        "Could not initialize the template arena: " + e.getMessage()));
-                return false;
-            }
+        try {
+            StageArenaSnapshot.restore(stageLevel, StagePlacement.originForSlot(slot),
+                    template.boundary(), template.arenaSnapshot());
+        } catch (java.io.IOException | RuntimeException e) {
+            player.sendSystemMessage(Component.literal(
+                    "Could not initialize the template arena: " + e.getMessage()));
+            return false;
         }
         long gameTime = player.serverLevel().getGameTime();
         StageClientScene scene = template.sceneForNewInstance(server.overworld().getDayTime(), gameTime);
         StageSession session = createMembership(player, UUID.randomUUID(), template.id(), template.lodPackId(),
                 template.lodAnchor(), slot, template.capacity(), template.boundary(), scene, flight, -1L);
-        return prepare(player, session);
+        return prepare(player, session, template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN);
     }
 
     public static boolean resetTemplateArena(ServerPlayer player, StageTemplate template) {
@@ -182,7 +193,7 @@ public final class StageSessionManager {
 
     private static boolean applyReloadTemplate(MinecraftServer server, UUID instanceId, ReloadPlan plan) {
         StageSessionData data = StageSessionData.get(server);
-        StageSession current = data.findInstance(instanceId).orElse(null);
+        StageInstance current = data.findInstance(instanceId).orElse(null);
         StageTemplate template = plan.template;
         if (current == null) {
             sendReloadMessage(server, plan, "Could not reload stage template: the instance is no longer active.");
@@ -214,12 +225,14 @@ public final class StageSessionManager {
         data.updateInstanceTemplate(instanceId, template.id(), template.lodPackId(),
                 template.lodAnchor(), template.capacity(), template.boundary(), scene,
                 flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
-                flight == null ? 0L : flight.durationMillis(), flightStart);
+                flight == null ? 0L : flight.durationMillis(), flightStart,
+                template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN);
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(instanceId)
-                ? new PendingEntry(entry.session.withTemplateSettings(template.id(), template.lodPackId(),
+                ? entry.withSession(entry.session.withTemplateSettings(template.id(), template.lodPackId(),
                 template.lodAnchor(), template.capacity(), template.boundary(), scene)
                 .withFlight(flight == null ? "" : flight.hash(), flight == null ? 0 : flight.bytes(),
-                        flight == null ? 0L : flight.durationMillis(), flightStart)) : entry);
+                        flight == null ? 0L : flight.durationMillis(), flightStart),
+                template.lifecyclePolicy() == StageTemplate.LifecyclePolicy.RETAIN) : entry);
         for (StageSession member : data.members(instanceId)) {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
             if (target == null) {
@@ -270,14 +283,17 @@ public final class StageSessionManager {
             return false;
         }
         StageSessionData data = StageSessionData.get(server);
-        StageSession exemplar = data.findInstance(instanceId).orElseGet(() -> PENDING.values().stream()
-                .map(PendingEntry::session).filter(session -> session.instanceId().equals(instanceId))
-                .findFirst().orElse(null));
-        if (exemplar == null) {
+        StageInstance instance = data.findInstance(instanceId).orElse(null);
+        if (instance != null) {
+            return joinExisting(player, instance);
+        }
+        PendingEntry pending = PENDING.values().stream()
+                .filter(entry -> entry.session.instanceId().equals(instanceId)).findFirst().orElse(null);
+        if (pending == null) {
             player.sendSystemMessage(Component.literal("Unknown or inactive Dynamic Stage instance."));
             return false;
         }
-        return joinExisting(player, exemplar);
+        return joinExisting(player, pending.session, pending.persistent);
     }
 
     /** Lists active or preparing stage instances the given player can currently join. */
@@ -287,38 +303,47 @@ public final class StageSessionManager {
             return List.of();
         }
         StageSessionData data = StageSessionData.get(server);
-        Map<UUID, StageSession> instances = new LinkedHashMap<>();
-        data.all().forEach(session -> instances.putIfAbsent(session.instanceId(), session));
-        PENDING.values().forEach(entry -> instances.putIfAbsent(entry.session.instanceId(), entry.session));
+        Map<UUID, JoinableInstance> instances = new LinkedHashMap<>();
+        data.instances().forEach(instance -> instances.put(instance.instanceId(),
+                new JoinableInstance(instance.instanceId(), instance.capacity(), instance.stageId(),
+                        instance.flightHash(), instance.flightBytes(), instance.flightDurationMillis())));
+        PENDING.values().forEach(entry -> instances.putIfAbsent(entry.session.instanceId(),
+                new JoinableInstance(entry.session.instanceId(), entry.session.capacity(), entry.session.stageId(),
+                        entry.session.flightHash(), entry.session.flightBytes(),
+                        entry.session.flightDurationMillis())));
         return instances.values().stream()
-                .filter(session -> !BACKDROP_SWITCHES.containsKey(session.instanceId()))
-                .filter(session -> memberCount(data, session.instanceId()) < session.capacity())
-                .filter(session -> !session.hasFlight() || validFlight(server, session))
-                .map(StageSession::instanceId)
+                .filter(instance -> !BACKDROP_SWITCHES.containsKey(instance.instanceId()))
+                .filter(instance -> memberCount(data, instance.instanceId()) < instance.capacity())
+                .filter(instance -> !instance.hasFlight() || validFlight(server, instance))
+                .map(JoinableInstance::instanceId)
                 .sorted(java.util.Comparator.comparing(UUID::toString))
                 .toList();
     }
 
-    private static boolean joinExisting(ServerPlayer player, StageSession exemplar) {
+    private static boolean joinExisting(ServerPlayer player, StageInstance instance) {
+        return joinExisting(player, createMembership(player, instance), instance.persistent());
+    }
+
+    private static boolean joinExisting(ServerPlayer player, StageSession membership, boolean persistent) {
         MinecraftServer server = player.getServer();
         if (!canPrepare(player, server)) {
             return false;
         }
-        if (BACKDROP_SWITCHES.containsKey(exemplar.instanceId())) {
+        if (BACKDROP_SWITCHES.containsKey(membership.instanceId())) {
             player.sendSystemMessage(Component.literal("That Dynamic Stage instance is changing its backdrop."));
             return false;
         }
         StageSessionData data = StageSessionData.get(server);
-        long members = memberCount(data, exemplar.instanceId());
-        if (members >= exemplar.capacity()) {
+        long members = memberCount(data, membership.instanceId());
+        if (members >= membership.capacity()) {
             player.sendSystemMessage(Component.literal("That Dynamic Stage instance is full."));
             return false;
         }
-        if (exemplar.hasFlight() && !validFlight(server, exemplar)) {
+        if (membership.hasFlight() && !validFlight(server, membership)) {
             player.sendSystemMessage(Component.literal("That Dynamic Stage instance's flight is unavailable."));
             return false;
         }
-        return prepare(player, createMembership(player, exemplar));
+        return prepare(player, membership, persistent);
     }
 
     public static boolean setAnchor(ServerPlayer player, BlockPos anchor) {
@@ -333,7 +358,7 @@ public final class StageSessionManager {
         }
         data.updateInstanceAnchor(session.instanceId(), anchor);
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
-                ? new PendingEntry(entry.session.withLodAnchor(anchor))
+                ? entry.withSession(entry.session.withLodAnchor(anchor))
                 : entry);
         for (StageSession member : data.members(session.instanceId())) {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
@@ -389,7 +414,7 @@ public final class StageSessionManager {
 
         data.updateInstanceLodPack(session.instanceId(), lodPackId);
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
-                ? new PendingEntry(entry.session.withLodPack(lodPackId)) : entry);
+                ? entry.withSession(entry.session.withLodPack(lodPackId)) : entry);
         for (StageSession member : data.members(session.instanceId())) {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
             if (target == null) {
@@ -466,7 +491,7 @@ public final class StageSessionManager {
         data.updateInstanceFlight(session.instanceId(), flight.hash(), flight.bytes(),
                 flight.durationMillis(), start);
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
-                ? new PendingEntry(entry.session.withFlight(flight.hash(), flight.bytes(),
+                ? entry.withSession(entry.session.withFlight(flight.hash(), flight.bytes(),
                 flight.durationMillis(), start)) : entry);
         for (StageSession member : data.members(session.instanceId())) {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
@@ -501,7 +526,7 @@ public final class StageSessionManager {
         StageSessionData data = StageSessionData.get(server);
         data.updateInstanceFlight(session.instanceId(), "", 0, 0L, -1L);
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
-                ? new PendingEntry(entry.session.withoutFlight()) : entry);
+                ? entry.withSession(entry.session.withoutFlight()) : entry);
         for (StageSession member : data.members(session.instanceId())) {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
             if (target != null) {
@@ -526,7 +551,7 @@ public final class StageSessionManager {
         }
         data.updateInstanceBoundary(session.instanceId(), boundary);
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
-                ? new PendingEntry(entry.session.withBoundary(boundary))
+                ? entry.withSession(entry.session.withBoundary(boundary))
                 : entry);
         for (StageSession member : data.members(session.instanceId())) {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
@@ -678,7 +703,7 @@ public final class StageSessionManager {
         }
         data.updateInstanceClientScene(session.instanceId(), scene);
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
-                ? new PendingEntry(entry.session.withClientScene(scene)) : entry);
+                ? entry.withSession(entry.session.withClientScene(scene)) : entry);
         for (StageSession member : data.members(session.instanceId())) {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
             if (target != null) {
@@ -710,7 +735,7 @@ public final class StageSessionManager {
                 return;
             }
             warnMissingLod(player, error);
-            enterPrepared(player, pending.session);
+            enterPrepared(player, pending);
             return;
         }
 
@@ -899,14 +924,15 @@ public final class StageSessionManager {
                 && switching.target().equals(lodPackId);
     }
 
-    private static boolean prepare(ServerPlayer player, StageSession session) {
-        PENDING.put(player.getUUID(), new PendingEntry(session));
+    private static boolean prepare(ServerPlayer player, StageSession session, boolean persistent) {
+        PENDING.put(player.getUUID(), new PendingEntry(session, persistent));
         DynamicStageNetwork.sendSession(player, session);
         player.sendSystemMessage(Component.literal("Checking local LOD pack '" + session.lodPackId() + "'..."));
         return true;
     }
 
-    private static void enterPrepared(ServerPlayer player, StageSession session) {
+    private static void enterPrepared(ServerPlayer player, PendingEntry pending) {
+        StageSession session = pending.session;
         MinecraftServer server = player.getServer();
         if (server == null) {
             return;
@@ -923,7 +949,7 @@ public final class StageSessionManager {
             player.sendSystemMessage(Component.literal("The Dynamic Stage instance changed while preparing."));
             return;
         }
-        data.put(session);
+        data.put(session, pending.persistent);
         markPlayer(player, session.instanceId());
         BlockPos origin = session.stageOrigin();
         player.stopRiding();
@@ -974,7 +1000,7 @@ public final class StageSessionManager {
                 flight == null ? 0L : flight.durationMillis(), flight == null ? -1L : flightStart);
     }
 
-    private static StageSession createMembership(ServerPlayer player, StageSession instance) {
+    private static StageSession createMembership(ServerPlayer player, StageInstance instance) {
         return new StageSession(player.getUUID(), instance.instanceId(), instance.stageId(), instance.lodPackId(),
                 instance.lodAnchor(), instance.slot(), instance.capacity(), instance.boundary(), instance.clientScene(),
                 player.serverLevel().dimension(),
@@ -990,6 +1016,18 @@ public final class StageSessionManager {
         StageFlightAssets.Asset flight = StageFlightAssets.load(server, session.stageId(), session.flightHash());
         return flight != null && flight.bytes() == session.flightBytes()
                 && flight.durationMillis() == session.flightDurationMillis();
+    }
+
+    private static boolean validFlight(MinecraftServer server, StageInstance instance) {
+        StageFlightAssets.Asset flight = StageFlightAssets.load(server, instance.stageId(), instance.flightHash());
+        return flight != null && flight.bytes() == instance.flightBytes()
+                && flight.durationMillis() == instance.flightDurationMillis();
+    }
+
+    private static boolean validFlight(MinecraftServer server, JoinableInstance instance) {
+        StageFlightAssets.Asset flight = StageFlightAssets.load(server, instance.stageId(), instance.flightHash());
+        return flight != null && flight.bytes() == instance.flightBytes()
+                && flight.durationMillis() == instance.flightDurationMillis();
     }
 
     private static boolean canPrepare(ServerPlayer player, MinecraftServer server) {
@@ -1011,7 +1049,7 @@ public final class StageSessionManager {
 
     private static int allocateSlot(StageSessionData data) {
         Set<Integer> occupied = new HashSet<>();
-        data.all().forEach(session -> occupied.add(session.slot()));
+        data.instances().forEach(instance -> occupied.add(instance.slot()));
         PENDING.values().forEach(entry -> occupied.add(entry.session.slot()));
         for (int slot = 0; slot < StagePlacement.MAX_SLOTS; slot++) {
             if (!occupied.contains(slot)) {
@@ -1027,8 +1065,8 @@ public final class StageSessionManager {
     }
 
     private static boolean slotClaimedByOtherInstance(StageSessionData data, StageSession candidate) {
-        return data.all().stream().anyMatch(session -> session.slot() == candidate.slot()
-                && !session.instanceId().equals(candidate.instanceId()));
+        return data.instances().stream().anyMatch(instance -> instance.slot() == candidate.slot()
+                && !instance.instanceId().equals(candidate.instanceId()));
     }
 
     private static boolean validStageId(String stageId) {
@@ -1086,7 +1124,7 @@ public final class StageSessionManager {
         StageSessionData data = StageSessionData.get(server);
         data.updateInstanceLodPack(instanceId, state.previous);
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(instanceId)
-                ? new PendingEntry(entry.session.withLodPack(state.previous)) : entry);
+                ? entry.withSession(entry.session.withLodPack(state.previous)) : entry);
         String message = boundedError(error);
         for (StageSession member : data.members(instanceId)) {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
@@ -1097,7 +1135,21 @@ public final class StageSessionManager {
         }
     }
 
-    private record PendingEntry(StageSession session) {
+    private record PendingEntry(StageSession session, boolean persistent) {
+        private PendingEntry withSession(StageSession updated) {
+            return new PendingEntry(updated, persistent);
+        }
+
+        private PendingEntry withSession(StageSession updated, boolean newPersistent) {
+            return new PendingEntry(updated, newPersistent);
+        }
+    }
+
+    private record JoinableInstance(UUID instanceId, int capacity, String stageId,
+                                    String flightHash, int flightBytes, long flightDurationMillis) {
+        private boolean hasFlight() {
+            return !flightHash.isEmpty();
+        }
     }
 
     private record ReloadPlan(StageTemplate template, StageFlightAssets.Asset flight, UUID requesterId) {

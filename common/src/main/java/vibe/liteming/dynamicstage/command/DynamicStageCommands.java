@@ -89,14 +89,14 @@ public final class DynamicStageCommands {
                         .suggests(DynamicStageCommands::suggestTemplates)
                         .executes(ctx -> templateDelete(ctx.getSource(),
                                 StringArgumentType.getString(ctx, "template")))));
-        RequiredArgumentBuilder<CommandSourceStack, String> resetPolicy =
-                Commands.argument("reset_policy", StringArgumentType.word())
+        RequiredArgumentBuilder<CommandSourceStack, String> lifecyclePolicy =
+                Commands.argument("lifecycle", StringArgumentType.word())
                         .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
-                                java.util.List.of("on_create", "manual"), builder));
-        resetPolicy.executes(ctx -> templateSave(ctx.getSource(),
+                                java.util.List.of("release", "retain"), builder));
+        lifecyclePolicy.executes(ctx -> templateSave(ctx.getSource(),
                 StringArgumentType.getString(ctx, "template"),
                 parseInstanceMode(StringArgumentType.getString(ctx, "instance_mode")),
-                parseResetPolicy(StringArgumentType.getString(ctx, "reset_policy"))));
+                parseLifecyclePolicy(StringArgumentType.getString(ctx, "lifecycle"))));
         RequiredArgumentBuilder<CommandSourceStack, String> instanceMode =
                 Commands.argument("instance_mode", StringArgumentType.word())
                         .suggests((ctx, builder) -> SharedSuggestionProvider.suggest(
@@ -104,13 +104,13 @@ public final class DynamicStageCommands {
         instanceMode.executes(ctx -> templateSave(ctx.getSource(),
                 StringArgumentType.getString(ctx, "template"),
                 parseInstanceMode(StringArgumentType.getString(ctx, "instance_mode")),
-                StageTemplate.ResetPolicy.ON_CREATE));
-        instanceMode.then(resetPolicy);
+                StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY));
+        instanceMode.then(lifecyclePolicy);
         RequiredArgumentBuilder<CommandSourceStack, String> templateName =
                 Commands.argument("template", StringArgumentType.word());
         templateName.executes(ctx -> templateSave(ctx.getSource(),
                 StringArgumentType.getString(ctx, "template"), StageTemplate.InstanceMode.PARALLEL,
-                StageTemplate.ResetPolicy.ON_CREATE));
+                StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY));
         templateName.then(instanceMode);
         templates.then(Commands.literal("save").then(templateName));
         root.then(templates);
@@ -418,7 +418,7 @@ public final class DynamicStageCommands {
     }
 
     private static int templateSave(CommandSourceStack source, String id, StageTemplate.InstanceMode instanceMode,
-                                    StageTemplate.ResetPolicy resetPolicy) {
+                                    StageTemplate.LifecyclePolicy lifecyclePolicy) {
         if (!(source.getEntity() instanceof ServerPlayer player)) {
             return 0;
         }
@@ -429,7 +429,7 @@ public final class DynamicStageCommands {
         }
         try {
             StageTemplate template = StageTemplateStore.capture(source.getServer(), session, id,
-                    instanceMode, resetPolicy);
+                    instanceMode, lifecyclePolicy);
             StageTemplateStore.save(template);
             source.sendSuccess(() -> Component.literal("Saved portable stage template '" + id + "' ("
                     + instanceMode.name().toLowerCase(java.util.Locale.ROOT) + ", capacity "
@@ -557,11 +557,11 @@ public final class DynamicStageCommands {
         };
     }
 
-    private static StageTemplate.ResetPolicy parseResetPolicy(String value) {
+    private static StageTemplate.LifecyclePolicy parseLifecyclePolicy(String value) {
         return switch (value.toLowerCase(java.util.Locale.ROOT)) {
-            case "on_create" -> StageTemplate.ResetPolicy.ON_CREATE;
-            case "manual" -> StageTemplate.ResetPolicy.MANUAL;
-            default -> throw new IllegalArgumentException("reset_policy must be on_create or manual");
+            case "release", "on_create" -> StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY;
+            case "retain", "manual" -> StageTemplate.LifecyclePolicy.RETAIN;
+            default -> throw new IllegalArgumentException("lifecycle must be release or retain");
         };
     }
 

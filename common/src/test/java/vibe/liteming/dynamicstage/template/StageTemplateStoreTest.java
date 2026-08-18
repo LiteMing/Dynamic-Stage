@@ -26,7 +26,7 @@ class StageTemplateStoreTest {
                 new StageClientScene(true, 0.35F, 0.05F, true, 2.0F, StageClientScene.Transition.FADE,
                         20, 200L, StageClientScene.TimeMode.CYCLE, 18_000L, 100L, 1_200L,
                         StageClientScene.SkyMode.OVERWORLD),
-                4, StageTemplate.InstanceMode.SHARED, StageTemplate.ResetPolicy.ON_CREATE,
+                4, StageTemplate.InstanceMode.SHARED, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
                 flight(), arenaSnapshot(), "scarlet");
 
         StageTemplateStore.save(temporaryDirectory, template);
@@ -41,7 +41,7 @@ class StageTemplateStoreTest {
         Path portable = temporaryDirectory.resolve("dynamicstage/templates");
         StageTemplate template = new StageTemplate("gr1", new ResourceLocation("minecraft", "gr"),
                 BlockPos.ZERO, StageBoundary.defaults(), StageClientScene.defaults(0L, 0L), 1,
-                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE,
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
                 new byte[0], new CompoundTag());
         StageTemplateStore.save(legacy, template);
 
@@ -57,7 +57,7 @@ class StageTemplateStoreTest {
                 StageClientScene.TimeMode.FOLLOW, 6000L, 50L, 0L, StageClientScene.SkyMode.OVERWORLD);
         StageTemplate template = new StageTemplate("stage", new ResourceLocation("pack", "lod"), BlockPos.ZERO,
                 StageBoundary.defaults(), scene, 1, StageTemplate.InstanceMode.PARALLEL,
-                StageTemplate.ResetPolicy.MANUAL, new byte[0], new CompoundTag());
+                StageTemplate.LifecyclePolicy.RETAIN, new byte[0], new CompoundTag());
 
         StageClientScene rebased = template.sceneForNewInstance(12_000L, 900L);
 
@@ -72,12 +72,12 @@ class StageTemplateStoreTest {
         CompoundTag arena = arenaSnapshot();
         StageTemplate existing = new StageTemplate("stage", new ResourceLocation("pack", "old"), BlockPos.ZERO,
                 StageBoundary.defaults(), StageClientScene.defaults(0L, 0L), 1,
-                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE,
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
                 flight(), arena, "old-flight");
         StageTemplateSummary summary = new StageTemplateSummary("stage", new ResourceLocation("pack", "new"),
                 new BlockPos(10, 20, 30), new StageBoundary(40, 44, 16, 0x445566),
                 StageClientScene.defaults(6000L, 20L), 4, StageTemplate.InstanceMode.SHARED,
-                StageTemplate.ResetPolicy.MANUAL, "scarlet");
+                StageTemplate.LifecyclePolicy.RETAIN, "scarlet");
 
         StageTemplate edited = summary.applyTo(existing);
 
@@ -93,13 +93,31 @@ class StageTemplateStoreTest {
         StageBoundary boundary = new StageBoundary(40, 44, 16, 0x112233);
         StageTemplate existing = new StageTemplate("stage", new ResourceLocation("pack", "old"), BlockPos.ZERO,
                 boundary, StageClientScene.defaults(0L, 0L), 1,
-                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE,
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
                 flight(), arena, "old-flight");
         StageTemplateSummary summary = new StageTemplateSummary("stage", new ResourceLocation("pack", "new"),
                 BlockPos.ZERO, boundary.withColor(0x445566), StageClientScene.defaults(0L, 0L), 1,
-                StageTemplate.InstanceMode.PARALLEL, StageTemplate.ResetPolicy.ON_CREATE, "old-flight");
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
+                "old-flight");
 
         assertEquals(arena, summary.applyTo(existing).arenaSnapshot());
+    }
+
+    @Test
+    void migratesLegacyResetPolicyToInstanceLifecycle() {
+        StageTemplate template = new StageTemplate("legacy", new ResourceLocation("pack", "lod"),
+                BlockPos.ZERO, StageBoundary.defaults(), StageClientScene.defaults(0L, 0L), 1,
+                StageTemplate.InstanceMode.PARALLEL, StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
+                new byte[0], new CompoundTag());
+        CompoundTag retained = template.save();
+        retained.remove("LifecyclePolicy");
+        retained.putString("ResetPolicy", "MANUAL");
+        CompoundTag released = retained.copy();
+        released.putString("ResetPolicy", "ON_CREATE");
+
+        assertEquals(StageTemplate.LifecyclePolicy.RETAIN, StageTemplate.load(retained).lifecyclePolicy());
+        assertEquals(StageTemplate.LifecyclePolicy.RELEASE_WHEN_EMPTY,
+                StageTemplate.load(released).lifecyclePolicy());
     }
 
     private static CompoundTag arenaSnapshot() {

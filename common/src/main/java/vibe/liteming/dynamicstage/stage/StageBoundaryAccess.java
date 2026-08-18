@@ -20,11 +20,13 @@ public final class StageBoundaryAccess {
             return null;
         }
         if (!entity.level().isClientSide && entity.level() instanceof ServerLevel serverLevel) {
-            StageSession session = entity instanceof ServerPlayer player
-                    ? StageSessionManager.get(player).orElse(null)
-                    : StageSessionData.get(serverLevel.getServer())
+            if (entity instanceof ServerPlayer player) {
+                StageSession session = StageSessionManager.get(player).orElse(null);
+                return session == null ? null : new Located(session.stageOrigin(), session.boundary());
+            }
+            StageInstance instance = StageSessionData.get(serverLevel.getServer())
                     .findRegion(entity.getX(), entity.getZ()).orElse(null);
-            return session == null ? null : new Located(session.stageOrigin(), session.boundary());
+            return instance == null ? null : new Located(instance.stageOrigin(), instance.boundary());
         }
         ClientBoundary local = clientBoundary;
         return entity.level().isClientSide && local != null && entity.getUUID().equals(local.playerId)
