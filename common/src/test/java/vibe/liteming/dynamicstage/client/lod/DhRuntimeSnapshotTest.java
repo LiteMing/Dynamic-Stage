@@ -12,11 +12,16 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -67,6 +72,56 @@ class DhRuntimeSnapshotTest {
         assertTrue(Files.isRegularFile(second.database()));
         assertPropagationFlags(second.database(), 0, 0);
         assertPropagationFlags(sourceDatabase, 3, 4);
+    }
+
+    @Test
+    void snapshotsSourceWhileDhUpdatesRemainActive(@TempDir Path temporary) throws Exception {
+        Path sourceDatabase = createDatabase(temporary.resolve("source/DistantHorizons.sqlite"), true);
+        try (Connection connection = open(sourceDatabase); Statement statement = connection.createStatement()) {
+            statement.execute("PRAGMA journal_mode=WAL");
+            statement.executeUpdate("""
+                    WITH RECURSIVE rows(value) AS (
+                        SELECT 10 UNION ALL SELECT value + 1 FROM rows WHERE value < 4105
+                    )
+                    INSERT INTO FullData
+                    SELECT 0, value, 2, 3, randomblob(2048), X'02', X'03', X'04',
+                           X'05', X'06', X'07', X'08', 2, 4, 1, 2
+                    FROM rows
+                    """);
+        }
+
+        AtomicBoolean running = new AtomicBoolean(true);
+        AtomicReference<Throwable> writerFailure = new AtomicReference<>();
+        CountDownLatch firstUpdate = new CountDownLatch(1);
+        Thread writer = new Thread(() -> {
+            try (Connection connection = open(sourceDatabase); Statement statement = connection.createStatement()) {
+                statement.execute("PRAGMA busy_timeout=10000");
+                while (running.get()) {
+                    statement.executeUpdate(
+                            "UPDATE FullData SET DataChecksum = DataChecksum + 1 WHERE PosX = 1");
+                    firstUpdate.countDown();
+                    Thread.sleep(2L);
+                }
+            } catch (Throwable error) {
+                writerFailure.set(error);
+            }
+        }, "DH snapshot test writer");
+        writer.start();
+        assertTrue(firstUpdate.await(10, TimeUnit.SECONDS));
+
+        LodPackRegistry.DhPack snapshot;
+        try {
+            snapshot = DhRuntimeSnapshot.prepare(temporary.resolve("game"), sourcePack(sourceDatabase));
+        } finally {
+            running.set(false);
+            writer.join(10_000L);
+        }
+
+        assertFalse(writer.isAlive());
+        assertNull(writerFailure.get());
+        assertTrue(Files.isRegularFile(snapshot.database()));
+        assertPropagationFlags(snapshot.database(), 0, 0);
+        assertPropagationFlags(sourceDatabase, 1, 2);
     }
 
     @Test

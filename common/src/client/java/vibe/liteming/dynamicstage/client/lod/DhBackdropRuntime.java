@@ -319,10 +319,14 @@ public final class DhBackdropRuntime {
         boundClientWrapper = clientWrapper;
         boundServerWrapper = serverWrapper;
         if (serverWrapper != null) {
+            // DhClientServerWorld indexes the same level by both wrappers. Remove the
+            // client key before closing the server level so it cannot retain stale data.
+            invokeCompatible(world, "unloadLevel", clientWrapper);
             invokeCompatible(world, "unloadLevel", serverWrapper);
         } else {
             invokeCompatible(world, "unloadLevel", clientWrapper);
         }
+        invalidateSaveFolder(world, clientWrapper);
         if (serverWrapper != null) {
             invalidateSaveFolder(world, serverWrapper);
             Object level = requireLoaded(invokeCompatible(world, "getOrLoadLevel", serverWrapper));
@@ -351,14 +355,14 @@ public final class DhBackdropRuntime {
             return;
         }
         if (serverWrapper != null) {
+            invokeCompatible(world, "unloadLevel", clientWrapper);
             invokeCompatible(world, "unloadLevel", serverWrapper);
         } else {
             invokeCompatible(world, "unloadLevel", clientWrapper);
         }
+        invalidateSaveFolder(world, clientWrapper);
         if (serverWrapper != null) {
             invalidateSaveFolder(world, serverWrapper);
-        } else {
-            invalidateSaveFolder(world, clientWrapper);
         }
         boundWorld = null;
         boundClientWrapper = null;

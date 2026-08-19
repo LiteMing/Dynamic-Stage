@@ -302,13 +302,8 @@ public final class DhPackOptimizer {
     static void snapshotReadOnly(Path source, Path destination) throws IOException {
         try {
             loadDriver();
-            SourceState before = SourceState.capture(source);
             Files.createDirectories(destination.toAbsolutePath().normalize().getParent());
             snapshot(source, destination);
-            SourceState after = SourceState.capture(source);
-            if (!before.equals(after)) {
-                throw new IOException("Source DH database changed while its runtime snapshot was created");
-            }
             try (Connection connection = open(destination)) {
                 configureForRewrite(connection);
                 validateSchema(connection);

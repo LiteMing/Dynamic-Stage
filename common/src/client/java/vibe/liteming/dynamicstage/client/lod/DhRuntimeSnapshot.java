@@ -36,44 +36,49 @@ final class DhRuntimeSnapshot {
                 .toAbsolutePath().normalize();
         Files.createDirectories(root);
 
-        for (int attempt = 0; attempt < 3; attempt++) {
-            Fingerprint fingerprint = Fingerprint.capture(source.database());
-            Path directory = root.resolve(fingerprint.key()).normalize();
-            Path database = directory.resolve(DATABASE).normalize();
-            if (!directory.startsWith(root) || !database.startsWith(directory)) {
-                throw new IOException("DH runtime snapshot path is unsafe");
-            }
-            if (isReusable(directory, database, fingerprint)) {
-                return runtimePack(source, directory, database);
-            }
-
-            Path temporary = root.resolve("." + fingerprint.key() + '-' + UUID.randomUUID()).normalize();
-            Files.createDirectories(temporary);
-            try {
-                DhPackOptimizer.snapshotReadOnly(source.database(), temporary.resolve(DATABASE));
-                Fingerprint after = Fingerprint.capture(source.database());
-                if (!fingerprint.equals(after)) {
-                    throw new IOException("Source DH database changed while its runtime snapshot was created");
-                }
-                writeMarker(temporary.resolve(MARKER), fingerprint, temporary.resolve(DATABASE));
-                if (Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
-                    if (isReusable(directory, database, fingerprint)) {
-                        deleteTree(temporary, root);
-                        return runtimePack(source, directory, database);
-                    }
-                    deleteTree(directory, root);
-                }
-                movePublished(temporary, directory);
-                LOGGER.info("Created DH runtime snapshot {} from {}", database, source.database());
-                return runtimePack(source, directory, database);
-            } catch (IOException error) {
-                deleteTree(temporary, root);
-                if (attempt == 2) {
-                    throw error;
-                }
-            }
+        Fingerprint before = Fingerprint.capture(source.database());
+        Path reusableDirectory = root.resolve(before.key()).normalize();
+        Path reusableDatabase = reusableDirectory.resolve(DATABASE).normalize();
+        requireSafePaths(root, reusableDirectory, reusableDatabase);
+        if (isReusable(reusableDirectory, reusableDatabase, before)) {
+            return runtimePack(source, reusableDirectory, reusableDatabase);
         }
-        throw new IOException("Could not prepare a stable DH runtime snapshot");
+
+        Path temporary = root.resolve(".snapshot-" + UUID.randomUUID()).normalize();
+        Files.createDirectories(temporary);
+        try {
+            // VACUUM INTO reads a consistent SQLite transaction snapshot. Source updates
+            // may continue without invalidating the resulting private runtime database.
+            DhPackOptimizer.snapshotReadOnly(source.database(), temporary.resolve(DATABASE));
+            Fingerprint after = Fingerprint.capture(source.database());
+            Path directory = root.resolve(after.key()).normalize();
+            Path database = directory.resolve(DATABASE).normalize();
+            requireSafePaths(root, directory, database);
+            writeMarker(temporary.resolve(MARKER), after, temporary.resolve(DATABASE));
+            if (Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
+                if (isReusable(directory, database, after)) {
+                    deleteTree(temporary, root);
+                    return runtimePack(source, directory, database);
+                }
+                deleteTree(directory, root);
+            }
+            movePublished(temporary, directory);
+            if (!before.equals(after)) {
+                LOGGER.info("Created DH runtime snapshot while source updates remained active: {}", database);
+            } else {
+                LOGGER.info("Created DH runtime snapshot {} from {}", database, source.database());
+            }
+            return runtimePack(source, directory, database);
+        } catch (IOException error) {
+            deleteTree(temporary, root);
+            throw error;
+        }
+    }
+
+    private static void requireSafePaths(Path root, Path directory, Path database) throws IOException {
+        if (!directory.startsWith(root) || !database.startsWith(directory)) {
+            throw new IOException("DH runtime snapshot path is unsafe");
+        }
     }
 
     private static LodPackRegistry.DhPack runtimePack(LodPackRegistry.DhPack source,
