@@ -68,10 +68,23 @@ class DhRuntimeSnapshotTest {
         LodPackRegistry.DhPack second = DhRuntimeSnapshot.prepare(temporary.resolve("game"), source);
 
         assertNotEquals(first.database(), second.database());
-        assertTrue(Files.isRegularFile(first.database()));
+        assertFalse(Files.exists(first.database()));
         assertTrue(Files.isRegularFile(second.database()));
         assertPropagationFlags(second.database(), 0, 0);
         assertPropagationFlags(sourceDatabase, 3, 4);
+    }
+
+    @Test
+    void retainsSnapshotsFromOtherSources(@TempDir Path temporary) throws Exception {
+        Path firstSource = createDatabase(temporary.resolve("source-a/DistantHorizons.sqlite"), true);
+        Path secondSource = createDatabase(temporary.resolve("source-b/DistantHorizons.sqlite"), true);
+        Path gameDirectory = temporary.resolve("game");
+
+        LodPackRegistry.DhPack first = DhRuntimeSnapshot.prepare(gameDirectory, sourcePack(firstSource));
+        LodPackRegistry.DhPack second = DhRuntimeSnapshot.prepare(gameDirectory, sourcePack(secondSource));
+
+        assertTrue(Files.isRegularFile(first.database()));
+        assertTrue(Files.isRegularFile(second.database()));
     }
 
     @Test

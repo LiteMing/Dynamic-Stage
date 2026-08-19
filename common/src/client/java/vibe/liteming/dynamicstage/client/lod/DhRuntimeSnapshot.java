@@ -41,6 +41,7 @@ final class DhRuntimeSnapshot {
         Path reusableDatabase = reusableDirectory.resolve(DATABASE).normalize();
         requireSafePaths(root, reusableDirectory, reusableDatabase);
         if (isReusable(reusableDirectory, reusableDatabase, before)) {
+            pruneObsoleteSnapshots(root, reusableDirectory, before.sourcePath());
             return runtimePack(source, reusableDirectory, reusableDatabase);
         }
 
@@ -68,6 +69,7 @@ final class DhRuntimeSnapshot {
             } else {
                 LOGGER.info("Created DH runtime snapshot {} from {}", database, source.database());
             }
+            pruneObsoleteSnapshots(root, directory, after.sourcePath());
             return runtimePack(source, directory, database);
         } catch (IOException error) {
             deleteTree(temporary, root);
@@ -142,6 +144,32 @@ final class DhRuntimeSnapshot {
             Files.move(temporary, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
         } catch (java.nio.file.AtomicMoveNotSupportedException error) {
             Files.move(temporary, target);
+        }
+    }
+
+    private static void pruneObsoleteSnapshots(Path root, Path retained, String sourcePath) {
+        try (var entries = Files.list(root)) {
+            entries.filter(path -> !path.equals(retained))
+                    .filter(path -> Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS))
+                    .filter(path -> belongsToSource(path, sourcePath))
+                    .forEach(path -> deleteTree(path, root));
+        } catch (IOException | RuntimeException error) {
+            LOGGER.debug("Could not prune obsolete DH runtime snapshots for {}", sourcePath, error);
+        }
+    }
+
+    private static boolean belongsToSource(Path directory, String sourcePath) {
+        Path marker = directory.resolve(MARKER);
+        try {
+            if (!Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)
+                    || Files.size(marker) > MAX_MARKER_BYTES) {
+                return false;
+            }
+            JsonObject value = com.google.gson.JsonParser.parseString(
+                    Files.readString(marker, StandardCharsets.UTF_8)).getAsJsonObject();
+            return value.has("sourcePath") && sourcePath.equals(value.get("sourcePath").getAsString());
+        } catch (IOException | RuntimeException ignored) {
+            return false;
         }
     }
 
