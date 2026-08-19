@@ -291,6 +291,44 @@ public final class DhPackOptimizer {
         }
     }
 
+    /**
+     * Creates the writable DH database used by the renderer for an immutable source package.
+     *
+     * <p>DH's public read-only flag stops vanilla update hooks, but its 3.2 propagation
+     * worker still persists rows whose propagation bits are set.  A stage therefore
+     * needs a private database snapshot with those bits cleared; the distributed source
+     * must never be opened as DH's active level.</p>
+     */
+    static void snapshotReadOnly(Path source, Path destination) throws IOException {
+        try {
+            loadDriver();
+            SourceState before = SourceState.capture(source);
+            Files.createDirectories(destination.toAbsolutePath().normalize().getParent());
+            snapshot(source, destination);
+            SourceState after = SourceState.capture(source);
+            if (!before.equals(after)) {
+                throw new IOException("Source DH database changed while its runtime snapshot was created");
+            }
+            try (Connection connection = open(destination)) {
+                configureForRewrite(connection);
+                validateSchema(connection);
+                try (Statement statement = connection.createStatement()) {
+                    statement.executeUpdate("UPDATE FullData SET ApplyToParent = 0, ApplyToChildren = 0 "
+                            + "WHERE ApplyToParent <> 0 OR ApplyToChildren <> 0");
+                }
+            }
+            compact(destination);
+            Files.deleteIfExists(destination.resolveSibling(destination.getFileName() + "-wal"));
+            Files.deleteIfExists(destination.resolveSibling(destination.getFileName() + "-shm"));
+            Files.deleteIfExists(destination.resolveSibling(destination.getFileName() + "-journal"));
+        } catch (Throwable error) {
+            if (error instanceof IOException io) {
+                throw io;
+            }
+            throw new IOException("Could not create a writable DH runtime snapshot", rootCause(error));
+        }
+    }
+
     private static void compact(Path database) throws SQLException {
         try (Connection connection = open(database); Statement statement = connection.createStatement()) {
             statement.execute("PRAGMA journal_mode=DELETE");

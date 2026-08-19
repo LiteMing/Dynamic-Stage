@@ -52,12 +52,14 @@ public final class DhBackdropRuntime {
             }
             verifyDhVersion();
             verifyMixins();
-            LodPackRegistry.DhPack pack = LodPackRegistry.loadDh(snapshot.lodPackId());
+            LodPackRegistry.DhPack sourcePack = LodPackRegistry.loadDh(snapshot.lodPackId());
             registerSaveOverride();
-            if (previous != null && previous.pack.id().equals(pack.id())) {
-                mounted = new Mounted(snapshot.instanceId(), pack);
+            if (previous != null && previous.pack.id().equals(sourcePack.id())) {
+                mounted = new Mounted(snapshot.instanceId(), previous.pack);
                 return Result.success();
             }
+            LodPackRegistry.DhPack pack = DhRuntimeSnapshot.prepare(
+                    Minecraft.getInstance().gameDirectory.toPath(), sourcePack);
             mounted = new Mounted(snapshot.instanceId(), pack);
             stageLevelBound = false;
             if (previous == null) {
@@ -316,11 +318,11 @@ public final class DhBackdropRuntime {
         boundWorld = world;
         boundClientWrapper = clientWrapper;
         boundServerWrapper = serverWrapper;
-        invokeCompatible(world, "unloadLevel", clientWrapper);
         if (serverWrapper != null) {
             invokeCompatible(world, "unloadLevel", serverWrapper);
+        } else {
+            invokeCompatible(world, "unloadLevel", clientWrapper);
         }
-        invalidateSaveFolder(world, clientWrapper);
         if (serverWrapper != null) {
             invalidateSaveFolder(world, serverWrapper);
             Object level = requireLoaded(invokeCompatible(world, "getOrLoadLevel", serverWrapper));
@@ -348,13 +350,15 @@ public final class DhBackdropRuntime {
         if (world == null || clientWrapper == null) {
             return;
         }
-        invokeCompatible(world, "unloadLevel", clientWrapper);
         if (serverWrapper != null) {
             invokeCompatible(world, "unloadLevel", serverWrapper);
+        } else {
+            invokeCompatible(world, "unloadLevel", clientWrapper);
         }
-        invalidateSaveFolder(world, clientWrapper);
         if (serverWrapper != null) {
             invalidateSaveFolder(world, serverWrapper);
+        } else {
+            invalidateSaveFolder(world, clientWrapper);
         }
         boundWorld = null;
         boundClientWrapper = null;
