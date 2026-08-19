@@ -355,8 +355,8 @@ Build and run tests:
 .\gradlew.bat clean build
 ```
 
-The release outputs are `fabric/build/libs/dstage-fabric-1.5.0.jar` and
-`forge/build/libs/dstage-forge-1.5.0.jar`. They do not embed DH, Voxy, CMDCam,
+The release outputs are `fabric/build/libs/dstage-fabric-1.5.1.jar` and
+`forge/build/libs/dstage-forge-1.5.1.jar`. They do not embed DH, Voxy, CMDCam,
 SQLite, RocksDB, or compression libraries.
 
 Run the default Forge client with DH and Oculus shader compatibility:

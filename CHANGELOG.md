@@ -5,6 +5,8 @@
 
 ## 未发布
 
+## 1.5.1 - 2026-08-19
+
 ### 新增
 
 - 新增基于原版 Distant Horizons 3.2.0-b 的只读 LOD 包优化器，无需维护 DH 分支。
@@ -14,10 +16,21 @@
 - DH 优化包会清除区块更新哈希和父子传播标记，裁切信标光柱数据，并删除已经迁移完成的旧数据表。
 - 新增独立的 DH 投影近裁切倍率；可通过 Editor 或 `/dstage backdrop dh-clip <倍率>` 调整，默认使用原生 near plane 的 `0.01` 倍。
 
+### 调整
+
+- Editor 保存的便携模板改为可直接编辑的 `dynamicstage/templates/<id>.json`；原版场地方块和实体快照单独保存为内容寻址的 `dynamicstage/arenas/<sha256>.nbt`，相同快照自动复用。
+- 命名 Flight 在模板 JSON 中保存全局 Flight 名称引用；未命名 Flight 以内嵌 JSON 保留。现有 `dynamicstage/templates` 中的旧哈希 `.dat` 会一次性转换并在回读验证后删除；更早的 `config/dynamicstage/templates` 不再扫描。
+- `/dstage template delete` 只补全可删除的本地 JSON 模板；数据包模板会明确提示其为只读资源。
+- 项目源码和 Dynamic Stage 自身产物正式采用 MIT License；第三方依赖仍遵循各自许可。
+
 ### 修复
 
+- `/dstage flight play <name>` 不再被命令方块误判为缺少 `fade/blur` 转场参数；无附加参数时明确按即时切换执行。
+- 修复物品等客户端实体在关卡边界地板上反复下坠和回弹的问题。
 - 修复 DH 3.2.0-b 最终合成 Mixin 仍指向旧版 `DhApplyShader`、因 `require=0` 而静默失效的问题。现在 DH 的显示/隐藏、淡入淡出、模糊、常驻模糊和实时包切换实际接入 `GlDhApplyShader_forge`。
 - 挂载 DH 包时会验证最终合成 Mixin，DH 内部结构变化时明确报告不兼容，不再无提示丢失滤镜。
+- DH 来源 SQLite/WAL 正在更新时改用一致性私有快照挂载，避免因缓存更新阻止进入关卡；同一来源的过期运行时快照会自动回收。
+- 修复 LOD 优化命令不能完整解析 `dev:overworld` 等命名空间包 ID 的问题。
 - 修复 `dh-fade` 被误当成几何裁切参数的问题；该参数现在保持仅控制近景淡出，实际约 5 格的投影裁切由 `dh-clip` 单独控制。
 
 ## 1.5.0 - 2026-08-18
@@ -35,13 +48,6 @@
 - 实例 UUID 不再作为普通玩家必须输入的标识，仅保留在 GUI 和邀请消息的悬浮诊断信息中；旧 UUID 参数仍可兼容解析。
 - 满员观察者会保留进入关卡前的位置和游戏模式，离开关卡或 LOD 准备失败时自动恢复。
 - 实例容量只统计正式成员，观察者仍会收到完整场景同步，但不会占用玩家名额。
-- Editor 保存的便携模板改为可直接编辑的 `dynamicstage/templates/<id>.json`；原版场地方块和实体快照单独保存为内容寻址的 `dynamicstage/arenas/<sha256>.nbt`，相同快照自动复用。
-- 命名 Flight 在模板 JSON 中保存全局 Flight 名称引用；未命名 Flight 以内嵌 JSON 保留。现有 `dynamicstage/templates` 中的旧哈希 `.dat` 会一次性转换并在回读验证后删除；更早的 `config/dynamicstage/templates` 不再扫描。
-- `/dstage template delete` 只补全可删除的本地 JSON 模板；数据包模板会明确提示其为只读资源。
-
-### 修复
-
-- `/dstage flight play <name>` 不再被命令方块误判为缺少 `fade/blur` 转场参数；无附加参数时明确按即时切换执行。
 
 ## 1.4.0 - 2026-08-18
 
