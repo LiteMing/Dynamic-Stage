@@ -8,6 +8,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class StageClientSceneTest {
     @Test
+    void defaultsToOneThousandthDhNearFadeDistance() {
+        assertEquals(0.001F, StageClientScene.DEFAULT_DH_NEAR_FADE_SCALE);
+        assertEquals(0.001F, StageClientScene.defaults(0L, 0L).dhNearFadeScale());
+    }
+
+    @Test
     void persistsAllClientSceneSettings() {
         StageClientScene scene = new StageClientScene(false, 0.5F, 0.125F, 1.25F, true, false, 6.5F,
                 StageClientScene.Transition.BLUR, 40, 250L,
@@ -46,7 +52,7 @@ class StageClientSceneTest {
 
     @Test
     void rejectsInvalidDhNearFadeScale() {
-        assertThrows(IllegalArgumentException.class, () -> new StageClientScene(true, 1.0F, 0.0F, true, 0.0F,
+        assertThrows(IllegalArgumentException.class, () -> new StageClientScene(true, 1.0F, 0.00001F, true, 0.0F,
                 StageClientScene.Transition.INSTANT, 0, 0L,
                 StageClientScene.TimeMode.FOLLOW, 0L, 0L, 0L, StageClientScene.SkyMode.OVERWORLD));
     }
