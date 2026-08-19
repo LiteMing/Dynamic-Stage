@@ -11,6 +11,7 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.commands.arguments.ResourceLocationArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -72,7 +73,7 @@ public final class StageLodClientCommands {
                 .then(importMode("link-relative", LodPackImporter.Mode.LINK_RELATIVE))
                 .then(importMode("copy", LodPackImporter.Mode.COPY)));
         lod.then(LiteralArgumentBuilder.<S>literal("export")
-                .then(RequiredArgumentBuilder.<S, String>argument("pack", StringArgumentType.word())
+                .then(RequiredArgumentBuilder.<S, ResourceLocation>argument("pack", ResourceLocationArgument.id())
                         .then(RequiredArgumentBuilder.<S, String>argument("output", StringArgumentType.greedyString())
                                 .suggests(StageLodClientCommands::suggestArchivePath)
                                 .executes(StageLodClientCommands::exportPack))));
@@ -112,7 +113,7 @@ public final class StageLodClientCommands {
         return LiteralArgumentBuilder.<S>literal("optimize").then(voxy).then(dh);
     }
 
-    private static <S> RequiredArgumentBuilder<S, String> dhOptimizationPacks(boolean includeRadius) {
+    private static <S> RequiredArgumentBuilder<S, ResourceLocation> dhOptimizationPacks(boolean includeRadius) {
         RequiredArgumentBuilder<S, Integer> maxY = RequiredArgumentBuilder
                 .<S, Integer>argument("max_y", IntegerArgumentType.integer(-2048, 2048))
                 .executes(StageLodClientCommands::optimizeDhPack);
@@ -129,18 +130,18 @@ public final class StageLodClientCommands {
                                             IntegerArgumentType.integer(1, 30_000_000))
                                     .then(minY)));
         }
-        RequiredArgumentBuilder<S, String> output = RequiredArgumentBuilder
-                .<S, String>argument("output_pack", StringArgumentType.word())
+        RequiredArgumentBuilder<S, ResourceLocation> output = RequiredArgumentBuilder
+                .<S, ResourceLocation>argument("output_pack", ResourceLocationArgument.id())
                 .then(settings);
-        RequiredArgumentBuilder<S, String> source = RequiredArgumentBuilder
-                .<S, String>argument("source_pack", StringArgumentType.word())
+        RequiredArgumentBuilder<S, ResourceLocation> source = RequiredArgumentBuilder
+                .<S, ResourceLocation>argument("source_pack", ResourceLocationArgument.id())
                 .suggests(StageLodClientCommands::suggestDhPackIds)
                 .then(output);
         return source;
     }
 
-    private static <S> RequiredArgumentBuilder<S, String> optimizationPacks(boolean includeShellDepth,
-                                                                               boolean includeRadius) {
+    private static <S> RequiredArgumentBuilder<S, ResourceLocation> optimizationPacks(boolean includeShellDepth,
+                                                                                       boolean includeRadius) {
         RequiredArgumentBuilder<S, Integer> maxY = RequiredArgumentBuilder
                 .<S, Integer>argument("max_y", IntegerArgumentType.integer(-2048, 2048))
                 .executes(StageLodClientCommands::optimizeVoxyPack);
@@ -162,11 +163,11 @@ public final class StageLodClientCommands {
                                             IntegerArgumentType.integer(1, 30_000_000))
                                     .then(settings)));
         }
-        RequiredArgumentBuilder<S, String> output = RequiredArgumentBuilder
-                .<S, String>argument("output_pack", StringArgumentType.word())
+        RequiredArgumentBuilder<S, ResourceLocation> output = RequiredArgumentBuilder
+                .<S, ResourceLocation>argument("output_pack", ResourceLocationArgument.id())
                 .then(settings);
-        RequiredArgumentBuilder<S, String> source = RequiredArgumentBuilder
-                .<S, String>argument("source_pack", StringArgumentType.word())
+        RequiredArgumentBuilder<S, ResourceLocation> source = RequiredArgumentBuilder
+                .<S, ResourceLocation>argument("source_pack", ResourceLocationArgument.id())
                 .suggests(StageLodClientCommands::suggestVoxyPackIds)
                 .then(output);
         return source;
@@ -177,8 +178,8 @@ public final class StageLodClientCommands {
                 .<S, String>argument("source_path", StringArgumentType.greedyString())
                 .suggests(StageLodClientCommands::suggestPaths)
                 .executes(context -> startImport(context, mode));
-        RequiredArgumentBuilder<S, String> pack = RequiredArgumentBuilder
-                .<S, String>argument("pack", StringArgumentType.word())
+        RequiredArgumentBuilder<S, ResourceLocation> pack = RequiredArgumentBuilder
+                .<S, ResourceLocation>argument("pack", ResourceLocationArgument.id())
                 .then(source);
         return LiteralArgumentBuilder.<S>literal(name).then(pack);
     }
@@ -338,12 +339,7 @@ public final class StageLodClientCommands {
     }
 
     private static <S> int startImport(CommandContext<S> context, LodPackImporter.Mode mode) {
-        String rawId = StringArgumentType.getString(context, "pack");
-        ResourceLocation id = ResourceLocation.tryParse(rawId);
-        if (id == null) {
-            message(Component.literal("Invalid LOD package ID: " + rawId));
-            return 0;
-        }
+        ResourceLocation id = context.getArgument("pack", ResourceLocation.class);
 
         Path source;
         try {
@@ -403,11 +399,7 @@ public final class StageLodClientCommands {
     }
 
     private static <S> int exportPack(CommandContext<S> context) {
-        ResourceLocation id = ResourceLocation.tryParse(StringArgumentType.getString(context, "pack"));
-        if (id == null) {
-            message(Component.literal("Invalid LOD package ID."));
-            return 0;
-        }
+        ResourceLocation id = context.getArgument("pack", ResourceLocation.class);
         Path output;
         try {
             output = resolvePath(StringArgumentType.getString(context, "output"));
@@ -443,12 +435,8 @@ public final class StageLodClientCommands {
     }
 
     private static <S> int optimizeVoxyPack(CommandContext<S> context) {
-        ResourceLocation sourceId = ResourceLocation.tryParse(StringArgumentType.getString(context, "source_pack"));
-        ResourceLocation outputId = ResourceLocation.tryParse(StringArgumentType.getString(context, "output_pack"));
-        if (sourceId == null || outputId == null) {
-            message(Component.literal("Source and output must be valid LOD package IDs."));
-            return 0;
-        }
+        ResourceLocation sourceId = context.getArgument("source_pack", ResourceLocation.class);
+        ResourceLocation outputId = context.getArgument("output_pack", ResourceLocation.class);
         if (sourceId.equals(outputId)) {
             message(Component.literal("Optimized Voxy output must use a new package ID."));
             return 0;
@@ -514,12 +502,8 @@ public final class StageLodClientCommands {
     }
 
     private static <S> int optimizeDhPack(CommandContext<S> context) {
-        ResourceLocation sourceId = ResourceLocation.tryParse(StringArgumentType.getString(context, "source_pack"));
-        ResourceLocation outputId = ResourceLocation.tryParse(StringArgumentType.getString(context, "output_pack"));
-        if (sourceId == null || outputId == null) {
-            message(Component.literal("Source and output must be valid LOD package IDs."));
-            return 0;
-        }
+        ResourceLocation sourceId = context.getArgument("source_pack", ResourceLocation.class);
+        ResourceLocation outputId = context.getArgument("output_pack", ResourceLocation.class);
         if (sourceId.equals(outputId)) {
             message(Component.literal("Optimized DH output must use a new package ID."));
             return 0;

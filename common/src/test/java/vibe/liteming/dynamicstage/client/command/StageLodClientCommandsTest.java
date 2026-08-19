@@ -6,6 +6,7 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class StageLodClientCommandsTest {
@@ -47,5 +48,22 @@ class StageLodClientCommandsTest {
         assertNotNull(optimize.getChild("voxy").getChild("radius"));
         assertNotNull(optimize.getChild("dh").getChild("crop"));
         assertNotNull(optimize.getChild("dh").getChild("radius"));
+    }
+
+    @Test
+    void parsesNamespacedLodPackageIdsInEveryClientCommand() {
+        CommandDispatcher<Object> dispatcher = new CommandDispatcher<>();
+        StageLodClientCommands.register(dispatcher);
+
+        assertFullyParsed(dispatcher,
+                "dstage lod optimize dh radius dev:overworld dynamicstage:trimmed 0 0 512 -64 320");
+        assertFullyParsed(dispatcher,
+                "dstage lod optimize voxy radius dev:overworld dynamicstage:trimmed 0 0 512 -64 320");
+        assertFullyParsed(dispatcher, "dstage lod export dynamicstage:trimmed output.dstlod");
+        assertFullyParsed(dispatcher, "dstage lod import link dynamicstage:trimmed D:/lod/source");
+    }
+
+    private static void assertFullyParsed(CommandDispatcher<Object> dispatcher, String command) {
+        assertFalse(dispatcher.parse(command, new Object()).getReader().canRead(), command);
     }
 }
