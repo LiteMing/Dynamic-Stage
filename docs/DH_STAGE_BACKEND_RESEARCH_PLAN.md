@@ -1,6 +1,6 @@
 # Dynamic Stage: Distant Horizons stage backend research plan
 
-Status: proposed research, no production backend change yet  
+Status: stock-DH compatibility implementation active; a DH fork remains deferred
 Target game: Minecraft 1.20.1 Forge  
 Reference backend: Distant Horizons 3.2.0-b  
 License boundary: Dynamic Stage remains MIT; modified Distant Horizons code remains LGPL-3.0

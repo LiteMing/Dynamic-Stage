@@ -73,6 +73,28 @@ at the specific cache instead of allowing an ambiguous selection.
 An existing package ID is never overwritten; use a new ID or remove the old
 client-local package deliberately before importing it again.
 
+Stock Distant Horizons 3.2 packages can be cropped and compacted without a DH
+fork:
+
+```text
+/dstage lod optimize dh crop <source_pack> <output_pack> <min_y> <max_y>
+/dstage lod optimize dh radius <source_pack> <output_pack> <anchor_x> <anchor_z> <radius> <min_y> <max_y>
+```
+
+The optimizer takes a consistent SQLite snapshot into a new package, decodes
+every retained `FullData` detail level through DH's own 3.2 DTOs, clips vertical
+segments to the inclusive Y range, and optionally removes X/Z columns outside
+the source-anchor radius. It clears immutable-package update metadata, crops
+beacon records, drops migrated legacy data, and vacuums the output database.
+The source package is never edited and the command refuses to overwrite an
+existing output ID. Keep the source Minecraft instance closed while optimizing.
+The output manifest records the policy, crop, consistent source-snapshot
+SHA-256, and output database SHA-256. The source database, WAL, and shared-memory
+file metadata must remain stable while the snapshot is taken. This first
+stock-DH optimizer deliberately does not claim Voxy's solid
+interior shell collapse; all retained DH surface and cave segments inside the
+selected range remain native DH data.
+
 `link` writes only a small manifest containing the local absolute source path;
 the native cache is mounted in place and consumes no second copy.
 `link-relative` instead records a portable path relative to the package's
@@ -299,6 +321,14 @@ Stage flights do not replace Minecraft's main camera or a shader pack's shadow c
 Backdrop and time settings belong to the instance and are broadcast to all members. Player movement following is enabled by default. The movement multiplier applies only to player translation inside the stage; eye height and first/third-person camera offsets remain at 1x so changing perspective does not shift the LOD scene. Turning following off pins the native LOD camera to the source anchor while preserving those camera offsets and CMDCam flight motion. Stage time is evaluated only by the client: `follow` advances from a synchronized Overworld epoch, `fixed` holds a vanilla day-time value in the `0..23999` range, and `cycle` maps one visual Minecraft day onto the configured number of client ticks. These modes do not change server-side stage time or send per-tick network updates.
 
 LOD visibility and live LOD package or Flight replacements can be instant, fade, or blur transitions. Persistent blur is independent from transitions and uses a `0..32` pixel radius; `0` disables it. DH near fade remains configurable. A mounted Voxy stage uses the template's `voxy_near_plane` projection value (`0.01..16`, default `0.5`) because its sparse foreground cannot cover the native `8/16` handoff. The largest value that does not visibly clip nearby LOD provides the best distant depth precision. With `voxy-culling=false`, the matching HDRS Voxy build also preserves camera-adjacent LOD sections while leaving normal frustum culling intact. Normal-world Voxy rendering remains unchanged. Dynamic Stage filters only the native backend's intermediate LOD color texture before DH or Voxy performs its original depth-aware composite, so the sky, stage blocks, entities, and UI are not blurred.
+
+For stock DH 3.2.0-b, DS hooks
+`GlDhApplyShader_forge`, preserving DH's native depth-aware composite while
+replacing only its color attachment during a transition/filter. Package
+show/hide, fade, blur, persistent blur, Flight swaps, and live package switches
+therefore use the same client scene state as Voxy. Mounting a DH package checks
+that this integration Mixin is active and reports a compatibility error instead
+of silently rendering without the requested filter.
 
 Version 1.3.0 adds server-offered LOD archives while retaining command-level runtime scheduling. Repeated `/dstage backdrop switch`, `/dstage flight play`, and `/dstage flight stop` commands can combine any number of named LOD packages and global Flights during one instance. Each command applies to every member of that instance. KubeJS or another server script can issue them from music markers, player NBT, or timed events; Flight motion uses a shared server game-time epoch so all clients sample the same animation position.
 

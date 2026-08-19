@@ -3,6 +3,21 @@
 本文记录 Dynamic Stage 自迁移至当前仓库以来的主要用户可见变更。项目采用
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 的组织方式；日期为仓库中的版本整理日期。
 
+## 未发布
+
+### 新增
+
+- 新增基于原版 Distant Horizons 3.2.0-b 的只读 LOD 包优化器，无需维护 DH 分支。
+- 新增 `/dstage lod optimize dh crop`，可按 Y 范围重编码全部 DH `FullData` 层并压实 SQLite。
+- 新增 `/dstage lod optimize dh radius`，可再按来源锚点和 X/Z 半径裁切行与列。
+- 优化结果始终写入新的包 ID，manifest 记录裁切策略、范围、一致性源快照 SHA-256 和输出数据库 SHA-256；源数据库不被修改。
+- DH 优化包会清除区块更新哈希和父子传播标记，裁切信标光柱数据，并删除已经迁移完成的旧数据表。
+
+### 修复
+
+- 修复 DH 3.2.0-b 最终合成 Mixin 仍指向旧版 `DhApplyShader`、因 `require=0` 而静默失效的问题。现在 DH 的显示/隐藏、淡入淡出、模糊、常驻模糊和实时包切换实际接入 `GlDhApplyShader_forge`。
+- 挂载 DH 包时会验证最终合成 Mixin，DH 内部结构变化时明确报告不兼容，不再无提示丢失滤镜。
+
 ## 1.5.0 - 2026-08-18
 
 ### 新增
