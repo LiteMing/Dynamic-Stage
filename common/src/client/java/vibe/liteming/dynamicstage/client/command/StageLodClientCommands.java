@@ -20,6 +20,7 @@ import vibe.liteming.dynamicstage.client.lod.CurrentLodCache;
 import vibe.liteming.dynamicstage.client.lod.LodPackArchive;
 import vibe.liteming.dynamicstage.client.lod.LodPackImporter;
 import vibe.liteming.dynamicstage.client.lod.LodPackRegistry;
+import vibe.liteming.dynamicstage.client.lod.DhPackOptimizer;
 import vibe.liteming.dynamicstage.client.lod.VoxyPackOptimizer;
 import vibe.liteming.dynamicstage.client.config.StageClientConfig;
 import vibe.liteming.dynamicstage.world.StageWorlds;
@@ -105,7 +106,37 @@ public final class StageLodClientCommands {
         voxy.then(LiteralArgumentBuilder.<S>literal("shell").then(optimizationPacks(true, false)));
         voxy.then(LiteralArgumentBuilder.<S>literal("radius").then(optimizationPacks(false, true)));
         voxy.then(LiteralArgumentBuilder.<S>literal("radius-shell").then(optimizationPacks(true, true)));
-        return LiteralArgumentBuilder.<S>literal("optimize").then(voxy);
+        LiteralArgumentBuilder<S> dh = LiteralArgumentBuilder.literal("dh");
+        dh.then(LiteralArgumentBuilder.<S>literal("crop").then(dhOptimizationPacks(false)));
+        dh.then(LiteralArgumentBuilder.<S>literal("radius").then(dhOptimizationPacks(true)));
+        return LiteralArgumentBuilder.<S>literal("optimize").then(voxy).then(dh);
+    }
+
+    private static <S> RequiredArgumentBuilder<S, String> dhOptimizationPacks(boolean includeRadius) {
+        RequiredArgumentBuilder<S, Integer> maxY = RequiredArgumentBuilder
+                .<S, Integer>argument("max_y", IntegerArgumentType.integer(-2048, 2048))
+                .executes(StageLodClientCommands::optimizeDhPack);
+        RequiredArgumentBuilder<S, Integer> minY = RequiredArgumentBuilder
+                .<S, Integer>argument("min_y", IntegerArgumentType.integer(-2048, 2048))
+                .then(maxY);
+        ArgumentBuilder<S, ?> settings = minY;
+        if (includeRadius) {
+            settings = RequiredArgumentBuilder.<S, Integer>argument("anchor_x",
+                            IntegerArgumentType.integer(-30_000_000, 30_000_000))
+                    .then(RequiredArgumentBuilder.<S, Integer>argument("anchor_z",
+                                    IntegerArgumentType.integer(-30_000_000, 30_000_000))
+                            .then(RequiredArgumentBuilder.<S, Integer>argument("radius",
+                                            IntegerArgumentType.integer(1, 30_000_000))
+                                    .then(minY)));
+        }
+        RequiredArgumentBuilder<S, String> output = RequiredArgumentBuilder
+                .<S, String>argument("output_pack", StringArgumentType.word())
+                .then(settings);
+        RequiredArgumentBuilder<S, String> source = RequiredArgumentBuilder
+                .<S, String>argument("source_pack", StringArgumentType.word())
+                .suggests(StageLodClientCommands::suggestDhPackIds)
+                .then(output);
+        return source;
     }
 
     private static <S> RequiredArgumentBuilder<S, String> optimizationPacks(boolean includeShellDepth,
@@ -482,6 +513,67 @@ public final class StageLodClientCommands {
         return 1;
     }
 
+    private static <S> int optimizeDhPack(CommandContext<S> context) {
+        ResourceLocation sourceId = ResourceLocation.tryParse(StringArgumentType.getString(context, "source_pack"));
+        ResourceLocation outputId = ResourceLocation.tryParse(StringArgumentType.getString(context, "output_pack"));
+        if (sourceId == null || outputId == null) {
+            message(Component.literal("Source and output must be valid LOD package IDs."));
+            return 0;
+        }
+        if (sourceId.equals(outputId)) {
+            message(Component.literal("Optimized DH output must use a new package ID."));
+            return 0;
+        }
+        int minY = IntegerArgumentType.getInteger(context, "min_y");
+        int maxY = IntegerArgumentType.getInteger(context, "max_y");
+        boolean hasRadius = context.getNodes().stream()
+                .anyMatch(node -> "radius".equals(node.getNode().getName()));
+        int anchorX = hasRadius ? IntegerArgumentType.getInteger(context, "anchor_x") : 0;
+        int anchorZ = hasRadius ? IntegerArgumentType.getInteger(context, "anchor_z") : 0;
+        int radius = hasRadius ? IntegerArgumentType.getInteger(context, "radius") : -1;
+        if (minY > maxY) {
+            message(Component.literal("Minimum Y must not exceed maximum Y."));
+            return 0;
+        }
+        final LodPackRegistry.DhPack source;
+        try {
+            source = LodPackRegistry.loadDh(sourceId);
+        } catch (Exception e) {
+            message(Component.literal("Could not open DH LOD package '" + sourceId + "': " + rootMessage(e)));
+            return 0;
+        }
+        if (!ACTIVE_IMPORTS.add(outputId)) {
+            message(Component.literal("LOD optimization is already running for: " + outputId));
+            return 0;
+        }
+        message(Component.literal("Optimizing DH package '" + sourceId + "' into '" + outputId
+                + "' for Y " + minY + " to " + maxY
+                + (hasRadius ? ", within " + radius + " blocks of " + anchorX + ", " + anchorZ : "")
+                + ". Keep the source cache closed."));
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                return DhPackOptimizer.crop(source, outputId, minY, maxY, anchorX, anchorZ, radius);
+            } catch (IOException e) {
+                throw new java.util.concurrent.CompletionException(e);
+            }
+        }, IMPORT_EXECUTOR).whenComplete((result, error) -> {
+            ACTIVE_IMPORTS.remove(outputId);
+            Minecraft.getInstance().execute(() -> {
+                if (error != null) {
+                    message(Component.literal("Could not optimize DH package '" + sourceId + "': "
+                            + rootMessage(error)));
+                    return;
+                }
+                message(Component.literal("Optimized DH package '" + outputId + "': "
+                        + result.removedRows() + " rows removed, "
+                        + result.removedSegments() + " vertical segments cropped, "
+                        + result.trimmedSegments() + " segments trimmed, "
+                        + String.format(Locale.ROOT, "%.1f", result.outputBytes() / 1048576.0D) + " MiB."));
+            });
+        });
+        return 1;
+    }
+
     private static int showDownloadPolicy() {
         message(Component.literal("Server LOD downloads: "
                 + (StageClientConfig.allowServerLodDownloads() ? "on" : "off")
@@ -625,6 +717,37 @@ public final class StageLodClientCommands {
                         try {
                             if (id.toString().startsWith(prefix)
                                     && LodPackRegistry.load(root, id) instanceof LodPackRegistry.VoxyPack) {
+                                builder.suggest(id.toString());
+                            }
+                        } catch (IOException ignored) {
+                        }
+                    });
+        } catch (IOException | RuntimeException ignored) {
+        }
+        return builder.buildFuture();
+    }
+
+    private static <S> CompletableFuture<Suggestions> suggestDhPackIds(CommandContext<S> context,
+                                                                          SuggestionsBuilder builder) {
+        Path root = LodPackRegistry.rootDirectory();
+        if (!Files.isDirectory(root)) {
+            return builder.buildFuture();
+        }
+        String prefix = builder.getRemainingLowerCase();
+        try (var paths = Files.walk(root, 4)) {
+            paths.filter(path -> "manifest.json".equals(path.getFileName().toString()))
+                    .map(Path::getParent)
+                    .filter(directory -> directory != null && directory.startsWith(root))
+                    .map(directory -> root.relativize(directory))
+                    .filter(relative -> relative.getNameCount() >= 2)
+                    .map(relative -> new ResourceLocation(relative.getName(0).toString(),
+                            relative.subpath(1, relative.getNameCount()).toString().replace('\\', '/')))
+                    .sorted(Comparator.comparing(ResourceLocation::toString))
+                    .limit(80)
+                    .forEach(id -> {
+                        try {
+                            if (id.toString().startsWith(prefix)
+                                    && LodPackRegistry.load(root, id) instanceof LodPackRegistry.DhPack) {
                                 builder.suggest(id.toString());
                             }
                         } catch (IOException ignored) {

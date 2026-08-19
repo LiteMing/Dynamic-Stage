@@ -42,5 +42,10 @@ class StageLodClientCommandsTest {
         assertNotNull(root.getChild("lod").getChild("collision").getChild("status"));
         assertNotNull(root.getChild("lod").getChild("collision").getChild("on"));
         assertNotNull(root.getChild("lod").getChild("collision").getChild("off"));
+        var optimize = root.getChild("lod").getChild("optimize");
+        assertNotNull(optimize.getChild("voxy").getChild("crop"));
+        assertNotNull(optimize.getChild("voxy").getChild("radius"));
+        assertNotNull(optimize.getChild("dh").getChild("crop"));
+        assertNotNull(optimize.getChild("dh").getChild("radius"));
     }
 }
