@@ -54,6 +54,7 @@ public final class StageTemplateEditorScreen extends Screen {
     private EditBox capacity;
     private EditBox movementScale;
     private EditBox dhNearFadeScale;
+    private EditBox dhNearClipScale;
     private EditBox voxyNearPlane;
     private EditBox blurRadius;
     private EditBox transitionTicks;
@@ -200,8 +201,13 @@ public final class StageTemplateEditorScreen extends Screen {
         dhNearFadeScale = labeledCompact("dh_near_fade", left + half + 4, y, panelWidth - half - 4,
                 Float.toString(draft.dhNearFadeScale));
         y += ROW_HEIGHT;
-        voxyNearPlane = labeledCompact("voxy_near_plane", left, y, half,
+        dhNearClipScale = labeledCompact("dh_near_clip", left, y, half,
+                Float.toString(draft.dhNearClipScale));
+        voxyNearPlane = labeledCompact("voxy_near_plane", left + half + 4, y, panelWidth - half - 4,
                 Float.toString(draft.voxyNearPlane));
+        y += ROW_HEIGHT;
+        blurRadius = labeledCompact("persistent_blur", left, y, half,
+                Float.toString(draft.blurRadius));
         addButton(left + half + 4, y, panelWidth - half - 4,
                 text("setting.voxy_near_culling", toggle(draft.voxyNearCulling)), button -> {
             awaitingInitialTemplate = false;
@@ -209,10 +215,7 @@ public final class StageTemplateEditorScreen extends Screen {
             button.setMessage(text("setting.voxy_near_culling", toggle(draft.voxyNearCulling)));
         });
         y += ROW_HEIGHT;
-        blurRadius = labeledCompact("persistent_blur", left, y, half,
-                Float.toString(draft.blurRadius));
-        addButton(left + half + 4, y, panelWidth - half - 4,
-                text("setting.transition", value(draft.transition)), button -> {
+        addButton(left, y, half, text("setting.transition", value(draft.transition)), button -> {
             awaitingInitialTemplate = false;
             draft.transition = switch (draft.transition) {
                 case INSTANT -> StageClientScene.Transition.FADE;
@@ -224,9 +227,6 @@ public final class StageTemplateEditorScreen extends Screen {
                 transitionTicks.setValue("0");
             }
         });
-        y += ROW_HEIGHT;
-        transitionTicks = labeledCompact("transition_ticks", left, y, half,
-                Integer.toString(draft.transitionTicks));
         addButton(left + half + 4, y, panelWidth - half - 4,
                 text("setting.sky", value(draft.skyMode)), button -> {
             awaitingInitialTemplate = false;
@@ -237,6 +237,9 @@ public final class StageTemplateEditorScreen extends Screen {
             };
             button.setMessage(text("setting.sky", value(draft.skyMode)));
         });
+        y += ROW_HEIGHT;
+        transitionTicks = labeledCompact("transition_ticks", left, y, half,
+                Integer.toString(draft.transitionTicks));
         y += ROW_HEIGHT;
         int flightFieldWidth = (panelWidth - 4) * 3 / 5;
         flightName = labeledField("flight_name", left, y, flightFieldWidth, draft.flightName, 64);
@@ -496,6 +499,7 @@ public final class StageTemplateEditorScreen extends Screen {
                 case BACKDROP -> {
                     draft.movementScale = decimal(movementScale);
                     draft.dhNearFadeScale = decimal(dhNearFadeScale);
+                    draft.dhNearClipScale = decimal(dhNearClipScale);
                     draft.voxyNearPlane = decimal(voxyNearPlane);
                     draft.blurRadius = decimal(blurRadius);
                     draft.transitionTicks = draft.transition == StageClientScene.Transition.INSTANT
@@ -743,6 +747,7 @@ public final class StageTemplateEditorScreen extends Screen {
         private boolean followPlayer;
         private float movementScale;
         private float dhNearFadeScale;
+        private float dhNearClipScale;
         private float voxyNearPlane;
         private boolean voxyNearCulling;
         private boolean lodVisible;
@@ -770,6 +775,7 @@ public final class StageTemplateEditorScreen extends Screen {
             draft.followPlayer = scene.followPlayer();
             draft.movementScale = scene.lodMovementScale();
             draft.dhNearFadeScale = scene.dhNearFadeScale();
+            draft.dhNearClipScale = scene.dhNearClipScale();
             draft.voxyNearPlane = scene.voxyNearPlane();
             draft.voxyNearCulling = scene.voxyNearCulling();
             draft.lodVisible = scene.lodVisible();
@@ -791,7 +797,7 @@ public final class StageTemplateEditorScreen extends Screen {
             }
             long normalizedDayTime = Math.floorMod(baseDayTime, 24_000L);
             StageClientScene scene = new StageClientScene(followPlayer, movementScale, dhNearFadeScale,
-                    voxyNearPlane, voxyNearCulling, lodVisible, blurRadius,
+                    dhNearClipScale, voxyNearPlane, voxyNearCulling, lodVisible, blurRadius,
                     transition, transition == StageClientScene.Transition.INSTANT ? 0 : transitionTicks,
                     gameTime, timeMode, normalizedDayTime, gameTime,
                     timeMode == StageClientScene.TimeMode.CYCLE ? cycleTicks : 0L, skyMode);

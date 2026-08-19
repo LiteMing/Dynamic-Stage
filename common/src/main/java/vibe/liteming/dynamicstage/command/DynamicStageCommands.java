@@ -176,6 +176,12 @@ public final class DynamicStageCommands {
                                         StageClientScene.MAX_DH_NEAR_FADE_SCALE))
                                 .executes(ctx -> dhNearFadeScale(ctx.getSource(),
                                         (float) DoubleArgumentType.getDouble(ctx, "scale")))))
+                .then(Commands.literal("dh-clip")
+                        .then(Commands.argument("scale", DoubleArgumentType.doubleArg(
+                                        StageClientScene.MIN_DH_NEAR_CLIP_SCALE,
+                                        StageClientScene.MAX_DH_NEAR_CLIP_SCALE))
+                                .executes(ctx -> dhNearClipScale(ctx.getSource(),
+                                        (float) DoubleArgumentType.getDouble(ctx, "scale")))))
                 .then(Commands.literal("voxy-near")
                         .then(Commands.argument("distance", DoubleArgumentType.doubleArg(
                                         StageClientScene.MIN_VOXY_NEAR_PLANE,
@@ -688,6 +694,16 @@ public final class DynamicStageCommands {
         return 1;
     }
 
+    private static int dhNearClipScale(CommandSourceStack source, float scale) {
+        if (!(source.getEntity() instanceof ServerPlayer player)
+                || !StageSessionManager.setDhNearClipScale(player, scale)) {
+            source.sendFailure(Component.literal("No active stage instance."));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("DH near clip scale: " + scale + '.'), true);
+        return 1;
+    }
+
     private static int voxyNearPlane(CommandSourceStack source, float nearPlane) {
         if (!(source.getEntity() instanceof ServerPlayer player)
                 || !StageSessionManager.setVoxyNearPlane(player, nearPlane)) {
@@ -798,6 +814,7 @@ public final class DynamicStageCommands {
         source.sendSuccess(() -> Component.literal("Stage backdrop: follow_player=" + scene.followPlayer()
                 + ", movement_scale=" + scene.lodMovementScale()
                 + ", dh_fade_scale=" + scene.dhNearFadeScale()
+                + ", dh_clip_scale=" + scene.dhNearClipScale()
                 + ", voxy_near_plane=" + scene.voxyNearPlane()
                 + ", voxy_near_culling=" + scene.voxyNearCulling()
                 + ", visible=" + scene.lodVisible() + ", blur=" + scene.lodBlurRadius()

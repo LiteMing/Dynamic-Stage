@@ -29,7 +29,7 @@ class StageTemplateStoreTest {
     void roundTripsPortableTemplateWithoutAbsolutePaths() throws Exception {
         StageTemplate template = new StageTemplate("boss_1", new ResourceLocation("pack", "city"),
                 new BlockPos(-2089, 128, 7627), new StageBoundary(80, 60, 24, 0x12ABEF),
-                new StageClientScene(true, 0.35F, 0.05F, 0.75F, false, true, 2.0F,
+                new StageClientScene(true, 0.35F, 0.05F, 0.03F, 0.75F, false, true, 2.0F,
                         StageClientScene.Transition.FADE,
                 20, 200L, StageClientScene.TimeMode.CYCLE, 18_000L, 100L, 1_200L,
                         StageClientScene.SkyMode.OVERWORLD),
@@ -47,6 +47,7 @@ class StageTemplateStoreTest {
         String json = Files.readString(manifest);
         assertTrue(json.startsWith("{"));
         assertTrue(json.contains("\"lod_pack\": \"pack:city\""));
+        assertTrue(json.contains("\"dh_near_clip_scale\": 0.03"));
         String arena = JsonParser.parseString(json).getAsJsonObject().get("arena").getAsString();
         assertTrue(Files.isRegularFile(temporaryDirectory.resolve("arenas").resolve(arena)));
         assertFalse(Files.exists(templates.resolve("boss_1.dat")));

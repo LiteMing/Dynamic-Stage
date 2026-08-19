@@ -17,6 +17,7 @@
   "screen.dynamicstage.editor.field.capacity": "人数上限",
   "screen.dynamicstage.editor.field.movement_scale": "移动倍率",
   "screen.dynamicstage.editor.field.dh_near_fade": "DH 近景淡出",
+  "screen.dynamicstage.editor.field.dh_near_clip": "DH 近景裁切倍率",
   "screen.dynamicstage.editor.field.voxy_near_plane": "Voxy 近裁剪",
   "screen.dynamicstage.editor.field.persistent_blur": "常驻模糊",
   "screen.dynamicstage.editor.field.transition_ticks": "过渡时长",

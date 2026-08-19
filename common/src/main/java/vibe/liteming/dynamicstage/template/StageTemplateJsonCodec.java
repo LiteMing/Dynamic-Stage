@@ -91,6 +91,7 @@ final class StageTemplateJsonCodec {
         sceneJson.addProperty("follow_player", scene.followPlayer());
         sceneJson.addProperty("lod_movement_scale", scene.lodMovementScale());
         sceneJson.addProperty("dh_near_fade_scale", scene.dhNearFadeScale());
+        sceneJson.addProperty("dh_near_clip_scale", scene.dhNearClipScale());
         sceneJson.addProperty("voxy_near_plane", scene.voxyNearPlane());
         sceneJson.addProperty("voxy_near_culling", scene.voxyNearCulling());
         sceneJson.addProperty("lod_visible", scene.lodVisible());
@@ -187,6 +188,7 @@ final class StageTemplateJsonCodec {
         return new StageClientScene(bool(json, "follow_player", defaults.followPlayer()),
                 decimal(json, "lod_movement_scale", defaults.lodMovementScale()),
                 decimal(json, "dh_near_fade_scale", defaults.dhNearFadeScale()),
+                decimal(json, "dh_near_clip_scale", defaults.dhNearClipScale()),
                 decimal(json, "voxy_near_plane", defaults.voxyNearPlane()),
                 bool(json, "voxy_near_culling", defaults.voxyNearCulling()),
                 bool(json, "lod_visible", defaults.lodVisible()),

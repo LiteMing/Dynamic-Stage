@@ -715,6 +715,12 @@ public final class StageSessionManager {
                 session.clientScene().withDhNearFadeScale(scale));
     }
 
+    public static boolean setDhNearClipScale(ServerPlayer player, float scale) {
+        StageSession session = get(player).orElse(null);
+        return session != null && updateClientScene(player,
+                session.clientScene().withDhNearClipScale(scale));
+    }
+
     public static boolean setVoxyNearPlane(ServerPlayer player, float nearPlane) {
         StageSession session = get(player).orElse(null);
         return session != null && updateClientScene(player,

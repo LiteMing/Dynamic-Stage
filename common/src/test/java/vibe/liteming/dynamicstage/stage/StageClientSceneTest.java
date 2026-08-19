@@ -11,11 +11,14 @@ class StageClientSceneTest {
     void defaultsToOneThousandthDhNearFadeDistance() {
         assertEquals(0.001F, StageClientScene.DEFAULT_DH_NEAR_FADE_SCALE);
         assertEquals(0.001F, StageClientScene.defaults(0L, 0L).dhNearFadeScale());
+        assertEquals(0.01F, StageClientScene.DEFAULT_DH_NEAR_CLIP_SCALE);
+        assertEquals(0.01F, StageClientScene.defaults(0L, 0L).dhNearClipScale());
     }
 
     @Test
     void persistsAllClientSceneSettings() {
-        StageClientScene scene = new StageClientScene(false, 0.5F, 0.125F, 1.25F, true, false, 6.5F,
+        StageClientScene scene = new StageClientScene(false, 0.5F, 0.125F, 0.025F,
+                1.25F, true, false, 6.5F,
                 StageClientScene.Transition.BLUR, 40, 250L,
                 StageClientScene.TimeMode.CYCLE, 18_000L, 200L, 1_200L, StageClientScene.SkyMode.END);
 
@@ -51,9 +54,25 @@ class StageClientSceneTest {
     }
 
     @Test
+    void legacySceneTagsUseDefaultDhNearClipScale() {
+        CompoundTag tag = StageClientScene.defaults(6000L, 20L).save();
+        tag.remove("DhNearClipScale");
+
+        assertEquals(StageClientScene.DEFAULT_DH_NEAR_CLIP_SCALE,
+                StageClientScene.load(tag).dhNearClipScale());
+    }
+
+    @Test
     void rejectsInvalidDhNearFadeScale() {
         assertThrows(IllegalArgumentException.class, () -> new StageClientScene(true, 1.0F, 0.00001F, true, 0.0F,
                 StageClientScene.Transition.INSTANT, 0, 0L,
+                StageClientScene.TimeMode.FOLLOW, 0L, 0L, 0L, StageClientScene.SkyMode.OVERWORLD));
+    }
+
+    @Test
+    void rejectsInvalidDhNearClipScale() {
+        assertThrows(IllegalArgumentException.class, () -> new StageClientScene(true, 1.0F, 0.1F,
+                0.00001F, 0.5F, false, true, 0.0F, StageClientScene.Transition.INSTANT, 0, 0L,
                 StageClientScene.TimeMode.FOLLOW, 0L, 0L, 0L, StageClientScene.SkyMode.OVERWORLD));
     }
 

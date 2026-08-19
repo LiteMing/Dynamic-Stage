@@ -191,6 +191,7 @@ expanded command to the server:
 /dstage backdrop follow on|off
 /dstage backdrop movement <scale>
 /dstage backdrop dh-fade <scale>
+/dstage backdrop dh-clip <scale>
 /dstage backdrop voxy-near <distance>
 /dstage backdrop voxy-culling <true|false>
 /dstage backdrop switch <lod_pack> [fade|blur] [ticks]
@@ -320,7 +321,7 @@ Stage flights do not replace Minecraft's main camera or a shader pack's shadow c
 
 Backdrop and time settings belong to the instance and are broadcast to all members. Player movement following is enabled by default. The movement multiplier applies only to player translation inside the stage; eye height and first/third-person camera offsets remain at 1x so changing perspective does not shift the LOD scene. Turning following off pins the native LOD camera to the source anchor while preserving those camera offsets and CMDCam flight motion. Stage time is evaluated only by the client: `follow` advances from a synchronized Overworld epoch, `fixed` holds a vanilla day-time value in the `0..23999` range, and `cycle` maps one visual Minecraft day onto the configured number of client ticks. These modes do not change server-side stage time or send per-tick network updates.
 
-LOD visibility and live LOD package or Flight replacements can be instant, fade, or blur transitions. Persistent blur is independent from transitions and uses a `0..32` pixel radius; `0` disables it. DH near fade remains configurable. A mounted Voxy stage uses the template's `voxy_near_plane` projection value (`0.01..16`, default `0.5`) because its sparse foreground cannot cover the native `8/16` handoff. The largest value that does not visibly clip nearby LOD provides the best distant depth precision. With `voxy-culling=false`, the matching HDRS Voxy build also preserves camera-adjacent LOD sections while leaving normal frustum culling intact. Normal-world Voxy rendering remains unchanged. Dynamic Stage filters only the native backend's intermediate LOD color texture before DH or Voxy performs its original depth-aware composite, so the sky, stage blocks, entities, and UI are not blurred.
+LOD visibility and live LOD package or Flight replacements can be instant, fade, or blur transitions. Persistent blur is independent from transitions and uses a `0..32` pixel radius; `0` disables it. DH's shader fade and projection clipping are separate template settings: `dh_near_fade_scale` changes only the soft handoff, while `dh_near_clip_scale` changes the actual projection near plane (`0.0001..1`, default `0.01`) without disabling frustum culling. A mounted Voxy stage uses the template's `voxy_near_plane` projection value (`0.01..16`, default `0.5`) because its sparse foreground cannot cover the native `8/16` handoff. The largest value that does not visibly clip nearby LOD provides the best distant depth precision. With `voxy-culling=false`, the matching HDRS Voxy build also preserves camera-adjacent LOD sections while leaving normal frustum culling intact. Normal-world Voxy rendering remains unchanged. Dynamic Stage filters only the native backend's intermediate LOD color texture before DH or Voxy performs its original depth-aware composite, so the sky, stage blocks, entities, and UI are not blurred.
 
 For stock DH 3.2.0-b, DS hooks
 `GlDhApplyShader_forge`, preserving DH's native depth-aware composite while

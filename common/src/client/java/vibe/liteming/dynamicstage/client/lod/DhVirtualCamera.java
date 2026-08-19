@@ -47,13 +47,22 @@ public final class DhVirtualCamera {
         return camera == null ? null : StageLodCamera.lookVector(camera.flight());
     }
 
-    /** Applies the active stage's configurable DH near-fade multiplier. */
+    /** Applies the active stage's configurable DH shader near-fade multiplier. */
     public static float scaleNearFade(float original) {
         ClientStageSession.Snapshot snapshot = activeSnapshot();
         if (snapshot == null || !Float.isFinite(original)) {
             return original;
         }
         return original * snapshot.clientScene().dhNearFadeScale();
+    }
+
+    /** Applies the active stage's projection near-plane multiplier. */
+    public static float scaleNearClip(float original) {
+        ClientStageSession.Snapshot snapshot = activeSnapshot();
+        if (snapshot == null || !Float.isFinite(original)) {
+            return original;
+        }
+        return Math.max(0.001F, original * snapshot.clientScene().dhNearClipScale());
     }
 
     @Nullable
