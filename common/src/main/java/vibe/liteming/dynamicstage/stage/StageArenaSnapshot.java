@@ -402,7 +402,9 @@ public final class StageArenaSnapshot {
         if (boundary.width() > MAX_HORIZONTAL_SIZE || boundary.depth() > MAX_HORIZONTAL_SIZE
                 || boundary.height() > MAX_HEIGHT || volume > MAX_VOLUME) {
             throw new IOException("arena snapshot limit is " + MAX_HORIZONTAL_SIZE + " x "
-                    + MAX_HORIZONTAL_SIZE + " x " + MAX_HEIGHT + " and " + MAX_VOLUME + " blocks");
+                    + MAX_HORIZONTAL_SIZE + " x " + MAX_HEIGHT + " and " + MAX_VOLUME
+                    + " blocks (requested " + boundary.width() + " x " + boundary.depth() + " x "
+                    + boundary.height() + ", " + volume + " blocks)");
         }
     }
 
