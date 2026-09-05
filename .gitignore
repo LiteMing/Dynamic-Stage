@@ -6,6 +6,11 @@ run-data/
 **/logs/
 *.iml
 .idea/
+*.classpath
+*.project
+*.factorypath
+**/.settings/
+**/bin/
 out/
 src/generated/
 mcmodsrepo/
