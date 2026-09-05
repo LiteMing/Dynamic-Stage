@@ -3,7 +3,6 @@ package vibe.liteming.dynamicstage.client.editor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
@@ -69,6 +68,9 @@ public final class StageTemplateEditorScreen extends Screen {
     private boolean clientAllowServerLodDownloads;
     private int clientMaxServerLodDownloadMib;
     private boolean clientExperimentalVoxyCollision;
+    private boolean templateDropdownOpen;
+    private boolean instanceDropdownOpen;
+    private int dropdownScroll;
 
     public StageTemplateEditorScreen() {
         super(text("title"));
@@ -102,25 +104,9 @@ public final class StageTemplateEditorScreen extends Screen {
         Component templateLabel = text("field.template");
         templateId = field(left, top, navWidth, draft.id, 128, templateLabel);
         label(templateLabel, left, top - 10);
-        addButton(left + navWidth + 4, top, 38, Component.literal("<"), button -> selectTemplate(-1));
-        addButton(left + navWidth + 44, top, 38, Component.literal(">"), button -> selectTemplate(1));
-        addButton(left + navWidth + 84, top, 76, text("action.refresh"),
+        addButton(left + navWidth + 4, top, 76, text("action.refresh"),
                 button -> DynamicStageNetwork.requestTemplates());
-        List<String> templateIds = StageTemplateEditorState.templates().stream()
-                .map(StageTemplateSummary::id).toList();
-        if (!templateIds.isEmpty()) {
-            addRenderableWidget(CycleButton.builder((String id) -> Component.literal(id))
-                    .withValues(templateIds)
-                    .withInitialValue(templateIds.contains(draft.id) ? draft.id : templateIds.get(0))
-                    .create(left, top + 20, panelWidth, 20, templateLabel, (button, id) -> {
-                        int index = templateIndex(id);
-                        if (index >= 0) {
-                            selectedTemplate = index;
-                            draft = Draft.from(StageTemplateEditorState.templates().get(index));
-                            buildWidgets();
-                        }
-                    }));
-        }
+        
 
         int tabsY = top + 25;
         int tabWidth = panelWidth / 5;
@@ -336,6 +322,11 @@ public final class StageTemplateEditorScreen extends Screen {
         selectedInstance = selectedInstance < 0 ? 0 : Math.floorMod(selectedInstance, instances.size());
         StageEditorAdminPacket.Instance instance = instances.get(selectedInstance);
         int y = top + ROW_HEIGHT;
+        addButton(left, y, panelWidth, Component.literal("▼ " + instance.stageId()), button -> {
+            instanceDropdownOpen = !instanceDropdownOpen;
+            buildWidgets();
+        });
+        y += 23;
         int navButton = 38;
         addButton(left, y, navButton, Component.literal("<"), button -> selectInstance(-1));
         label(text("status.instance_index", selectedInstance + 1, instances.size()),
@@ -599,6 +590,108 @@ public final class StageTemplateEditorScreen extends Screen {
                     statusError ? 0xFF6666 : 0xB8B8B8);
         }
         super.render(graphics, mouseX, mouseY, partialTick);
+        if (templateId != null) {
+            graphics.drawString(font, "\u25BE", templateId.getX() + templateId.getWidth() - 12,
+                    templateId.getY() + 5, 0xFFFFFF);
+        }
+        renderDropdown(graphics, mouseX, mouseY);
+    }
+
+    private void renderDropdown(GuiGraphics graphics, int mouseX, int mouseY) {
+        List<String> values;
+        int x;
+        int y;
+        int width;
+        if (templateDropdownOpen) {
+            values = StageTemplateEditorState.templates().stream().map(StageTemplateSummary::id).toList();
+            int panelWidth = Math.min(520, this.width - 20);
+            int left = (this.width - panelWidth) / 2;
+            int navWidth = Math.max(100, panelWidth - 164);
+            x = left;
+            y = 47;
+            width = panelWidth;
+        } else if (instanceDropdownOpen) {
+            values = StageTemplateEditorState.admin().instances().stream()
+                    .map(StageEditorAdminPacket.Instance::stageId).toList();
+            x = (this.width - Math.min(520, this.width - 20)) / 2;
+            y = 24 + 25 + 29 + 23 + 20;
+            width = Math.min(520, this.width - 20);
+        } else {
+            return;
+        }
+        if (values.isEmpty()) return;
+        int rowHeight = 20;
+        int visible = Math.min(8, values.size());
+        int maxScroll = Math.max(0, values.size() - visible);
+        dropdownScroll = Math.max(0, Math.min(dropdownScroll, maxScroll));
+        graphics.pose().pushPose();
+        graphics.pose().translate(0, 0, 300);
+        graphics.fill(x - 2, y - 2, x + width + 2, y + visible * rowHeight + 2, 0xFF000000);
+        for (int row = 0; row < visible; row++) {
+            int index = dropdownScroll + row;
+            int rowY = y + row * rowHeight;
+            boolean hover = mouseX >= x && mouseX <= x + width && mouseY >= rowY && mouseY < rowY + rowHeight;
+            graphics.fill(x, rowY, x + width, rowY + rowHeight, hover ? 0xFF505050 : 0xFF202020);
+            graphics.drawString(font, font.plainSubstrByWidth(values.get(index), width - 8), x + 4, rowY + 6, 0xFFFFFF);
+        }
+        graphics.pose().popPose();
+    }
+
+    @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0 && !templateDropdownOpen && !instanceDropdownOpen && templateId != null
+                && mouseX >= templateId.getX() + templateId.getWidth() - 18
+                && mouseX <= templateId.getX() + templateId.getWidth()
+                && mouseY >= templateId.getY() && mouseY <= templateId.getY() + templateId.getHeight()) {
+            templateDropdownOpen = true;
+            dropdownScroll = 0;
+            return true;
+        }
+        if (button == 0 && (templateDropdownOpen || instanceDropdownOpen)) {
+            List<String> values = templateDropdownOpen
+                    ? StageTemplateEditorState.templates().stream().map(StageTemplateSummary::id).toList()
+                    : StageTemplateEditorState.admin().instances().stream()
+                    .map(StageEditorAdminPacket.Instance::stageId).toList();
+            int panelWidth = Math.min(520, width - 20);
+            int left = (width - panelWidth) / 2;
+            int x = left;
+            int popupY = templateDropdownOpen ? 47 : 121;
+            int popupWidth = panelWidth;
+            int visible = Math.min(8, values.size());
+            if (mouseX >= x && mouseX <= x + popupWidth && mouseY >= popupY
+                    && mouseY < popupY + visible * 20) {
+                int index = dropdownScroll + (int) ((mouseY - popupY) / 20);
+                if (index >= 0 && index < values.size()) {
+                    if (templateDropdownOpen) {
+                        selectedTemplate = index;
+                        draft = Draft.from(StageTemplateEditorState.templates().get(index));
+                        templateDropdownOpen = false;
+                    } else {
+                        selectedInstance = index;
+                        instanceDropdownOpen = false;
+                    }
+                    dropdownScroll = 0;
+                    buildWidgets();
+                }
+                return true;
+            }
+            templateDropdownOpen = false;
+            instanceDropdownOpen = false;
+            dropdownScroll = 0;
+            return true;
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+        if (templateDropdownOpen || instanceDropdownOpen) {
+            List<?> values = templateDropdownOpen ? StageTemplateEditorState.templates()
+                    : StageTemplateEditorState.admin().instances();
+            dropdownScroll = Math.max(0, Math.min(dropdownScroll - (int) delta, Math.max(0, values.size() - 8)));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, delta);
     }
 
     @Override
