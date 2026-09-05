@@ -3,6 +3,7 @@ package vibe.liteming.dynamicstage.client.editor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
@@ -105,6 +106,21 @@ public final class StageTemplateEditorScreen extends Screen {
         addButton(left + navWidth + 44, top, 38, Component.literal(">"), button -> selectTemplate(1));
         addButton(left + navWidth + 84, top, 76, text("action.refresh"),
                 button -> DynamicStageNetwork.requestTemplates());
+        List<String> templateIds = StageTemplateEditorState.templates().stream()
+                .map(StageTemplateSummary::id).toList();
+        if (!templateIds.isEmpty()) {
+            addRenderableWidget(CycleButton.builder((String id) -> Component.literal(id))
+                    .withValues(templateIds)
+                    .withInitialValue(templateIds.contains(draft.id) ? draft.id : templateIds.get(0))
+                    .create(left, top + 20, panelWidth, 20, templateLabel, (button, id) -> {
+                        int index = templateIndex(id);
+                        if (index >= 0) {
+                            selectedTemplate = index;
+                            draft = Draft.from(StageTemplateEditorState.templates().get(index));
+                            buildWidgets();
+                        }
+                    }));
+        }
 
         int tabsY = top + 25;
         int tabWidth = panelWidth / 5;

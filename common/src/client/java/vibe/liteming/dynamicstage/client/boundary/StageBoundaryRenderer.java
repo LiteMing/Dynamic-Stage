@@ -23,7 +23,6 @@ import vibe.liteming.dynamicstage.world.StageWorlds;
 
 /** Camera-relative translucent grid for the active instance's six virtual walls. */
 public final class StageBoundaryRenderer {
-    private static final double SEGMENT_RADIUS = 14.0D;
     private static final int GRID_STEP = 4;
 
     private StageBoundaryRenderer() {
@@ -59,12 +58,14 @@ public final class StageBoundaryRenderer {
         RenderSystem.depthMask(false);
 
         Matrix4f matrix = poseStack.last().pose();
-        double x0 = clamp(player.getX() - SEGMENT_RADIUS, bounds.minX, bounds.maxX);
-        double x1 = clamp(player.getX() + SEGMENT_RADIUS, bounds.minX, bounds.maxX);
-        double y0 = clamp(player.getY() - SEGMENT_RADIUS, bounds.minY, bounds.maxY);
-        double y1 = clamp(player.getY() + SEGMENT_RADIUS, bounds.minY, bounds.maxY);
-        double z0 = clamp(player.getZ() - SEGMENT_RADIUS, bounds.minZ, bounds.maxZ);
-        double z1 = clamp(player.getZ() + SEGMENT_RADIUS, bounds.minZ, bounds.maxZ);
+        // Render complete faces. Visibility distance controls fade only; clipping the
+        // geometry around the player made large boundaries appear truncated.
+        double x0 = bounds.minX;
+        double x1 = bounds.maxX;
+        double y0 = bounds.minY;
+        double y1 = bounds.maxY;
+        double z0 = bounds.minZ;
+        double z1 = bounds.maxZ;
 
         double minXDistance = player.getX() - bounds.minX;
         double maxXDistance = bounds.maxX - player.getX();
@@ -190,10 +191,6 @@ public final class StageBoundaryRenderer {
 
     private static boolean outside(double inwardDistance) {
         return inwardDistance < 0.0D;
-    }
-
-    private static double clamp(double value, double min, double max) {
-        return Math.max(min, Math.min(max, value));
     }
 
     private static double gridStart(double value) {
