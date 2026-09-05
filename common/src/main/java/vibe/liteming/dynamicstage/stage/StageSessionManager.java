@@ -666,6 +666,19 @@ public final class StageSessionManager {
         if (session == null) {
             return false;
         }
+        StageBoundary previousBoundary = session.boundary();
+        ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
+        if (stageLevel != null) {
+            boolean barrierEnabled = true;
+            try {
+                StageTemplate template = StageTemplateStore.load(server, session.stageId());
+                barrierEnabled = template.boundaryBarrier();
+            } catch (java.io.IOException | RuntimeException ignored) {
+                // Active legacy instances default to the barrier for compatibility.
+            }
+            StageArenaSnapshot.refreshBoundaryBarrier(stageLevel, session.stageOrigin(),
+                    previousBoundary, boundary, barrierEnabled);
+        }
         data.updateInstanceBoundary(session.instanceId(), boundary);
         PENDING.replaceAll((playerId, entry) -> entry.session.instanceId().equals(session.instanceId())
                 ? entry.withSession(entry.session.withBoundary(boundary))

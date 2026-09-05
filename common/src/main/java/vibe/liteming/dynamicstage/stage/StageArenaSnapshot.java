@@ -111,6 +111,15 @@ public final class StageArenaSnapshot {
         discardNonPlayers(level, region, boundaryChunks(origin, boundary));
     }
 
+    /** Refreshes only the optional collision shell after a live boundary resize. */
+    public static void refreshBoundaryBarrier(ServerLevel level, BlockPos origin,
+                                              StageBoundary previousBoundary,
+                                              StageBoundary boundary,
+                                              boolean enabled) {
+        clearBoundaryBarrier(level, origin, previousBoundary);
+        setBoundaryBarrier(level, origin, boundary, enabled);
+    }
+
     public static void validate(ServerLevel level, StageBoundary boundary, CompoundTag snapshot) throws IOException {
         validate(level, boundary, snapshot, List.of());
     }
