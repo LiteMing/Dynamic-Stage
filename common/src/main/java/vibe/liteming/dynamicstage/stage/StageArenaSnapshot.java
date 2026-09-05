@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 public final class StageArenaSnapshot {
     private static final Logger LOGGER = LoggerFactory.getLogger(StageArenaSnapshot.class);
     public static final int MAX_HORIZONTAL_SIZE = 256;
-    public static final int MAX_HEIGHT = 128;
+    public static final int MAX_HEIGHT = 2048;
     public static final long MAX_VOLUME = 4L * 1024L * 1024L;
     private static final int ENTITY_CHUNK_TICKET_RADIUS = 0;
     private static final long ENTITY_LOAD_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(10L);

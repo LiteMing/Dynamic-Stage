@@ -16,7 +16,7 @@ public record StageBoundary(int width, int depth, int height, int color) {
     public static final int MIN_HORIZONTAL_SIZE = 4;
     public static final int MAX_HORIZONTAL_SIZE = StagePlacement.REGION_SPACING - 64;
     public static final int MIN_HEIGHT = 2;
-    public static final int MAX_HEIGHT = 240;
+    public static final int MAX_HEIGHT = 2048;
 
     public StageBoundary {
         if (width < MIN_HORIZONTAL_SIZE || width > MAX_HORIZONTAL_SIZE) {
