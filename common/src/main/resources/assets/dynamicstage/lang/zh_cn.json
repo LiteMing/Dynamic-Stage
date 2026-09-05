@@ -46,6 +46,7 @@
   "screen.dynamicstage.editor.setting.lifecycle": "实例生命周期：%s",
   "screen.dynamicstage.editor.setting.cleanup": "场地重置：%s",
   "screen.dynamicstage.editor.setting.interaction": "方块互动：%s",
+  "screen.dynamicstage.editor.setting.boundary_barrier": "边界屏障方块：%s",
   "screen.dynamicstage.editor.setting.player_movement": "跟随玩家移动：%s",
   "screen.dynamicstage.editor.setting.lod_visible": "显示 LOD：%s",
   "screen.dynamicstage.editor.setting.voxy_near_culling": "Voxy 相机区块剔除：%s",

@@ -178,6 +178,12 @@ public final class StageTemplateEditorScreen extends Screen {
             button.setMessage(text("setting.interaction", value(draft.interactionPolicy)));
         });
         y += ROW_HEIGHT;
+        addButton(left, y, panelWidth, text("setting.boundary_barrier", toggle(draft.boundaryBarrier)), button -> {
+            awaitingInitialTemplate = false;
+            draft.boundaryBarrier = !draft.boundaryBarrier;
+            button.setMessage(text("setting.boundary_barrier", toggle(draft.boundaryBarrier)));
+        });
+        y += ROW_HEIGHT;
         addButton(left, y, panelWidth, text("action.use_current_lod"), button -> prepareCurrentLod());
     }
 
@@ -744,6 +750,7 @@ public final class StageTemplateEditorScreen extends Screen {
         private StageTemplate.LifecyclePolicy lifecyclePolicy;
         private StageTemplate.CleanupPolicy cleanupPolicy;
         private StageTemplate.InteractionPolicy interactionPolicy;
+        private boolean boundaryBarrier;
         private boolean followPlayer;
         private float movementScale;
         private float dhNearFadeScale;
@@ -772,6 +779,7 @@ public final class StageTemplateEditorScreen extends Screen {
             draft.lifecyclePolicy = summary.lifecyclePolicy();
             draft.cleanupPolicy = summary.cleanupPolicy();
             draft.interactionPolicy = summary.interactionPolicy();
+            draft.boundaryBarrier = summary.boundaryBarrier();
             draft.followPlayer = scene.followPlayer();
             draft.movementScale = scene.lodMovementScale();
             draft.dhNearFadeScale = scene.dhNearFadeScale();
@@ -802,7 +810,7 @@ public final class StageTemplateEditorScreen extends Screen {
                     gameTime, timeMode, normalizedDayTime, gameTime,
                     timeMode == StageClientScene.TimeMode.CYCLE ? cycleTicks : 0L, skyMode);
             return new StageTemplateSummary(id, pack, anchor, boundary, scene, capacity, instanceMode,
-                    lifecyclePolicy, cleanupPolicy, interactionPolicy, flightName);
+                    lifecyclePolicy, cleanupPolicy, interactionPolicy, flightName, boundaryBarrier);
         }
     }
 }

@@ -134,7 +134,7 @@ public final class StageSessionManager {
         }
         try {
             StageArenaSnapshot.restore(stageLevel, StagePlacement.originForSlot(slot),
-                    template.boundary(), template.arenaSnapshot(), template.structures());
+                    template.boundary(), template.arenaSnapshot(), template.structures(), template.boundaryBarrier());
         } catch (java.io.IOException | RuntimeException e) {
             player.sendSystemMessage(Component.literal(
                     "Could not initialize the template arena: " + e.getMessage()));
@@ -237,10 +237,10 @@ public final class StageSessionManager {
                     && StageTemplateSummary.sameBoundarySize(current.boundary(), template.boundary());
             if (compatibleOverlay) {
                 StageArenaSnapshot.overlay(stageLevel, current.stageOrigin(), template.boundary(),
-                        template.arenaSnapshot(), template.structures());
+                        template.arenaSnapshot(), template.structures(), template.boundaryBarrier());
             } else {
                 StageArenaSnapshot.replace(stageLevel, current.stageOrigin(), current.boundary(),
-                        template.boundary(), template.arenaSnapshot(), template.structures());
+                        template.boundary(), template.arenaSnapshot(), template.structures(), template.boundaryBarrier());
             }
         } catch (java.io.IOException | RuntimeException e) {
             sendReloadMessage(server, plan, "Could not reload stage template: " + e.getMessage());
@@ -1428,7 +1428,7 @@ public final class StageSessionManager {
                     template.arenaSnapshot(), template.structures());
         } else {
             StageArenaSnapshot.restore(level, origin, template.boundary(),
-                    template.arenaSnapshot(), template.structures());
+                    template.arenaSnapshot(), template.structures(), template.boundaryBarrier());
         }
     }
 

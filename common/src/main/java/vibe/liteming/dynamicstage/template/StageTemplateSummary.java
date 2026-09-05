@@ -12,7 +12,8 @@ public record StageTemplateSummary(String id, ResourceLocation lodPackId, BlockP
                                    StageTemplate.InstanceMode instanceMode,
                                    StageTemplate.LifecyclePolicy lifecyclePolicy,
                                    StageTemplate.CleanupPolicy cleanupPolicy,
-                                   StageTemplate.InteractionPolicy interactionPolicy, String flightName) {
+                                   StageTemplate.InteractionPolicy interactionPolicy, String flightName,
+                                   boolean boundaryBarrier) {
     public StageTemplateSummary {
         // Reuse the full template's validation without retaining asset data.
         new StageTemplate(id, lodPackId, lodAnchor, boundary, clientScene, capacity,
@@ -28,7 +29,7 @@ public record StageTemplateSummary(String id, ResourceLocation lodPackId, BlockP
                                 StageTemplate.InstanceMode instanceMode,
                                 StageTemplate.LifecyclePolicy lifecyclePolicy) {
         this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
-                StageTemplate.CleanupPolicy.FULL, StageTemplate.InteractionPolicy.ADVENTURE, "");
+                StageTemplate.CleanupPolicy.FULL, StageTemplate.InteractionPolicy.ADVENTURE, "", true);
     }
 
     public StageTemplateSummary(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
@@ -36,14 +37,24 @@ public record StageTemplateSummary(String id, ResourceLocation lodPackId, BlockP
                                 StageTemplate.InstanceMode instanceMode,
                                 StageTemplate.LifecyclePolicy lifecyclePolicy, String flightName) {
         this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
-                StageTemplate.CleanupPolicy.FULL, StageTemplate.InteractionPolicy.ADVENTURE, flightName);
+                StageTemplate.CleanupPolicy.FULL, StageTemplate.InteractionPolicy.ADVENTURE, flightName, true);
+    }
+
+    public StageTemplateSummary(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
+                                StageBoundary boundary, StageClientScene clientScene, int capacity,
+                                StageTemplate.InstanceMode instanceMode,
+                                StageTemplate.LifecyclePolicy lifecyclePolicy,
+                                StageTemplate.CleanupPolicy cleanupPolicy,
+                                StageTemplate.InteractionPolicy interactionPolicy, String flightName) {
+        this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
+                cleanupPolicy, interactionPolicy, flightName, true);
     }
 
     public static StageTemplateSummary from(StageTemplate template) {
         return new StageTemplateSummary(template.id(), template.lodPackId(), template.lodAnchor(),
                 template.boundary(), template.clientScene(), template.capacity(),
                 template.instanceMode(), template.lifecyclePolicy(), template.cleanupPolicy(),
-                template.interactionPolicy(), template.flightName());
+                template.interactionPolicy(), template.flightName(), template.boundaryBarrier());
     }
 
     public StageTemplate applyTo(StageTemplate existing) {
@@ -52,7 +63,7 @@ public record StageTemplateSummary(String id, ResourceLocation lodPackId, BlockP
         return new StageTemplate(id, lodPackId, lodAnchor, boundary, clientScene, capacity,
                 instanceMode, lifecyclePolicy, cleanupPolicy, interactionPolicy, flight, arena,
                 existing == null ? "" : existing.flightName(), compatibleEntryOffset(existing),
-                compatibleStructures(existing));
+                compatibleStructures(existing), boundaryBarrier);
     }
 
     public StageTemplate applyTo(StageTemplate existing, byte[] flight, String selectedFlightName) {
@@ -61,7 +72,7 @@ public record StageTemplateSummary(String id, ResourceLocation lodPackId, BlockP
                 instanceMode, lifecyclePolicy, cleanupPolicy, interactionPolicy,
                 flight == null ? new byte[0] : flight, arena,
                 selectedFlightName == null ? "" : selectedFlightName,
-                compatibleEntryOffset(existing), compatibleStructures(existing));
+                compatibleEntryOffset(existing), compatibleStructures(existing), boundaryBarrier);
     }
 
     private CompoundTag compatibleArena(StageTemplate existing) {

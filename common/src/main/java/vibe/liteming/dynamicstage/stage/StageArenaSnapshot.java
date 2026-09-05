@@ -60,6 +60,12 @@ public final class StageArenaSnapshot {
 
     public static void restore(ServerLevel level, BlockPos origin, StageBoundary boundary,
                                CompoundTag snapshot, List<StageStructurePlacement> structures) throws IOException {
+        restore(level, origin, boundary, snapshot, structures, true);
+    }
+
+    public static void restore(ServerLevel level, BlockPos origin, StageBoundary boundary,
+                               CompoundTag snapshot, List<StageStructurePlacement> structures,
+                               boolean boundaryBarrier) throws IOException {
         StructureTemplate structure = snapshot.isEmpty() ? null : read(level, boundary, snapshot);
         List<ResolvedStructure> resolved = resolveStructures(level, origin, boundary, structures);
         AABB region = regionBounds(level, origin);
@@ -72,11 +78,18 @@ public final class StageArenaSnapshot {
         for (ResolvedStructure placement : resolved) {
             place(level, placement.position(), placement.structure());
         }
+        setBoundaryBarrier(level, origin, boundary, boundaryBarrier);
     }
 
     /** Removes transient entities and reapplies template contents without clearing existing blocks. */
     public static void overlay(ServerLevel level, BlockPos origin, StageBoundary boundary,
                                CompoundTag snapshot, List<StageStructurePlacement> structures) throws IOException {
+        overlay(level, origin, boundary, snapshot, structures, true);
+    }
+
+    public static void overlay(ServerLevel level, BlockPos origin, StageBoundary boundary,
+                               CompoundTag snapshot, List<StageStructurePlacement> structures,
+                               boolean boundaryBarrier) throws IOException {
         StructureTemplate structure = snapshot.isEmpty() ? null : read(level, boundary, snapshot);
         List<ResolvedStructure> resolved = resolveStructures(level, origin, boundary, structures);
         discardNonPlayers(level, regionBounds(level, origin), boundaryChunks(origin, boundary));
@@ -86,6 +99,7 @@ public final class StageArenaSnapshot {
         for (ResolvedStructure placement : resolved) {
             place(level, placement.position(), placement.structure());
         }
+        setBoundaryBarrier(level, origin, boundary, boundaryBarrier);
     }
 
     /** Releases every resource owned by an empty, non-persistent instance slot. */
@@ -93,6 +107,7 @@ public final class StageArenaSnapshot {
         AABB region = regionBounds(level, origin);
         LoquatArenaCompat.clearAreas(level, region);
         clearBoundary(level, origin, boundary);
+        clearBoundaryBarrier(level, origin, boundary);
         discardNonPlayers(level, region, boundaryChunks(origin, boundary));
     }
 
@@ -117,6 +132,12 @@ public final class StageArenaSnapshot {
     public static void replace(ServerLevel level, BlockPos origin, StageBoundary previousBoundary,
                                StageBoundary boundary, CompoundTag snapshot,
                                List<StageStructurePlacement> structures) throws IOException {
+        replace(level, origin, previousBoundary, boundary, snapshot, structures, true);
+    }
+
+    public static void replace(ServerLevel level, BlockPos origin, StageBoundary previousBoundary,
+                               StageBoundary boundary, CompoundTag snapshot,
+                               List<StageStructurePlacement> structures, boolean boundaryBarrier) throws IOException {
         StructureTemplate structure = snapshot.isEmpty() ? null : read(level, boundary, snapshot);
         List<ResolvedStructure> resolved = resolveStructures(level, origin, boundary, structures);
         AABB previousBounds = previousBoundary.bounds(origin);
@@ -127,6 +148,7 @@ public final class StageArenaSnapshot {
                 Math.max(previousBounds.maxZ, nextBounds.maxZ));
         LoquatArenaCompat.clearAreas(level, affected);
         clearPreviousRemainder(level, origin, previousBoundary, boundary);
+        clearBoundaryBarrier(level, origin, previousBoundary);
         clearBoundary(level, origin, boundary);
         discardNonPlayers(level, affected, boundaryChunks(origin, previousBoundary, boundary));
         if (structure != null) {
@@ -135,6 +157,7 @@ public final class StageArenaSnapshot {
         for (ResolvedStructure placement : resolved) {
             place(level, placement.position(), placement.structure());
         }
+        setBoundaryBarrier(level, origin, boundary, boundaryBarrier);
     }
 
     private static StructureTemplate read(ServerLevel level, StageBoundary boundary,
@@ -263,6 +286,30 @@ public final class StageArenaSnapshot {
         BlockPos minimum = minimum(origin, boundary);
         clearBox(level, minimum, minimum.getX() + boundary.width(),
                 minimum.getY() + boundary.height(), minimum.getZ() + boundary.depth());
+    }
+
+    private static void setBoundaryBarrier(ServerLevel level, BlockPos origin, StageBoundary boundary, boolean enabled) {
+        clearBoundaryBarrier(level, origin, boundary);
+        if (!enabled) return;
+        BlockPos min = minimum(origin, boundary);
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        int maxX = min.getX() + boundary.width(), maxY = min.getY() + boundary.height(), maxZ = min.getZ() + boundary.depth();
+        for (int x = min.getX() - 1; x <= maxX; x++) for (int y = min.getY() - 1; y <= maxY; y++) for (int z = min.getZ() - 1; z <= maxZ; z++) {
+            if (x >= min.getX() && x < maxX && y >= min.getY() && y < maxY && z >= min.getZ() && z < maxZ) continue;
+            pos.set(x, y, z);
+            level.setBlock(pos, Blocks.BARRIER.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_SUPPRESS_DROPS);
+        }
+    }
+
+    private static void clearBoundaryBarrier(ServerLevel level, BlockPos origin, StageBoundary boundary) {
+        BlockPos min = minimum(origin, boundary);
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        int maxX = min.getX() + boundary.width(), maxY = min.getY() + boundary.height(), maxZ = min.getZ() + boundary.depth();
+        for (int x = min.getX() - 1; x <= maxX; x++) for (int y = min.getY() - 1; y <= maxY; y++) for (int z = min.getZ() - 1; z <= maxZ; z++) {
+            if (x >= min.getX() && x < maxX && y >= min.getY() && y < maxY && z >= min.getZ() && z < maxZ) continue;
+            pos.set(x, y, z);
+            if (level.getBlockState(pos).is(Blocks.BARRIER)) level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS | Block.UPDATE_SUPPRESS_DROPS);
+        }
     }
 
     private static void discardNonPlayers(ServerLevel level, AABB bounds, List<ChunkPos> chunks) throws IOException {

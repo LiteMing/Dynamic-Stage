@@ -20,7 +20,8 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                             InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy,
                             CleanupPolicy cleanupPolicy, InteractionPolicy interactionPolicy,
                             byte[] flightJson, CompoundTag arenaSnapshot, String flightName,
-                            BlockPos entryOffset, List<StageStructurePlacement> structures) {
+                            BlockPos entryOffset, List<StageStructurePlacement> structures,
+                            boolean boundaryBarrier) {
     public static final int FORMAT_VERSION = 3;
     private static final int MAX_STRUCTURES = 16;
 
@@ -69,7 +70,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                          CompoundTag arenaSnapshot) {
         this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
                 CleanupPolicy.FULL, InteractionPolicy.ADVENTURE, flightJson, arenaSnapshot,
-                "", BlockPos.ZERO, List.of());
+                "", BlockPos.ZERO, List.of(), true);
     }
 
     public StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
@@ -78,7 +79,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                          CompoundTag arenaSnapshot, String flightName) {
         this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
                 CleanupPolicy.FULL, InteractionPolicy.ADVENTURE, flightJson, arenaSnapshot,
-                flightName, BlockPos.ZERO, List.of());
+                flightName, BlockPos.ZERO, List.of(), true);
     }
 
     public StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
@@ -87,7 +88,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                          CleanupPolicy cleanupPolicy, byte[] flightJson, CompoundTag arenaSnapshot) {
         this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
                 cleanupPolicy, InteractionPolicy.ADVENTURE, flightJson, arenaSnapshot,
-                "", BlockPos.ZERO, List.of());
+                "", BlockPos.ZERO, List.of(), true);
     }
 
     public StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
@@ -96,7 +97,18 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                          CleanupPolicy cleanupPolicy, InteractionPolicy interactionPolicy,
                          byte[] flightJson, CompoundTag arenaSnapshot) {
         this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
-                cleanupPolicy, interactionPolicy, flightJson, arenaSnapshot, "", BlockPos.ZERO, List.of());
+                cleanupPolicy, interactionPolicy, flightJson, arenaSnapshot, "", BlockPos.ZERO, List.of(), true);
+    }
+
+    public StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodAnchor,
+                         StageBoundary boundary, StageClientScene clientScene, int capacity,
+                         InstanceMode instanceMode, LifecyclePolicy lifecyclePolicy,
+                         CleanupPolicy cleanupPolicy, InteractionPolicy interactionPolicy,
+                         byte[] flightJson, CompoundTag arenaSnapshot, String flightName,
+                         BlockPos entryOffset, List<StageStructurePlacement> structures) {
+        this(id, lodPackId, lodAnchor, boundary, clientScene, capacity, instanceMode, lifecyclePolicy,
+                cleanupPolicy, interactionPolicy, flightJson, arenaSnapshot, flightName,
+                entryOffset, structures, true);
     }
 
     public static boolean validFlightName(String name) {
@@ -197,6 +209,9 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
         if (hasArenaSnapshot()) {
             tag.put("Arena", arenaSnapshot);
         }
+        if (!boundaryBarrier) {
+            tag.putBoolean("BoundaryBarrier", false);
+        }
         if (!entryOffset.equals(BlockPos.ZERO)) {
             tag.putLong("EntryOffset", entryOffset.asLong());
         }
@@ -230,7 +245,7 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 tag.contains("FlightName", Tag.TAG_STRING) ? tag.getString("FlightName") : "",
                 format >= 2 && tag.contains("EntryOffset", Tag.TAG_LONG)
                         ? BlockPos.of(tag.getLong("EntryOffset")) : BlockPos.ZERO,
-                structures);
+                structures, !tag.contains("BoundaryBarrier") || tag.getBoolean("BoundaryBarrier"));
     }
 
     @Override
@@ -242,14 +257,14 @@ public record StageTemplate(String id, ResourceLocation lodPackId, BlockPos lodA
                 && cleanupPolicy == that.cleanupPolicy && interactionPolicy == that.interactionPolicy
                 && Arrays.equals(flightJson, that.flightJson) && arenaSnapshot.equals(that.arenaSnapshot)
                 && flightName.equals(that.flightName) && entryOffset.equals(that.entryOffset)
-                && structures.equals(that.structures);
+                && structures.equals(that.structures) && boundaryBarrier == that.boundaryBarrier;
     }
 
     @Override
     public int hashCode() {
         int result = java.util.Objects.hash(id, lodPackId, lodAnchor, boundary, clientScene,
                 capacity, instanceMode, lifecyclePolicy, cleanupPolicy, interactionPolicy,
-                flightName, entryOffset, structures);
+                flightName, entryOffset, structures, boundaryBarrier);
         result = 31 * result + Arrays.hashCode(flightJson);
         return 31 * result + arenaSnapshot.hashCode();
     }

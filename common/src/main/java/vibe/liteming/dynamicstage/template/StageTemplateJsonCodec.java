@@ -66,8 +66,9 @@ final class StageTemplateJsonCodec {
         Flight flight = flight(json.get("flight"), flightResolver);
         BlockPos entryOffset = blockPos(json.get("entry_offset"), BlockPos.ZERO);
         List<StageStructurePlacement> structures = structures(json.getAsJsonArray("structures"));
+        boolean boundaryBarrier = !json.has("boundary_barrier") || json.get("boundary_barrier").getAsBoolean();
         return new StageTemplate(id, lodPack, anchor, boundary, scene, capacity, instanceMode, lifecycle,
-                cleanup, interaction, flight.json(), arenaSnapshot, flight.name(), entryOffset, structures);
+                cleanup, interaction, flight.json(), arenaSnapshot, flight.name(), entryOffset, structures, boundaryBarrier);
     }
 
     static JsonObject write(StageTemplate template, String arenaFile) {
@@ -112,6 +113,7 @@ final class StageTemplateJsonCodec {
                 ? "retain" : "release");
         json.addProperty("cleanup", template.cleanupPolicy().name().toLowerCase(Locale.ROOT));
         json.addProperty("interaction", template.interactionPolicy().name().toLowerCase(Locale.ROOT));
+        json.addProperty("boundary_barrier", template.boundaryBarrier());
         if (template.hasFlight()) {
             if (!template.flightName().isEmpty()) {
                 json.addProperty("flight", template.flightName());

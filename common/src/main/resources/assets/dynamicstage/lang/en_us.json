@@ -46,6 +46,7 @@
   "screen.dynamicstage.editor.setting.lifecycle": "Lifecycle: %s",
   "screen.dynamicstage.editor.setting.cleanup": "Arena reset: %s",
   "screen.dynamicstage.editor.setting.interaction": "Block interaction: %s",
+  "screen.dynamicstage.editor.setting.boundary_barrier": "Collision barrier blocks: %s",
   "screen.dynamicstage.editor.setting.player_movement": "Follow player movement: %s",
   "screen.dynamicstage.editor.setting.lod_visible": "LOD visible: %s",
   "screen.dynamicstage.editor.setting.voxy_near_culling": "Voxy camera-section culling: %s",

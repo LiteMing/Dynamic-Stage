@@ -77,6 +77,7 @@ public final class StageTemplatePackets {
         buf.writeEnum(template.cleanupPolicy());
         buf.writeEnum(template.interactionPolicy());
         buf.writeUtf(template.flightName(), 64);
+        buf.writeBoolean(template.boundaryBarrier());
     }
 
     private static StageTemplateSummary decodeSummary(FriendlyByteBuf buf) {
@@ -90,6 +91,6 @@ public final class StageTemplatePackets {
                 buf.readEnum(StageTemplate.InstanceMode.class),
                 buf.readEnum(StageTemplate.LifecyclePolicy.class),
                 buf.readEnum(StageTemplate.CleanupPolicy.class),
-                buf.readEnum(StageTemplate.InteractionPolicy.class), buf.readUtf(64));
+                buf.readEnum(StageTemplate.InteractionPolicy.class), buf.readUtf(64), buf.readBoolean());
     }
 }

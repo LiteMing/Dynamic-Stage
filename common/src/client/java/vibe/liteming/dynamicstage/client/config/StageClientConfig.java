@@ -21,7 +21,7 @@ import java.util.Locale;
 public final class StageClientConfig {
     private static final Logger LOGGER = LoggerFactory.getLogger(StageClientConfig.class);
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final double DEFAULT_VISIBLE_DISTANCE = 10.0D;
+    private static final double DEFAULT_VISIBLE_DISTANCE = 999.0D;
     private static final float DEFAULT_OPACITY = 1.0F;
     private static final boolean DEFAULT_ALLOW_SERVER_LOD_DOWNLOADS = true;
     private static final int DEFAULT_MAX_SERVER_LOD_DOWNLOAD_MIB = 256;
@@ -210,8 +210,8 @@ public final class StageClientConfig {
 
     public record BoundaryDisplay(double visibleDistance, float opacity, @Nullable Integer fallbackColor) {
         public BoundaryDisplay {
-            if (!Double.isFinite(visibleDistance) || visibleDistance < 0.0D || visibleDistance > 128.0D) {
-                throw new IllegalArgumentException("boundary_visible_distance must be between 0 and 128");
+            if (!Double.isFinite(visibleDistance) || visibleDistance < 0.0D || visibleDistance > 999.0D) {
+                throw new IllegalArgumentException("boundary_visible_distance must be between 0 and 999");
             }
             if (!Float.isFinite(opacity) || opacity < 0.0F || opacity > 1.0F) {
                 throw new IllegalArgumentException("boundary_opacity must be between 0 and 1");
