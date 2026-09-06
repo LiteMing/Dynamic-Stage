@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StageArenaSnapshotTest {
@@ -25,5 +26,13 @@ class StageArenaSnapshotTest {
     void includesBothChunksAcrossNegativeZeroBoundary() {
         assertEquals(List.of(new ChunkPos(-1, 0), new ChunkPos(0, 0)),
                 StageArenaSnapshot.coveredChunks(new BlockPos(-1, 0, 0), new Vec3i(2, 1, 1)));
+    }
+
+    @Test
+    void restoresCapturedEntitiesWithoutRunningSpawnFinalization() {
+        var settings = StageArenaSnapshot.entityPreservingPlacementSettings();
+
+        assertFalse(settings.isIgnoreEntities());
+        assertFalse(settings.shouldFinalizeEntities());
     }
 }

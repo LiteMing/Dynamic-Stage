@@ -191,8 +191,7 @@ public final class StageArenaSnapshot {
     }
 
     private static void place(ServerLevel level, BlockPos position, StructureTemplate structure) throws IOException {
-        StructurePlaceSettings settings = new StructurePlaceSettings()
-                .setIgnoreEntities(false).setFinalizeEntities(true).setKeepLiquids(false);
+        StructurePlaceSettings settings = entityPreservingPlacementSettings();
         List<LevelChunk> loadedChunks = preloadChunks(level, position, structure.getSize());
         boolean placed;
         try {
@@ -206,6 +205,14 @@ public final class StageArenaSnapshot {
         if (!placed) {
             throw new IOException("the arena structure could not be placed");
         }
+    }
+
+    static StructurePlaceSettings entityPreservingPlacementSettings() {
+        // Captured mobs already contain their complete persisted state. Calling
+        // finalizeSpawn here would treat them as new structure spawns and let mods
+        // overwrite data that was just restored from NBT.
+        return new StructurePlaceSettings()
+                .setIgnoreEntities(false).setFinalizeEntities(false).setKeepLiquids(false);
     }
 
     private static List<LevelChunk> preloadChunks(ServerLevel level, BlockPos position, Vec3i size) {
