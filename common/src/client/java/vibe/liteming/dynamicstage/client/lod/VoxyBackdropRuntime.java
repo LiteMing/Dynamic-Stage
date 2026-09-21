@@ -21,6 +21,8 @@ import java.util.UUID;
 /** Soft-dependency integration that lets Voxy own its RocksDB and render lifecycle. */
 public final class VoxyBackdropRuntime {
     private static final Logger LOGGER = LoggerFactory.getLogger(VoxyBackdropRuntime.class);
+    private static final int RESTORE_RETRY_INTERVAL_TICKS = 5;
+    private static final int MAX_RESTORE_ATTEMPTS = 20;
     private static final String VOXY_COMMON = "me.cortex.voxy.commonImpl.VoxyCommon";
     private static final String VOXY_RENDERER = "me.cortex.voxy.client.core.IGetVoxyRenderSystem";
     private static final String VOXY_STAGE_COMPAT = "me.cortex.voxy.client.DynamicStageCompat";
@@ -38,6 +40,9 @@ public final class VoxyBackdropRuntime {
     private static boolean normalInstanceSuspended;
     private static boolean externalInstanceActive;
     private static boolean normalRestorePending;
+    private static int restoreRetryTicks;
+    private static int restoreAttempts;
+    private static boolean restoreRetryExhausted;
     private static boolean stageCompatResolved;
     private static boolean stageCompatWarningLogged;
     private static boolean stageNearPlaneWarningLogged;
@@ -59,6 +64,9 @@ public final class VoxyBackdropRuntime {
                 normalInstanceSuspended = true;
             }
             normalRestorePending = false;
+            restoreRetryTicks = 0;
+            restoreAttempts = 0;
+            restoreRetryExhausted = false;
             mounted = new Mounted(snapshot.instanceId(), pack);
             stageActivated = false;
             LOGGER.info("Prepared Voxy LOD pack {} from {}", pack.id(), pack.baseDirectory());
@@ -84,6 +92,9 @@ public final class VoxyBackdropRuntime {
             // The level renderer owns the native dimension lifecycle. Do not
             // recreate Voxy while the stage ClientLevel is still current.
             normalRestorePending = true;
+            restoreRetryTicks = 0;
+            restoreAttempts = 0;
+            restoreRetryExhausted = false;
             return;
         }
         try {
@@ -296,7 +307,22 @@ public final class VoxyBackdropRuntime {
         stageActivated = false;
         if (normalInstanceSuspended) {
             normalRestorePending = true;
+            restoreRetryTicks = 0;
+            restoreAttempts = 0;
+            restoreRetryExhausted = false;
         }
+    }
+
+    /** Retries a delayed normal Voxy restore while the client is connected. */
+    public static void tick() {
+        if (!normalRestorePending || restoreRetryExhausted) {
+            return;
+        }
+        if (++restoreRetryTicks < RESTORE_RETRY_INTERVAL_TICKS) {
+            return;
+        }
+        restoreRetryTicks = 0;
+        restoreNormalAfterLevelChange();
     }
 
     /**
@@ -305,7 +331,7 @@ public final class VoxyBackdropRuntime {
      * restore entry point.
      */
     public static void restoreNormalAfterLevelChange() {
-        if (!normalRestorePending || normalInstanceSuspended == false) {
+        if (!normalRestorePending || !normalInstanceSuspended || restoreRetryExhausted) {
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();
@@ -327,12 +353,55 @@ public final class VoxyBackdropRuntime {
                     throw new IllegalStateException("Voxy did not restore its normal client instance");
                 }
             }
+            // Keep the pending flags set until the renderer is actually
+            // available. Voxy may finish constructing its instance one or
+            // more client ticks after LevelRenderer.setLevel().
+            ensureRenderer();
             externalInstanceActive = false;
             normalInstanceSuspended = false;
             normalRestorePending = false;
-            ensureRenderer();
+            restoreRetryTicks = 0;
+            restoreAttempts = 0;
+            restoreRetryExhausted = false;
+            LOGGER.info("Restored Voxy normal storage after stage level change");
         } catch (Throwable e) {
-            LOGGER.warn("Could not restore Voxy's normal storage after level change: {}", e.toString());
+            restoreAttempts++;
+            if (restoreAttempts >= MAX_RESTORE_ATTEMPTS) {
+                restoreRetryExhausted = true;
+                LOGGER.error("Could not restore Voxy's normal renderer after {} attempts; leaving recovery pending for reconnect",
+                        restoreAttempts);
+            } else {
+                LOGGER.warn("Could not restore Voxy's normal storage after level change (attempt {}/{}): {}",
+                        restoreAttempts, MAX_RESTORE_ATTEMPTS, e.toString());
+            }
+        }
+    }
+
+    /**
+     * Clears stage integration during disconnect/title-screen teardown. A
+     * ClientLevel may already be null here, so restore the normal instance but
+     * deliberately do not create a renderer.
+     */
+    public static void resetForDisconnect() {
+        mounted = null;
+        stageActivated = false;
+        stageWorldEngine = null;
+        normalRestorePending = false;
+        restoreRetryTicks = 0;
+        restoreAttempts = 0;
+        restoreRetryExhausted = false;
+        setStageNearPlane(0.0F);
+        setPreserveCameraSection(false);
+        if (!normalInstanceSuspended && !externalInstanceActive) {
+            return;
+        }
+        try {
+            restoreNormalInstance(false);
+        } catch (Throwable e) {
+            LOGGER.warn("Could not reset Voxy during disconnect: {}", e.toString());
+        } finally {
+            normalInstanceSuspended = false;
+            externalInstanceActive = false;
         }
     }
 
@@ -403,6 +472,9 @@ public final class VoxyBackdropRuntime {
         normalInstanceSuspended = false;
         normalRestorePending = false;
         externalInstanceActive = false;
+        restoreRetryTicks = 0;
+        restoreAttempts = 0;
+        restoreRetryExhausted = false;
         if (createRenderer && Minecraft.getInstance().level != null) {
             ensureRenderer();
         }

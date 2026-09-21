@@ -5,6 +5,7 @@ import vibe.liteming.dynamicstage.client.flight.StageFlightController;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.client.lod.LodPackDownloadManager;
 import vibe.liteming.dynamicstage.client.lod.VoxyLodCollision;
+import vibe.liteming.dynamicstage.client.lod.VoxyBackdropRuntime;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 import vibe.liteming.dynamicstage.stage.StageBoundaryAccess;
 import vibe.liteming.dynamicstage.client.editor.StageTemplateEditorState;
@@ -18,6 +19,7 @@ public final class StageClientEvents {
         LodPackDownloadManager.disconnect();
         VoxyLodCollision.reset();
         ClientStageSession.clearLocal();
+        VoxyBackdropRuntime.resetForDisconnect();
         StageTemplateEditorState.clear();
         StageBrowserState.clear();
         StageTransitionManager.clear();
@@ -25,6 +27,7 @@ public final class StageClientEvents {
 
     public static void tick() {
         Minecraft mc = Minecraft.getInstance();
+        VoxyBackdropRuntime.tick();
         if (mc.player == null || mc.level == null) {
             StageTransitionManager.tick();
             return;
