@@ -11,6 +11,15 @@ public final class StageBackdropEffects {
     }
 
     public static State sample(StageClientScene scene, long gameTime, float partialTick) {
+        return sampleInternal(scene, gameTime, partialTick, System.nanoTime());
+    }
+
+    static State sampleAtNanos(StageClientScene scene, long gameTime, float partialTick, long nowNanos) {
+        return sampleInternal(scene, gameTime, partialTick, nowNanos);
+    }
+
+    private static State sampleInternal(StageClientScene scene, long gameTime, float partialTick,
+                                        long nowNanos) {
         State base;
         if (scene.lodTransition() == StageClientScene.Transition.INSTANT
                 || scene.lodTransitionTicks() == 0) {
@@ -27,7 +36,7 @@ public final class StageBackdropEffects {
                     scene.lodBlurRadius() + transitionBlur));
         }
         SwapOverride override = swapOverride;
-        return override == null ? base : override.apply(base, gameTime, partialTick);
+        return override == null ? base : override.apply(base, gameTime, partialTick, nowNanos);
     }
 
     /** Samples the two halves of a live LOD source replacement. */
@@ -44,11 +53,21 @@ public final class StageBackdropEffects {
     }
 
     /** Starts a black/blur swap used when only the camera flight changes. */
-    public static void beginSwap(StageClientScene.Transition transition, int ticks, long gameTime) {
+    public static void beginSwap(StageClientScene.Transition transition, int ticks, long startNanos) {
+        beginSwapInternal(transition, ticks, startNanos, true);
+    }
+
+    /** Compatibility helper for transitions tied to one level's game time. */
+    public static void beginSwapAtGameTime(StageClientScene.Transition transition, int ticks, long gameTime) {
+        beginSwapInternal(transition, ticks, gameTime, false);
+    }
+
+    private static void beginSwapInternal(StageClientScene.Transition transition, int ticks,
+                                          long start, boolean monotonicClock) {
         if (transition == StageClientScene.Transition.INSTANT || ticks <= 0) {
             swapOverride = null;
         } else {
-            swapOverride = new SwapOverride(transition, ticks, gameTime);
+            swapOverride = new SwapOverride(transition, ticks, start, monotonicClock);
         }
     }
 
@@ -60,10 +79,13 @@ public final class StageBackdropEffects {
         return value * value * (3.0F - 2.0F * value);
     }
 
-    private record SwapOverride(StageClientScene.Transition transition, int ticks, long startGameTime) {
-        private State apply(State base, long gameTime, float partialTick) {
-            float elapsed = gameTime - startGameTime
-                    + Math.max(0.0F, Math.min(1.0F, partialTick));
+    private record SwapOverride(StageClientScene.Transition transition, int ticks, long start,
+                                boolean monotonicClock) {
+        private State apply(State base, long gameTime, float partialTick, long nowNanos) {
+            double clock = monotonicClock ? nowNanos / 50_000_000.0D : gameTime;
+            double startClock = monotonicClock ? start / 50_000_000.0D : start;
+            float elapsed = (float) (clock - startClock
+                    + Math.max(0.0F, Math.min(1.0F, partialTick)));
             int outTicks = Math.max(1, ticks / 2);
             int inTicks = Math.max(1, ticks - outTicks);
             if (elapsed >= outTicks + inTicks) {

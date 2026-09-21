@@ -22,8 +22,12 @@ public final class StageTransitionManager {
     public static void begin(StageTransitionPacket packet) {
         Minecraft minecraft = Minecraft.getInstance();
         boolean sourceStage = minecraft.level != null && StageWorlds.isStageLevel(minecraft.level);
-        active = new Transition(packet.instanceId(), packet.entering(), packet.durationTicks(),
+        Transition transition = new Transition(packet.instanceId(), packet.entering(), packet.durationTicks(),
                 sourceStage, System.nanoTime());
+        if (!packet.entering() && !sourceStage) {
+            transition.targetReadyNanos = System.nanoTime();
+        }
+        active = transition;
         if (minecraft.screen instanceof ReceivingLevelScreen) {
             minecraft.setScreen(null);
         }
@@ -72,7 +76,11 @@ public final class StageTransitionManager {
         if (active != transition) {
             return;
         }
-        active = null;
+        transition.failed = true;
+        if (transition.failureSent) {
+            return;
+        }
+        transition.failureSent = true;
         DynamicStageNetwork.transitionFailed(transition.instanceId, reason);
     }
 
@@ -84,12 +92,19 @@ public final class StageTransitionManager {
         active = null;
     }
 
+    public static void complete(UUID instanceId) {
+        Transition transition = active;
+        if (transition != null && transition.instanceId.equals(instanceId)) {
+            active = null;
+        }
+    }
+
     public static void render(GuiGraphics graphics, float partialTick) {
         Transition transition = active;
         if (transition == null) {
             return;
         }
-        float alpha = transition.alpha(System.nanoTime(), partialTick);
+        float alpha = transition.failed ? 0.94F : transition.alpha(System.nanoTime(), partialTick);
         Minecraft minecraft = Minecraft.getInstance();
         ClientStageSession.Snapshot snapshot = ClientStageSession.active();
         if (snapshot != null && snapshot.instanceId().equals(transition.instanceId)
@@ -115,6 +130,8 @@ public final class StageTransitionManager {
         private final boolean sourceStage;
         private final long startedNanos;
         private long targetReadyNanos;
+        private boolean failed;
+        private boolean failureSent;
 
         private Transition(UUID instanceId, boolean entering, int durationTicks,
                            boolean sourceStage, long startedNanos) {

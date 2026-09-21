@@ -28,6 +28,7 @@ public final class DynamicStageNetwork {
     public static final net.minecraft.resources.ResourceLocation SESSION = DynamicStage.id("session");
     public static final net.minecraft.resources.ResourceLocation TRANSITION = DynamicStage.id("transition");
     public static final net.minecraft.resources.ResourceLocation TRANSITION_FAILED = DynamicStage.id("transition_failed");
+    public static final net.minecraft.resources.ResourceLocation TRANSITION_RESULT = DynamicStage.id("transition_result");
     public static final net.minecraft.resources.ResourceLocation CLIENT_READY = DynamicStage.id("client_ready");
     public static final net.minecraft.resources.ResourceLocation FLIGHT = DynamicStage.id("flight");
     public static final net.minecraft.resources.ResourceLocation BACKDROP_SWITCH = DynamicStage.id("backdrop_switch");
@@ -137,6 +138,12 @@ public final class DynamicStageNetwork {
         FriendlyByteBuf buf = buffer();
         StageTransitionPacket.encode(packet, buf);
         NetworkManager.sendToPlayer(player, TRANSITION, buf);
+    }
+
+    public static void sendTransitionResult(ServerPlayer player, UUID instanceId) {
+        FriendlyByteBuf buf = buffer();
+        StageTransitionResultPacket.encode(new StageTransitionResultPacket(instanceId), buf);
+        NetworkManager.sendToPlayer(player, TRANSITION_RESULT, buf);
     }
 
     public static StageSessionPacket sessionPacket(ServerPlayer player, StageSession session) {

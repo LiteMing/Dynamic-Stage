@@ -5,6 +5,7 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import vibe.liteming.dynamicstage.client.StageTransitionManager;
+import vibe.liteming.dynamicstage.client.StageTransitionClock;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.client.lod.StageBackdropEffects;
 import vibe.liteming.dynamicstage.flight.StageFlightCodec;
@@ -19,6 +20,7 @@ public final class StageFlightController {
     @Nullable private static Active active;
     @Nullable private static String awaitingSessionHash;
     @Nullable private static Pending pending;
+    @Nullable private static StageFlightPacket pendingPacket;
 
     private StageFlightController() {
     }
@@ -26,7 +28,7 @@ public final class StageFlightController {
     public static void accept(StageFlightPacket packet) {
         ClientStageSession.Snapshot snapshot = ClientStageSession.active();
         if (snapshot == null || !snapshot.stageId().equals(packet.stageId())) {
-            LOGGER.warn("Rejected a stage flight for a different active stage");
+            pendingPacket = packet;
             return;
         }
         if (!packet.active()) {
@@ -57,6 +59,12 @@ public final class StageFlightController {
     public static void tick() {
         Minecraft minecraft = Minecraft.getInstance();
         ClientStageSession.Snapshot snapshot = ClientStageSession.active();
+        StageFlightPacket queuedPacket = pendingPacket;
+        if (queuedPacket != null && snapshot != null && snapshot.stageId().equals(queuedPacket.stageId())) {
+            pendingPacket = null;
+            accept(queuedPacket);
+            snapshot = ClientStageSession.active();
+        }
         if (minecraft.level == null || !StageWorlds.isStageLevel(minecraft.level) || snapshot == null) {
             if (StageTransitionManager.active() && snapshot != null) {
                 // The flight is deliberately accepted before the respawn
@@ -76,7 +84,7 @@ public final class StageFlightController {
                 pending = null;
                 return;
             }
-            if (minecraft.level.getGameTime() >= queued.switchGameTime) {
+            if (queued.clock.reached(System.nanoTime())) {
                 active = queued.replacement;
                 pending = null;
             } else {
@@ -108,6 +116,7 @@ public final class StageFlightController {
         active = null;
         awaitingSessionHash = null;
         pending = null;
+        pendingPacket = null;
     }
 
     public static void confirmSession(String flightHash) {
@@ -119,11 +128,11 @@ public final class StageFlightController {
     private static void queueTransition(StageFlightPacket packet, @Nullable Active replacement) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level != null && packet.transitionTicks() > 0) {
-            StageBackdropEffects.beginSwap(packet.transition(), packet.transitionTicks(),
-                    minecraft.level.getGameTime());
+            long startNanos = System.nanoTime();
+            StageBackdropEffects.beginSwap(packet.transition(), packet.transitionTicks(), startNanos);
             int outTicks = Math.max(1, packet.transitionTicks() / 2);
             pending = new Pending(packet.stageId(), replacement,
-                    minecraft.level.getGameTime() + outTicks);
+                    new StageTransitionClock(startNanos, outTicks));
         } else {
             active = replacement;
             pending = null;
@@ -133,7 +142,7 @@ public final class StageFlightController {
     private record Active(String stageId, String flightHash, long startGameTime, StageFlightPath path) {
     }
 
-    private record Pending(String stageId, @Nullable Active replacement, long switchGameTime) {
+    private record Pending(String stageId, @Nullable Active replacement, StageTransitionClock clock) {
     }
 
     private static final class MthClamp {

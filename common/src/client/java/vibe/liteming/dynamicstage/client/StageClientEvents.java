@@ -30,10 +30,10 @@ public final class StageClientEvents {
             return;
         }
         StageBoundaryAccess.bindClientPlayer(mc.player.getUUID());
+        StageFlightController.tick();
         if (StageWorlds.isStageLevel(mc.level)) {
             ClientStageSession.tickBackdropSwitch();
             if (ClientStageSession.activateLodIfNeeded()) {
-                StageFlightController.tick();
                 VoxyLodCollision.tick();
                 ClientStageSession.Snapshot snapshot = ClientStageSession.active();
                 if (snapshot != null) {

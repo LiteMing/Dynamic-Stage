@@ -28,4 +28,14 @@ class StageTransitionPacketTest {
         assertEquals(packet, StageTransitionFailedPacket.decode(buffer));
         buffer.release();
     }
+
+    @Test
+    void preservesRollbackResult() {
+        StageTransitionResultPacket packet = new StageTransitionResultPacket(UUID.randomUUID());
+        FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
+
+        StageTransitionResultPacket.encode(packet, buffer);
+        assertEquals(packet, StageTransitionResultPacket.decode(buffer));
+        buffer.release();
+    }
 }

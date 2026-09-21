@@ -916,17 +916,25 @@ public final class StageSessionManager {
             if (!pending.teleportToEntry) {
                 returnPendingPlayer(player, pending.session);
             }
-            player.sendSystemMessage(Component.literal("Dynamic Stage transition failed: "
-                    + boundedError(reason)));
+            DynamicStageNetwork.sendTransitionResult(player, instanceId);
+            reportTransitionFailure(player, reason, false);
             return;
         }
         StageSession session = StageSessionData.get(server).get(player.getUUID()).orElse(null);
         if (session == null || !session.instanceId().equals(instanceId)) {
+            DynamicStageNetwork.sendTransitionResult(player, instanceId);
             return;
         }
-        player.sendSystemMessage(Component.literal("Dynamic Stage transition failed: "
-                + boundedError(reason) + ". Returning safely."));
+        reportTransitionFailure(player, reason, true);
         exit(player);
+    }
+
+    private static void reportTransitionFailure(ServerPlayer player, String reason, boolean returning) {
+        LOGGER.warn("Player {} reported Dynamic Stage transition failure: {}", player.getGameProfile().getName(),
+                boundedError(reason));
+        player.sendSystemMessage(Component.literal(returning
+                ? "Dynamic Stage transition failed. Returning safely."
+                : "Dynamic Stage transition failed."));
     }
 
     public static boolean exit(ServerPlayer player) {
