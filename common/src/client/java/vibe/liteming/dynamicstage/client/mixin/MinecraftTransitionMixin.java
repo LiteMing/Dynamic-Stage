@@ -18,4 +18,12 @@ public abstract class MinecraftTransitionMixin {
             callback.cancel();
         }
     }
+
+    @Inject(method = "tick", at = @At("TAIL"))
+    private void dynamicstage$clearVanillaTransitionScreen(CallbackInfo callback) {
+        Minecraft minecraft = (Minecraft) (Object) this;
+        if (StageTransitionManager.active() && minecraft.screen instanceof ReceivingLevelScreen) {
+            minecraft.setScreen(null);
+        }
+    }
 }

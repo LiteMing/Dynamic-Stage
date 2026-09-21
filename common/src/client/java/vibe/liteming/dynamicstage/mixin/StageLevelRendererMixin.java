@@ -17,4 +17,11 @@ public abstract class StageLevelRendererMixin {
             VoxyBackdropRuntime.leaveStageLevel();
         }
     }
+
+    @Inject(method = "setLevel", at = @At("TAIL"))
+    private void dynamicstage$restoreVoxyNormalStorage(ClientLevel level, CallbackInfo callback) {
+        if (level != null && !StageWorlds.isStageLevel(level)) {
+            VoxyBackdropRuntime.restoreNormalAfterLevelChange();
+        }
+    }
 }

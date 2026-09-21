@@ -12,6 +12,7 @@
     "DhViewMixin",
     "MinecraftTransitionMixin",
     "HudTransitionMixin",
+    "ReceivingLevelScreenMixin",
     "OculusDhShaderMixin",
     "StageClientTimeMixin",
     "StageLevelRendererMixin",

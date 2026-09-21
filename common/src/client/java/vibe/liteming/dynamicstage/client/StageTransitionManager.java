@@ -41,6 +41,12 @@ public final class StageTransitionManager {
         }
         Minecraft minecraft = Minecraft.getInstance();
         long now = System.nanoTime();
+        if (minecraft.screen instanceof ReceivingLevelScreen) {
+            // ReceivingLevelScreen can be installed from the respawn handler
+            // after the transition packet, so remove it again on the client
+            // tick. The dedicated screen mixin also suppresses its render.
+            minecraft.setScreen(null);
+        }
         if (transition.failed) {
             if (now - transition.failedAtNanos >= FAILURE_FALLBACK_NANOS) {
                 active = null;
