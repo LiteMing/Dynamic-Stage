@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class DynamicStageNetwork {
 
     public static final net.minecraft.resources.ResourceLocation SESSION = DynamicStage.id("session");
+    public static final net.minecraft.resources.ResourceLocation TRANSITION = DynamicStage.id("transition");
     public static final net.minecraft.resources.ResourceLocation CLIENT_READY = DynamicStage.id("client_ready");
     public static final net.minecraft.resources.ResourceLocation FLIGHT = DynamicStage.id("flight");
     public static final net.minecraft.resources.ResourceLocation BACKDROP_SWITCH = DynamicStage.id("backdrop_switch");
@@ -121,6 +122,12 @@ public final class DynamicStageNetwork {
 
     public static void sendSession(ServerPlayer player, StageSession session) {
         send(player, sessionPacket(player, session));
+    }
+
+    public static void sendTransition(ServerPlayer player, StageTransitionPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        StageTransitionPacket.encode(packet, buf);
+        NetworkManager.sendToPlayer(player, TRANSITION, buf);
     }
 
     public static StageSessionPacket sessionPacket(ServerPlayer player, StageSession session) {

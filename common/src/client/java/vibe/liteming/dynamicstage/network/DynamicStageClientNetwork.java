@@ -2,6 +2,7 @@ package vibe.liteming.dynamicstage.network;
 
 import dev.architectury.networking.NetworkManager;
 import vibe.liteming.dynamicstage.client.StageSkySettings;
+import vibe.liteming.dynamicstage.client.StageTransitionManager;
 import vibe.liteming.dynamicstage.client.flight.StageFlightController;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.client.editor.StageTemplateEditorState;
@@ -22,6 +23,11 @@ public final class DynamicStageClientNetwork {
                 (buf, context) -> {
                     StageSessionPacket packet = StageSessionPacket.decode(buf);
                     context.queue(() -> ClientStageSession.accept(packet));
+                });
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.TRANSITION,
+                (buf, context) -> {
+                    StageTransitionPacket packet = StageTransitionPacket.decode(buf);
+                    context.queue(() -> StageTransitionManager.begin(packet));
                 });
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.BACKDROP_SWITCH,
                 (buf, context) -> {

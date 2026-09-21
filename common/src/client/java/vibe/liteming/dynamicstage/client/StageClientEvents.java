@@ -20,11 +20,13 @@ public final class StageClientEvents {
         ClientStageSession.clearLocal();
         StageTemplateEditorState.clear();
         StageBrowserState.clear();
+        StageTransitionManager.clear();
     }
 
     public static void tick() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) {
+            StageTransitionManager.tick();
             return;
         }
         StageBoundaryAccess.bindClientPlayer(mc.player.getUUID());
@@ -33,9 +35,14 @@ public final class StageClientEvents {
             if (ClientStageSession.activateLodIfNeeded()) {
                 StageFlightController.tick();
                 VoxyLodCollision.tick();
+                ClientStageSession.Snapshot snapshot = ClientStageSession.active();
+                if (snapshot != null) {
+                    StageTransitionManager.markTargetReady(snapshot.instanceId());
+                }
             }
         } else if (ClientStageSession.active() == null) {
             StageFlightController.clear();
         }
+        StageTransitionManager.tick();
     }
 }

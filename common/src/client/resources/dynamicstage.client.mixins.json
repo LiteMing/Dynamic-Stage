@@ -10,6 +10,8 @@
     "DhProjectionMixin",
     "DhPlayerPositionMixin",
     "DhViewMixin",
+    "MinecraftTransitionMixin",
+    "HudTransitionMixin",
     "OculusDhShaderMixin",
     "StageClientTimeMixin",
     "StageLevelRendererMixin",
