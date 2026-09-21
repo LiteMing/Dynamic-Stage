@@ -37,6 +37,10 @@ public final class VoxyBackdropRuntime {
     private static boolean stageActivated;
     private static boolean normalInstanceSuspended;
     private static boolean externalInstanceActive;
+    private static boolean normalRestorePending;
+    private static int restoreDelay;
+    private static int restoreAttempts;
+    private static long operationSequence;
     private static boolean stageCompatResolved;
     private static boolean stageCompatWarningLogged;
     private static boolean stageNearPlaneWarningLogged;
@@ -59,6 +63,8 @@ public final class VoxyBackdropRuntime {
             }
             mounted = new Mounted(snapshot.instanceId(), pack);
             stageActivated = false;
+            normalRestorePending = false;
+            restoreAttempts = 0;
             LOGGER.info("Prepared Voxy LOD pack {} from {}", pack.id(), pack.baseDirectory());
             return StageBackdropRuntime.Result.success();
         } catch (Throwable e) {
@@ -69,20 +75,70 @@ public final class VoxyBackdropRuntime {
     }
 
     public static void unmount() {
-        Mounted previous = mounted;
         mounted = null;
         stageActivated = false;
         stageWorldEngine = null;
         setStageNearPlane(0.0F);
         setPreserveCameraSection(false);
-        if (previous == null || !normalInstanceSuspended) {
-            return;
+        if (!normalInstanceSuspended) return;
+        if (!normalRestorePending) {
+            normalRestorePending = true;
+            restoreDelay = 2;
+            restoreAttempts = 0;
+            lifecycle("normal restore queued");
         }
+        // Never build normal storage against the old stage ClientLevel.
+        // Restore from tick after all setLevel/allChanged callbacks have completed.
         try {
-            restoreNormalInstance(!StageWorlds.isStageLevel(Minecraft.getInstance().level));
-        } catch (Throwable e) {
-            LOGGER.warn("Could not restore Voxy's normal storage instance: {}", e.toString());
+            if (externalInstanceActive) shutdownVoxyInstance();
+        } catch (ReflectiveOperationException error) {
+            LOGGER.warn("Could not release stage Voxy instance", error);
         }
+    }
+
+    public static boolean normalRestorePending() { return normalRestorePending; }
+
+    public static void tickNormalRestore() {
+        Minecraft mc = Minecraft.getInstance();
+        if (!normalRestorePending || mc.level == null || StageWorlds.isStageLevel(mc.level)
+                || mc.player == null || mc.player.level() != mc.level || mc.getConnection() == null) return;
+        if (restoreDelay-- > 0 || restoreAttempts >= 20) return;
+        restoreDelay = 4;
+        restoreAttempts++;
+        try {
+            if (normalInstanceSuspended) restoreNormalInstance(false);
+            ensureRenderer();
+            normalRestorePending = false;
+            lifecycle("normal renderer ready");
+        } catch (Throwable error) {
+            if (restoreAttempts == 20) LOGGER.error("Voxy normal restore exhausted 20 attempts", error);
+            else LOGGER.debug("Voxy normal restore attempt {}: {}", restoreAttempts, rootMessage(error));
+        }
+    }
+
+    /** Voxy's connection lifecycle creates the normal instance on the next login. */
+    public static void resetForDisconnect() {
+        mounted = null;
+        stageActivated = false;
+        stageWorldEngine = null;
+        normalRestorePending = false;
+        restoreAttempts = 0;
+        setStageNearPlane(0F);
+        setPreserveCameraSection(false);
+        try {
+            if (externalInstanceActive) shutdownVoxyInstance();
+        } catch (ReflectiveOperationException error) {
+            LOGGER.warn("Could not close stage Voxy instance on disconnect", error);
+        }
+        externalInstanceActive = false;
+        normalInstanceSuspended = false;
+    }
+
+    private static void lifecycle(String operation) {
+        Minecraft mc = Minecraft.getInstance();
+        LOGGER.info("[DynamicStage/Voxy #{}] {} level={} stage={} suspended={} restorePending={}",
+                ++operationSequence, operation, mc.level == null ? "null" : mc.level.dimension().location(),
+                externalInstanceActive, normalInstanceSuspended, normalRestorePending);
     }
 
     public static boolean isMounted(UUID instanceId) {
@@ -146,10 +202,14 @@ public final class VoxyBackdropRuntime {
             return StageBackdropRuntime.Result.failure("The client has not entered the Dynamic Stage level");
         }
         try {
+            long started = System.nanoTime();
+            lifecycle("stage activation begin");
             if (!externalInstanceActive) {
                 createExternalInstance();
             }
             ensureRenderer();
+            LOGGER.info("[DynamicStage/Voxy #{}] stage activation took {} ms", operationSequence,
+                    (System.nanoTime() - started) / 1_000_000L);
             verifyOpenedStorage();
             stageActivated = true;
             Mounted current = mounted;
@@ -278,19 +338,7 @@ public final class VoxyBackdropRuntime {
     }
 
     public static void leaveStageLevel() {
-        setStageNearPlane(0.0F);
-        setPreserveCameraSection(false);
-        stageWorldEngine = null;
-        if (mounted == null || !normalInstanceSuspended) {
-            return;
-        }
-        mounted = null;
-        stageActivated = false;
-        try {
-            restoreNormalInstance(false);
-        } catch (Throwable e) {
-            LOGGER.warn("Could not release Voxy's stage storage during level change: {}", e.toString());
-        }
+        if (mounted != null || normalInstanceSuspended) unmount();
     }
 
     private static void shutdownVoxyInstance() throws ReflectiveOperationException {
@@ -298,9 +346,16 @@ public final class VoxyBackdropRuntime {
         Class<?> common = Class.forName(VOXY_COMMON);
         Object renderer = Minecraft.getInstance().levelRenderer;
         Class<?> rendererInterface = Class.forName(VOXY_RENDERER);
-        Method shutdownRenderer = rendererInterface.getMethod("voxy$shutdownRenderer");
-        shutdownRenderer.invoke(renderer);
-        common.getMethod("shutdownInstance").invoke(null);
+        Object renderSystem = rendererInterface.getMethod("voxy$getRenderSystem").invoke(renderer);
+        Object instance = common.getMethod("getInstance").invoke(null);
+        if (renderSystem != null || instance != null) {
+            lifecycle("shutdown begin");
+            long started = System.nanoTime();
+            if (renderSystem != null) rendererInterface.getMethod("voxy$shutdownRenderer").invoke(renderer);
+            if (instance != null) common.getMethod("shutdownInstance").invoke(null);
+            LOGGER.info("[DynamicStage/Voxy #{}] shutdown took {} ms", operationSequence,
+                    (System.nanoTime() - started) / 1_000_000L);
+        }
         externalInstanceActive = false;
     }
 
@@ -327,9 +382,12 @@ public final class VoxyBackdropRuntime {
     }
 
     private static void restoreNormalInstance(boolean createRenderer) throws ReflectiveOperationException {
-        shutdownVoxyInstance();
+        if (externalInstanceActive) shutdownVoxyInstance();
         Class<?> common = Class.forName(VOXY_COMMON);
-        common.getMethod("createInstance").invoke(null);
+        if (common.getMethod("getInstance").invoke(null) == null) {
+            lifecycle("create normal instance");
+            common.getMethod("createInstance").invoke(null);
+        }
         if (common.getMethod("getInstance").invoke(null) == null) {
             throw new IllegalStateException("Voxy did not restore its normal client instance");
         }

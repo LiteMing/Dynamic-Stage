@@ -27,6 +27,7 @@ import vibe.liteming.dynamicstage.network.StageFlightPacket;
 import vibe.liteming.dynamicstage.network.StageBackdropSwitchPacket;
 import vibe.liteming.dynamicstage.network.StageBackdropSwitchResultPacket;
 import vibe.liteming.dynamicstage.network.StageTransitionPacket;
+import vibe.liteming.dynamicstage.network.StageTransitionAckPacket;
 import vibe.liteming.dynamicstage.platform.StagePlatform;
 import vibe.liteming.dynamicstage.template.StageTemplate;
 import vibe.liteming.dynamicstage.template.StageTemplateSummary;
@@ -47,6 +48,7 @@ public final class StageSessionManager {
     public static final String INSTANCE_NBT = "DynamicStageInstance";
     private static final int BACKDROP_SWITCH_TIMEOUT_MARGIN_TICKS = 20 * 15;
     private static final ConcurrentHashMap<UUID, PendingEntry> PENDING = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, StageTransferTicket> TRANSFERS = new ConcurrentHashMap<>();
     private static final Set<UUID> SENT_FLIGHTS = ConcurrentHashMap.newKeySet();
     private static final ConcurrentHashMap<UUID, BackdropSwitchState> BACKDROP_SWITCHES =
             new ConcurrentHashMap<>();
@@ -869,6 +871,8 @@ public final class StageSessionManager {
         if (server == null) {
             return;
         }
+        StageTransferTicket transfer = TRANSFERS.get(player.getUUID());
+        if (transfer != null && transfer.phase() == StageTransferTicket.Phase.WAITING_FRAME) return;
         PendingEntry pending = PENDING.get(player.getUUID());
         if (pending != null && pending.session.instanceId().equals(instanceId)) {
             PENDING.remove(player.getUUID(), pending);
@@ -879,10 +883,18 @@ public final class StageSessionManager {
                 if (!pending.teleportToEntry) {
                     returnPendingPlayer(player, pending.session);
                 }
+                cancelTransfer(player);
                 return;
             }
             warnMissingLod(player, error);
-            enterPrepared(player, pending);
+            try {
+                enterPrepared(player, pending);
+            } catch (RuntimeException failure) {
+                LOGGER.error("Could not enter prepared stage instance {}", instanceId, failure);
+                if (transfer != null) failTransfer(player, transfer);
+                releasePendingArenaIfUnused(server, pending);
+                DynamicStageNetwork.clearSession(player);
+            }
             return;
         }
 
@@ -892,7 +904,8 @@ public final class StageSessionManager {
             if (!ready) {
                 player.sendSystemMessage(Component.literal("LOD backdrop unavailable after reconnect: "
                         + boundedError(error)));
-                exit(player);
+                if (transfer != null && transfer.packet().entering()) failTransfer(player, transfer);
+                else exit(player);
             } else {
                 warnMissingLod(player, error);
                 sendOrStartFlight(player, restored);
@@ -901,6 +914,23 @@ public final class StageSessionManager {
     }
 
     public static boolean exit(ServerPlayer player) {
+        MinecraftServer server = player.getServer();
+        if (server == null) return false;
+        StageSession session = StageSessionData.get(server).get(player.getUUID()).orElse(null);
+        if (session == null) {
+            boolean result = exitImmediately(player);
+            cancelTransfer(player);
+            return result;
+        }
+        StageTransferTicket existing = TRANSFERS.get(player.getUUID());
+        if (existing != null && !existing.packet().entering()) return true;
+        cancelTransfer(player);
+        beginTransfer(player, session, false);
+        return true;
+    }
+
+    /** Used after a presented frame, or for rollback without starting a second animation. */
+    private static boolean exitImmediately(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         if (server == null) {
             return false;
@@ -930,8 +960,6 @@ public final class StageSessionManager {
             returnLevel = server.overworld();
         }
         player.fallDistance = 0.0F;
-        DynamicStageNetwork.sendTransition(player,
-                new StageTransitionPacket(session.instanceId(), false, transitionDuration(session)));
         // Release the client-side LOD package before the respawn packet makes
         // the new level renderer open Voxy's normal world storage.
         DynamicStageNetwork.clearSession(player);
@@ -960,9 +988,11 @@ public final class StageSessionManager {
         removeBackdropSwitchWait(server, player.getUUID());
         clearPlayerMarker(player);
         DynamicStageNetwork.clearSession(player);
+        cancelTransfer(player);
     }
 
     public static void onLogout(ServerPlayer player) {
+        TRANSFERS.remove(player.getUUID());
         PendingEntry cancelledPending = PENDING.remove(player.getUUID());
         if (cancelledPending != null && player.getServer() != null) {
             releasePendingArenaIfUnused(player.getServer(), cancelledPending);
@@ -978,6 +1008,7 @@ public final class StageSessionManager {
     }
 
     public static void onServerStopped() {
+        TRANSFERS.clear();
         PENDING.clear();
         SENT_FLIGHTS.clear();
         EDITING_PLAYERS.clear();
@@ -990,6 +1021,13 @@ public final class StageSessionManager {
 
     public static void tick(MinecraftServer server) {
         LodServerTransferManager.tick(server);
+        for (var entry : TRANSFERS.entrySet()) {
+            if (entry.getValue().expired(System.nanoTime())) {
+                ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+                if (player != null) failTransfer(player, entry.getValue());
+                else TRANSFERS.remove(entry.getKey(), entry.getValue());
+            }
+        }
         long gameTime = server.overworld().getGameTime();
         INVITES.entrySet().removeIf(entry -> entry.getValue().expiresAt() < gameTime);
         for (var entry : BACKDROP_SWITCHES.entrySet()) {
@@ -1198,7 +1236,7 @@ public final class StageSessionManager {
                                    boolean teleportToEntry) {
         PENDING.put(player.getUUID(), new PendingEntry(session, persistent, entryOffset,
                 interactionPolicy, teleportToEntry));
-        DynamicStageNetwork.sendSession(player, session);
+        beginTransfer(player, session, true);
         player.sendSystemMessage(Component.literal("Checking local LOD pack '" + session.lodPackId() + "'..."));
         return true;
     }
@@ -1212,6 +1250,7 @@ public final class StageSessionManager {
         ServerLevel stageLevel = server.getLevel(StageWorlds.STG_STAGE);
         if (stageLevel == null) {
             DynamicStageNetwork.clearSession(player);
+            cancelTransfer(player);
             player.sendSystemMessage(Component.literal("The Dynamic Stage dimension is unavailable."));
             return;
         }
@@ -1220,11 +1259,13 @@ public final class StageSessionManager {
                 || !StagePlacement.containsRegion(session.stageOrigin(), player.getX(), player.getZ()))) {
             releasePendingArenaIfUnused(server, pending);
             DynamicStageNetwork.clearSession(player);
+            cancelTransfer(player);
             player.sendSystemMessage(Component.translatable("message.dynamicstage.auto_join.moved"));
             return;
         }
         if (data.get(player.getUUID()).isPresent() || slotClaimedByOtherInstance(data, session)) {
             DynamicStageNetwork.clearSession(player);
+            cancelTransfer(player);
             player.sendSystemMessage(Component.literal("The Dynamic Stage instance changed while preparing."));
             return;
         }
@@ -1236,8 +1277,6 @@ public final class StageSessionManager {
         player.stopRiding();
         player.fallDistance = 0.0F;
         if (pending.teleportToEntry) {
-            DynamicStageNetwork.sendTransition(player,
-                    new StageTransitionPacket(session.instanceId(), true, transitionDuration(session)));
             player.teleportTo(stageLevel, entry.getX() + 0.5D, entry.getY(), entry.getZ() + 0.5D,
                     player.getYRot(), player.getXRot());
         }
@@ -1253,6 +1292,11 @@ public final class StageSessionManager {
         }
         announce(server, "message.dynamicstage.guide.entered", player, instance);
         sendOrStartFlight(player, session);
+        StageTransferTicket ticket = TRANSFERS.get(player.getUUID());
+        if (ticket != null) {
+            ticket.transferred(System.nanoTime());
+            DynamicStageNetwork.transitionArrived(player, ticket.packet());
+        }
     }
 
     private static void sendOrStartFlight(ServerPlayer player, StageSession session) {
@@ -1272,6 +1316,81 @@ public final class StageSessionManager {
             return;
         }
         DynamicStageNetwork.sendFlight(player, StageFlightPacket.active(session, asset.sceneJson()));
+    }
+
+    private static void beginTransfer(ServerPlayer player, StageSession session, boolean entering) {
+        StageTransitionPacket packet = new StageTransitionPacket(session.instanceId(), entering, transitionDuration(session));
+        TRANSFERS.put(player.getUUID(), new StageTransferTicket(packet, System.nanoTime()));
+        LOGGER.info("[StageTransition {}] send begin player={} instance={} entering={}",
+                packet.transitionId(), player.getScoreboardName(), session.instanceId(), entering);
+        DynamicStageNetwork.sendTransition(player, packet);
+    }
+
+    /** Prevent live template updates from bypassing the initial frame gate. */
+    public static boolean maySendSession(ServerPlayer player) {
+        StageTransferTicket ticket = TRANSFERS.get(player.getUUID());
+        return ticket == null || ticket.phase() != StageTransferTicket.Phase.WAITING_FRAME;
+    }
+
+    public static void onTransitionAck(ServerPlayer player, StageTransitionAckPacket packet) {
+        StageTransferTicket ticket = TRANSFERS.get(player.getUUID());
+        if (ticket == null || !ticket.matches(packet.transitionId(), packet.instanceId())) return;
+        if (packet.signal() == StageTransitionAckPacket.Signal.FAILED) {
+            failTransfer(player, ticket);
+            return;
+        }
+        if (packet.signal() == StageTransitionAckPacket.Signal.COMPLETE) {
+            if (ticket.phase() == StageTransferTicket.Phase.TRANSFERRED) TRANSFERS.remove(player.getUUID(), ticket);
+            return;
+        }
+        if (!ticket.present(packet.transitionId(), packet.instanceId(), System.nanoTime())) return;
+        LOGGER.info("[StageTransition {}] presented frame acknowledged; starting {}",
+                packet.transitionId(), ticket.packet().entering() ? "package preparation" : "return transfer");
+        if (!player.isAlive()) { failTransfer(player, ticket); return; }
+        try {
+            if (ticket.packet().entering()) {
+                PendingEntry pending = PENDING.get(player.getUUID());
+                if (pending == null || !pending.session.instanceId().equals(packet.instanceId())
+                        || pending.teleportToEntry && !player.level().dimension().equals(pending.session.returnDimension())) {
+                    failTransfer(player, ticket);
+                    return;
+                }
+                DynamicStageNetwork.sendSession(player, pending.session);
+            } else {
+                StageSession session = get(player).orElse(null);
+                if (session == null || !session.instanceId().equals(packet.instanceId())) {
+                    failTransfer(player, ticket);
+                    return;
+                }
+                exitImmediately(player);
+                ticket.transferred(System.nanoTime());
+                DynamicStageNetwork.transitionArrived(player, ticket.packet());
+            }
+        } catch (RuntimeException error) {
+            LOGGER.error("[StageTransition {}] transfer failed", packet.transitionId(), error);
+            failTransfer(player, ticket);
+        }
+    }
+
+    private static void cancelTransfer(ServerPlayer player) {
+        StageTransferTicket ticket = TRANSFERS.remove(player.getUUID());
+        if (ticket != null) DynamicStageNetwork.cancelTransition(player, ticket.packet());
+    }
+
+    private static void failTransfer(ServerPlayer player, StageTransferTicket ticket) {
+        if (!TRANSFERS.remove(player.getUUID(), ticket)) return;
+        LOGGER.warn("[StageTransition {}] cancelling at {}", ticket.packet().transitionId(), ticket.phase());
+        if (ticket.packet().entering()) {
+            PendingEntry pending = PENDING.remove(player.getUUID());
+            if (pending != null) {
+                releasePendingArenaIfUnused(player.getServer(), pending);
+                DynamicStageNetwork.clearSession(player);
+                if (!pending.teleportToEntry) returnPendingPlayer(player, pending.session);
+            }
+            StageSession session = get(player).orElse(null);
+            if (session != null && session.instanceId().equals(ticket.packet().instanceId())) exitImmediately(player);
+        }
+        DynamicStageNetwork.cancelTransition(player, ticket.packet());
     }
 
     private static int transitionDuration(StageSession session) {
@@ -1341,7 +1460,8 @@ public final class StageSessionManager {
     }
 
     private static boolean canPrepare(ServerPlayer player, MinecraftServer server) {
-        if (player == null || server == null || PENDING.containsKey(player.getUUID())) {
+        if (player == null || server == null || PENDING.containsKey(player.getUUID())
+                || TRANSFERS.containsKey(player.getUUID())) {
             return false;
         }
         if (StageSessionData.get(server).get(player.getUUID()).isPresent()) {
@@ -1490,7 +1610,7 @@ public final class StageSessionManager {
 
     private static void trackStageLocation(ServerPlayer player) {
         MinecraftServer server = player.getServer();
-        if (server == null || PENDING.containsKey(player.getUUID())) {
+        if (server == null || PENDING.containsKey(player.getUUID()) || TRANSFERS.containsKey(player.getUUID())) {
             return;
         }
         StageSessionData data = StageSessionData.get(server);

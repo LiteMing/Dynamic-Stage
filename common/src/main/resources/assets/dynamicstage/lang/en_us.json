@@ -145,5 +145,6 @@
   "message.dynamicstage.invite.full": "That stage instance is full.",
   "message.dynamicstage.invite.target_busy": "%s is already entering or playing a stage.",
   "message.dynamicstage.invite.expired": "That stage invitation is invalid or has expired.",
-  "message.dynamicstage.invite.failed": "Could not send that stage invitation."
+  "message.dynamicstage.invite.failed": "Could not send that stage invitation.",
+  "message.dynamicstage.transition.cancelled": "Stage transition cancelled. Your previous location has been preserved or restored."
 }

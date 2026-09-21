@@ -11,7 +11,7 @@ import vibe.liteming.dynamicstage.client.StageTransitionManager;
 
 @Mixin(GameRenderer.class)
 public abstract class GameRendererTransitionMixin {
-    @Inject(method = "render", at = @At("TAIL"))
+    @Inject(method = "render", at = @At("TAIL"), require = 1)
     private void dynamicstage$renderTransition(float partialTick, long nanoTime, boolean renderLevel,
                                                 CallbackInfo callback) {
         if (!StageTransitionManager.active()) {

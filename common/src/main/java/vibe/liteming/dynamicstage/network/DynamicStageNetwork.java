@@ -43,6 +43,9 @@ public final class DynamicStageNetwork {
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_RESULT = DynamicStage.id("lod_download_result");
     public static final net.minecraft.resources.ResourceLocation LOD_COLLISION_EVENT = DynamicStage.id("lod_collision_event");
     public static final net.minecraft.resources.ResourceLocation TRANSITION = DynamicStage.id("transition");
+    public static final net.minecraft.resources.ResourceLocation TRANSITION_ACK = DynamicStage.id("transition_ack");
+    public static final net.minecraft.resources.ResourceLocation TRANSITION_CANCEL = DynamicStage.id("transition_cancel");
+    public static final net.minecraft.resources.ResourceLocation TRANSITION_ARRIVED = DynamicStage.id("transition_arrived");
     private static final long LOD_COLLISION_REPORT_INTERVAL_TICKS = 5L;
     private static final Map<UUID, Long> LAST_LOD_COLLISION_REPORT = new ConcurrentHashMap<>();
     private static boolean serverRegistered;
@@ -60,6 +63,14 @@ public final class DynamicStageNetwork {
                 if (context.getPlayer() instanceof ServerPlayer player) {
                     vibe.liteming.dynamicstage.stage.StageSessionManager.onClientReady(player,
                             packet.instanceId(), packet.ready(), packet.error());
+                }
+            });
+        });
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, TRANSITION_ACK, (buf, context) -> {
+            StageTransitionAckPacket packet = StageTransitionAckPacket.decode(buf);
+            context.queue(() -> {
+                if (context.getPlayer() instanceof ServerPlayer player) {
+                    StageSessionManager.onTransitionAck(player, packet);
                 }
             });
         });
@@ -121,6 +132,7 @@ public final class DynamicStageNetwork {
     }
 
     public static void sendSession(ServerPlayer player, StageSession session) {
+        if (!StageSessionManager.maySendSession(player)) return;
         send(player, sessionPacket(player, session));
     }
 
@@ -128,6 +140,24 @@ public final class DynamicStageNetwork {
         FriendlyByteBuf buf = buffer();
         StageTransitionPacket.encode(packet, buf);
         NetworkManager.sendToPlayer(player, TRANSITION, buf);
+    }
+
+    public static void transitionAck(StageTransitionAckPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        StageTransitionAckPacket.encode(packet, buf);
+        NetworkManager.sendToServer(TRANSITION_ACK, buf);
+    }
+
+    public static void cancelTransition(ServerPlayer player, StageTransitionPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        StageTransitionCancelPacket.encode(new StageTransitionCancelPacket(packet.transitionId(), packet.instanceId()), buf);
+        NetworkManager.sendToPlayer(player, TRANSITION_CANCEL, buf);
+    }
+
+    public static void transitionArrived(ServerPlayer player, StageTransitionPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        StageTransitionArrivedPacket.encode(new StageTransitionArrivedPacket(packet.transitionId(), packet.instanceId()), buf);
+        NetworkManager.sendToPlayer(player, TRANSITION_ARRIVED, buf);
     }
 
     public static StageSessionPacket sessionPacket(ServerPlayer player, StageSession session) {

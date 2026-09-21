@@ -145,5 +145,6 @@
   "message.dynamicstage.invite.full": "该关卡实例人数已满。",
   "message.dynamicstage.invite.target_busy": "%s 正在进入或已经处于关卡中。",
   "message.dynamicstage.invite.expired": "该关卡邀请无效或已经过期。",
-  "message.dynamicstage.invite.failed": "无法发送该关卡邀请。"
+  "message.dynamicstage.invite.failed": "无法发送该关卡邀请。",
+  "message.dynamicstage.transition.cancelled": "舞台转场已取消，已保留或恢复进入前的位置。"
 }
