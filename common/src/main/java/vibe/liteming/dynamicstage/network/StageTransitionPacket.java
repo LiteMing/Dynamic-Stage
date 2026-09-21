@@ -5,10 +5,13 @@ import net.minecraft.network.FriendlyByteBuf;
 import java.util.UUID;
 
 /** S2C notification that a Dynamic Stage dimension transition is taking over the frame. */
-public record StageTransitionPacket(UUID instanceId, boolean entering, int durationTicks) {
+public record StageTransitionPacket(UUID transitionId, UUID instanceId, boolean entering, int durationTicks) {
     public static final int MAX_DURATION_TICKS = 200;
 
     public StageTransitionPacket {
+        if (transitionId == null) {
+            throw new IllegalArgumentException("transitionId is required");
+        }
         if (instanceId == null) {
             throw new IllegalArgumentException("instanceId is required");
         }
@@ -17,13 +20,18 @@ public record StageTransitionPacket(UUID instanceId, boolean entering, int durat
         }
     }
 
+    public StageTransitionPacket(UUID instanceId, boolean entering, int durationTicks) {
+        this(UUID.randomUUID(), instanceId, entering, durationTicks);
+    }
+
     public static void encode(StageTransitionPacket packet, FriendlyByteBuf buf) {
+        buf.writeUUID(packet.transitionId());
         buf.writeUUID(packet.instanceId());
         buf.writeBoolean(packet.entering());
         buf.writeVarInt(packet.durationTicks());
     }
 
     public static StageTransitionPacket decode(FriendlyByteBuf buf) {
-        return new StageTransitionPacket(buf.readUUID(), buf.readBoolean(), buf.readVarInt());
+        return new StageTransitionPacket(buf.readUUID(), buf.readUUID(), buf.readBoolean(), buf.readVarInt());
     }
 }

@@ -32,7 +32,7 @@ public final class DynamicStageClientNetwork {
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.TRANSITION_RESULT,
                 (buf, context) -> {
                     StageTransitionResultPacket packet = StageTransitionResultPacket.decode(buf);
-                    context.queue(() -> StageTransitionManager.complete(packet.instanceId()));
+                    context.queue(() -> StageTransitionManager.complete(packet.transitionId(), packet.instanceId()));
                 });
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.BACKDROP_SWITCH,
                 (buf, context) -> {

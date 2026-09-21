@@ -14,6 +14,7 @@ import java.util.UUID;
 /** Owns the client frame while a Dynamic Stage dimension change is in flight. */
 public final class StageTransitionManager {
     private static final long MAX_WAIT_NANOS = 15_000_000_000L;
+    private static final long FAILURE_FALLBACK_NANOS = 3_000_000_000L;
     private static volatile Transition active;
 
     private StageTransitionManager() {
@@ -22,7 +23,7 @@ public final class StageTransitionManager {
     public static void begin(StageTransitionPacket packet) {
         Minecraft minecraft = Minecraft.getInstance();
         boolean sourceStage = minecraft.level != null && StageWorlds.isStageLevel(minecraft.level);
-        Transition transition = new Transition(packet.instanceId(), packet.entering(), packet.durationTicks(),
+        Transition transition = new Transition(packet.transitionId(), packet.instanceId(), packet.entering(), packet.durationTicks(),
                 sourceStage, System.nanoTime());
         if (!packet.entering() && !sourceStage) {
             transition.targetReadyNanos = System.nanoTime();
@@ -40,6 +41,12 @@ public final class StageTransitionManager {
         }
         Minecraft minecraft = Minecraft.getInstance();
         long now = System.nanoTime();
+        if (transition.failed) {
+            if (now - transition.failedAtNanos >= FAILURE_FALLBACK_NANOS) {
+                active = null;
+            }
+            return;
+        }
         if (now - transition.startedNanos > MAX_WAIT_NANOS) {
             fail(transition, "timeout");
             return;
@@ -77,11 +84,12 @@ public final class StageTransitionManager {
             return;
         }
         transition.failed = true;
+        transition.failedAtNanos = System.nanoTime();
         if (transition.failureSent) {
             return;
         }
         transition.failureSent = true;
-        DynamicStageNetwork.transitionFailed(transition.instanceId, reason);
+        DynamicStageNetwork.transitionFailed(transition.transitionId, transition.instanceId, reason);
     }
 
     public static boolean active() {
@@ -92,9 +100,10 @@ public final class StageTransitionManager {
         active = null;
     }
 
-    public static void complete(UUID instanceId) {
+    public static void complete(UUID transitionId, UUID instanceId) {
         Transition transition = active;
-        if (transition != null && transition.instanceId.equals(instanceId)) {
+        if (transition != null && transition.transitionId.equals(transitionId)
+                && transition.instanceId.equals(instanceId)) {
             active = null;
         }
     }
@@ -124,6 +133,7 @@ public final class StageTransitionManager {
     }
 
     private static final class Transition {
+        private final UUID transitionId;
         private final UUID instanceId;
         private final boolean entering;
         private final int durationTicks;
@@ -132,9 +142,11 @@ public final class StageTransitionManager {
         private long targetReadyNanos;
         private boolean failed;
         private boolean failureSent;
+        private long failedAtNanos;
 
-        private Transition(UUID instanceId, boolean entering, int durationTicks,
+        private Transition(UUID transitionId, UUID instanceId, boolean entering, int durationTicks,
                            boolean sourceStage, long startedNanos) {
+            this.transitionId = transitionId;
             this.instanceId = instanceId;
             this.entering = entering;
             this.durationTicks = durationTicks;

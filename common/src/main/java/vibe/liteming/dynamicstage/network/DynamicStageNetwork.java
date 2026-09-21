@@ -69,7 +69,8 @@ public final class DynamicStageNetwork {
             StageTransitionFailedPacket packet = StageTransitionFailedPacket.decode(buf);
             context.queue(() -> {
                 if (context.getPlayer() instanceof ServerPlayer player) {
-                    StageSessionManager.onTransitionFailed(player, packet.instanceId(), packet.reason());
+                    StageSessionManager.onTransitionFailed(player, packet.transitionId(),
+                            packet.instanceId(), packet.reason());
                 }
             });
         });
@@ -140,9 +141,9 @@ public final class DynamicStageNetwork {
         NetworkManager.sendToPlayer(player, TRANSITION, buf);
     }
 
-    public static void sendTransitionResult(ServerPlayer player, UUID instanceId) {
+    public static void sendTransitionResult(ServerPlayer player, UUID transitionId, UUID instanceId) {
         FriendlyByteBuf buf = buffer();
-        StageTransitionResultPacket.encode(new StageTransitionResultPacket(instanceId), buf);
+        StageTransitionResultPacket.encode(new StageTransitionResultPacket(transitionId, instanceId), buf);
         NetworkManager.sendToPlayer(player, TRANSITION_RESULT, buf);
     }
 
@@ -161,9 +162,9 @@ public final class DynamicStageNetwork {
         NetworkManager.sendToServer(CLIENT_READY, buf);
     }
 
-    public static void transitionFailed(UUID instanceId, String reason) {
+    public static void transitionFailed(UUID transitionId, UUID instanceId, String reason) {
         FriendlyByteBuf buf = buffer();
-        StageTransitionFailedPacket.encode(new StageTransitionFailedPacket(instanceId, reason), buf);
+        StageTransitionFailedPacket.encode(new StageTransitionFailedPacket(transitionId, instanceId, reason), buf);
         NetworkManager.sendToServer(TRANSITION_FAILED, buf);
     }
 

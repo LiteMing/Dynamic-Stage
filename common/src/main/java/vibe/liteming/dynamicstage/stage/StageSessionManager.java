@@ -282,7 +282,7 @@ public final class StageSessionManager {
             DynamicStageNetwork.sendSession(target, member);
             if (flight == null) {
                 DynamicStageNetwork.sendFlight(target,
-                        StageFlightPacket.clear(member.stageId(), scene.lodTransition(), scene.lodTransitionTicks()));
+                        StageFlightPacket.clear(member.instanceId(), member.stageId(), scene.lodTransition(), scene.lodTransitionTicks()));
             } else {
                 DynamicStageNetwork.sendFlight(target,
                         StageFlightPacket.active(member, flight.sceneJson(), scene.lodTransition(),
@@ -649,7 +649,7 @@ public final class StageSessionManager {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
             if (target != null) {
                 DynamicStageNetwork.sendFlight(target,
-                        StageFlightPacket.clear(member.stageId(), transition, transitionTicks));
+                        StageFlightPacket.clear(member.instanceId(), member.stageId(), transition, transitionTicks));
                 DynamicStageNetwork.sendSession(target, member);
                 SENT_FLIGHTS.remove(member.playerId());
             }
@@ -901,7 +901,8 @@ public final class StageSessionManager {
     }
 
     /** Rolls a player back when the client cannot finish its transition compositor. */
-    public static void onTransitionFailed(ServerPlayer player, UUID instanceId, String reason) {
+    public static void onTransitionFailed(ServerPlayer player, UUID transitionId,
+                                          UUID instanceId, String reason) {
         MinecraftServer server = player == null ? null : player.getServer();
         if (server == null || instanceId == null) {
             return;
@@ -916,13 +917,13 @@ public final class StageSessionManager {
             if (!pending.teleportToEntry) {
                 returnPendingPlayer(player, pending.session);
             }
-            DynamicStageNetwork.sendTransitionResult(player, instanceId);
+            DynamicStageNetwork.sendTransitionResult(player, transitionId, instanceId);
             reportTransitionFailure(player, reason, false);
             return;
         }
         StageSession session = StageSessionData.get(server).get(player.getUUID()).orElse(null);
         if (session == null || !session.instanceId().equals(instanceId)) {
-            DynamicStageNetwork.sendTransitionResult(player, instanceId);
+            DynamicStageNetwork.sendTransitionResult(player, transitionId, instanceId);
             return;
         }
         reportTransitionFailure(player, reason, true);
