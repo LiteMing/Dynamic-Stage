@@ -26,7 +26,6 @@ import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageFlightPacket;
 import vibe.liteming.dynamicstage.network.StageBackdropSwitchPacket;
 import vibe.liteming.dynamicstage.network.StageBackdropSwitchResultPacket;
-import vibe.liteming.dynamicstage.network.StageTransitionPacket;
 import vibe.liteming.dynamicstage.platform.StagePlatform;
 import vibe.liteming.dynamicstage.template.StageTemplate;
 import vibe.liteming.dynamicstage.template.StageTemplateSummary;
@@ -282,7 +281,7 @@ public final class StageSessionManager {
             DynamicStageNetwork.sendSession(target, member);
             if (flight == null) {
                 DynamicStageNetwork.sendFlight(target,
-                        StageFlightPacket.clear(member.instanceId(), member.stageId(), scene.lodTransition(), scene.lodTransitionTicks()));
+                        StageFlightPacket.clear(member.stageId(), scene.lodTransition(), scene.lodTransitionTicks()));
             } else {
                 DynamicStageNetwork.sendFlight(target,
                         StageFlightPacket.active(member, flight.sceneJson(), scene.lodTransition(),
@@ -649,7 +648,7 @@ public final class StageSessionManager {
             ServerPlayer target = server.getPlayerList().getPlayer(member.playerId());
             if (target != null) {
                 DynamicStageNetwork.sendFlight(target,
-                        StageFlightPacket.clear(member.instanceId(), member.stageId(), transition, transitionTicks));
+                        StageFlightPacket.clear(member.stageId(), transition, transitionTicks));
                 DynamicStageNetwork.sendSession(target, member);
                 SENT_FLIGHTS.remove(member.playerId());
             }
@@ -900,44 +899,6 @@ public final class StageSessionManager {
         }
     }
 
-    /** Rolls a player back when the client cannot finish its transition compositor. */
-    public static void onTransitionFailed(ServerPlayer player, UUID transitionId,
-                                          UUID instanceId, String reason) {
-        MinecraftServer server = player == null ? null : player.getServer();
-        if (server == null || instanceId == null) {
-            return;
-        }
-        PendingEntry pending = PENDING.get(player.getUUID());
-        if (pending != null && pending.session.instanceId().equals(instanceId)) {
-            if (!PENDING.remove(player.getUUID(), pending)) {
-                return;
-            }
-            releasePendingArenaIfUnused(server, pending);
-            DynamicStageNetwork.clearSession(player);
-            if (!pending.teleportToEntry) {
-                returnPendingPlayer(player, pending.session);
-            }
-            DynamicStageNetwork.sendTransitionResult(player, transitionId, instanceId);
-            reportTransitionFailure(player, reason, false);
-            return;
-        }
-        StageSession session = StageSessionData.get(server).get(player.getUUID()).orElse(null);
-        if (session == null || !session.instanceId().equals(instanceId)) {
-            DynamicStageNetwork.sendTransitionResult(player, transitionId, instanceId);
-            return;
-        }
-        reportTransitionFailure(player, reason, true);
-        exit(player);
-    }
-
-    private static void reportTransitionFailure(ServerPlayer player, String reason, boolean returning) {
-        LOGGER.warn("Player {} reported Dynamic Stage transition failure: {}", player.getGameProfile().getName(),
-                boundedError(reason));
-        player.sendSystemMessage(Component.literal(returning
-                ? "Dynamic Stage transition failed. Returning safely."
-                : "Dynamic Stage transition failed."));
-    }
-
     public static boolean exit(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         if (server == null) {
@@ -968,8 +929,6 @@ public final class StageSessionManager {
             returnLevel = server.overworld();
         }
         player.fallDistance = 0.0F;
-        DynamicStageNetwork.sendTransition(player,
-                new StageTransitionPacket(session.instanceId(), false, transitionDuration(session)));
         // Release the client-side LOD package before the respawn packet makes
         // the new level renderer open Voxy's normal world storage.
         DynamicStageNetwork.clearSession(player);
@@ -1274,11 +1233,6 @@ public final class StageSessionManager {
         player.stopRiding();
         player.fallDistance = 0.0F;
         if (pending.teleportToEntry) {
-            DynamicStageNetwork.sendTransition(player,
-                    new StageTransitionPacket(session.instanceId(), true, transitionDuration(session)));
-        }
-        sendOrStartFlight(player, session, stageLevel);
-        if (pending.teleportToEntry) {
             player.teleportTo(stageLevel, entry.getX() + 0.5D, entry.getY(), entry.getZ() + 0.5D,
                     player.getYRot(), player.getXRot());
         }
@@ -1293,20 +1247,17 @@ public final class StageSessionManager {
             announce(server, "message.dynamicstage.guide.created", player, instance);
         }
         announce(server, "message.dynamicstage.guide.entered", player, instance);
+        sendOrStartFlight(player, session);
     }
 
     private static void sendOrStartFlight(ServerPlayer player, StageSession session) {
-        sendOrStartFlight(player, session, player.serverLevel());
-    }
-
-    private static void sendOrStartFlight(ServerPlayer player, StageSession session, ServerLevel timelineLevel) {
         if (!session.hasFlight() || !SENT_FLIGHTS.add(player.getUUID())) {
             return;
         }
         MinecraftServer server = player.getServer();
         StageSessionData data = StageSessionData.get(server);
         if (session.flightStartGameTime() < 0L) {
-            long start = timelineLevel.getGameTime() + 20L;
+            long start = player.serverLevel().getGameTime() + 20L;
             data.updateInstanceFlightStart(session.instanceId(), start);
             session = data.get(player.getUUID()).orElse(session.withFlightStart(start));
         }
@@ -1364,12 +1315,6 @@ public final class StageSessionManager {
 
     private static StageFlightAssets.Asset flightFor(MinecraftServer server, String stageId) {
         return StageFlightAssets.findConfigured(server.getWorldPath(LevelResource.ROOT), stageId);
-    }
-
-    private static int transitionDuration(StageSession session) {
-        int sceneTicks = session.clientScene().lodTransitionTicks();
-        return Math.max(20, Math.min(StageTransitionPacket.MAX_DURATION_TICKS,
-                sceneTicks > 0 ? sceneTicks : 40));
     }
 
     private static boolean validFlight(MinecraftServer server, StageSession session) {

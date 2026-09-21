@@ -26,9 +26,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class DynamicStageNetwork {
 
     public static final net.minecraft.resources.ResourceLocation SESSION = DynamicStage.id("session");
-    public static final net.minecraft.resources.ResourceLocation TRANSITION = DynamicStage.id("transition");
-    public static final net.minecraft.resources.ResourceLocation TRANSITION_FAILED = DynamicStage.id("transition_failed");
-    public static final net.minecraft.resources.ResourceLocation TRANSITION_RESULT = DynamicStage.id("transition_result");
     public static final net.minecraft.resources.ResourceLocation CLIENT_READY = DynamicStage.id("client_ready");
     public static final net.minecraft.resources.ResourceLocation FLIGHT = DynamicStage.id("flight");
     public static final net.minecraft.resources.ResourceLocation BACKDROP_SWITCH = DynamicStage.id("backdrop_switch");
@@ -62,15 +59,6 @@ public final class DynamicStageNetwork {
                 if (context.getPlayer() instanceof ServerPlayer player) {
                     vibe.liteming.dynamicstage.stage.StageSessionManager.onClientReady(player,
                             packet.instanceId(), packet.ready(), packet.error());
-                }
-            });
-        });
-        NetworkManager.registerReceiver(NetworkManager.Side.C2S, TRANSITION_FAILED, (buf, context) -> {
-            StageTransitionFailedPacket packet = StageTransitionFailedPacket.decode(buf);
-            context.queue(() -> {
-                if (context.getPlayer() instanceof ServerPlayer player) {
-                    StageSessionManager.onTransitionFailed(player, packet.transitionId(),
-                            packet.instanceId(), packet.reason());
                 }
             });
         });
@@ -135,18 +123,6 @@ public final class DynamicStageNetwork {
         send(player, sessionPacket(player, session));
     }
 
-    public static void sendTransition(ServerPlayer player, StageTransitionPacket packet) {
-        FriendlyByteBuf buf = buffer();
-        StageTransitionPacket.encode(packet, buf);
-        NetworkManager.sendToPlayer(player, TRANSITION, buf);
-    }
-
-    public static void sendTransitionResult(ServerPlayer player, UUID transitionId, UUID instanceId) {
-        FriendlyByteBuf buf = buffer();
-        StageTransitionResultPacket.encode(new StageTransitionResultPacket(transitionId, instanceId), buf);
-        NetworkManager.sendToPlayer(player, TRANSITION_RESULT, buf);
-    }
-
     public static StageSessionPacket sessionPacket(ServerPlayer player, StageSession session) {
         return StageSessionPacket.active(session,
                 LodDistributionStore.find(player.getServer(), session.lodPackId()));
@@ -160,12 +136,6 @@ public final class DynamicStageNetwork {
         FriendlyByteBuf buf = buffer();
         StageClientReadyPacket.encode(new StageClientReadyPacket(instanceId, ready, error), buf);
         NetworkManager.sendToServer(CLIENT_READY, buf);
-    }
-
-    public static void transitionFailed(UUID transitionId, UUID instanceId, String reason) {
-        FriendlyByteBuf buf = buffer();
-        StageTransitionFailedPacket.encode(new StageTransitionFailedPacket(transitionId, instanceId, reason), buf);
-        NetworkManager.sendToServer(TRANSITION_FAILED, buf);
     }
 
     public static void sendFlight(ServerPlayer player, StageFlightPacket packet) {

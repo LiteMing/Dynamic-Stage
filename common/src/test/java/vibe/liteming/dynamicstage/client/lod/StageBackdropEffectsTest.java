@@ -56,29 +56,13 @@ class StageBackdropEffectsTest {
     void flightSwapFadesOutThenBackIn() {
         StageClientScene scene = scene(true, 0.0F, StageClientScene.Transition.INSTANT, 0, 100L);
         try {
-            StageBackdropEffects.beginSwapAtGameTime(StageClientScene.Transition.FADE, 20, 100L);
+            StageBackdropEffects.beginSwap(StageClientScene.Transition.FADE, 20, 100L);
 
             assertEquals(1.0F, StageBackdropEffects.sample(scene, 100L, 0.0F).opacity(), 0.0001F);
             assertEquals(0.5F, StageBackdropEffects.sample(scene, 105L, 0.0F).opacity(), 0.0001F);
             assertTrue(StageBackdropEffects.sample(scene, 110L, 0.0F).hidden());
             assertEquals(0.5F, StageBackdropEffects.sample(scene, 115L, 0.0F).opacity(), 0.0001F);
             assertEquals(1.0F, StageBackdropEffects.sample(scene, 120L, 0.0F).opacity(), 0.0001F);
-        } finally {
-            StageBackdropEffects.clearSwap();
-        }
-    }
-
-    @Test
-    void flightSwapUsesMonotonicClockAcrossLevelChange() {
-        StageClientScene scene = scene(true, 0.0F, StageClientScene.Transition.INSTANT, 0, 100L);
-        try {
-            StageBackdropEffects.beginSwap(StageClientScene.Transition.FADE, 20, 1_000_000_000L);
-
-            assertEquals(1.0F,
-                    StageBackdropEffects.sampleAtNanos(scene, 120_000L, 0.0F, 1_000_000_000L).opacity(), 0.0001F);
-            assertEquals(0.5F,
-                    StageBackdropEffects.sampleAtNanos(scene, 0L, 0.0F, 1_250_000_000L).opacity(), 0.0001F);
-            assertTrue(StageBackdropEffects.sampleAtNanos(scene, 0L, 0.0F, 1_500_000_000L).hidden());
         } finally {
             StageBackdropEffects.clearSwap();
         }

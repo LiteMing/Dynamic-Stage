@@ -45,5 +45,4 @@ public final class ClientForgeEvents {
             StageBoundaryRenderer.render(event.getPoseStack(), event.getCamera());
         }
     }
-
 }

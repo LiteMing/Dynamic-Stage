@@ -55,17 +55,15 @@ public final class ClientStageSession {
         backdropSwitch = null;
         active = snapshot;
         applySnapshotState(snapshot);
-        boolean sessionChanged = previous == null || !previous.instanceId().equals(snapshot.instanceId())
-                || !previous.flightHash().equals(snapshot.flightHash());
-        if (sessionChanged) {
-            StageFlightController.clearActive();
-        }
-        StageFlightController.onSessionAvailable(snapshot);
         if (previous != null && previous.instanceId().equals(snapshot.instanceId())
                 && previous.lodPackId().equals(snapshot.lodPackId())
                 && StageBackdropRuntime.isMounted(snapshot.instanceId())) {
             StageFlightController.confirmSession(snapshot.flightHash());
             return;
+        }
+        if (previous == null || !previous.instanceId().equals(snapshot.instanceId())
+                || !previous.flightHash().equals(snapshot.flightHash())) {
+            StageFlightController.clear();
         }
         activationAttempts = 0;
         prepareInitialMount(snapshot);

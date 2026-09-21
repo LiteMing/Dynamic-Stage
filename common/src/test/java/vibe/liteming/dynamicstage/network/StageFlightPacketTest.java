@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import vibe.liteming.dynamicstage.stage.StageClientScene;
 
 import java.nio.charset.StandardCharsets;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -16,8 +15,7 @@ class StageFlightPacketTest {
     @Test
     void preservesActiveFlightAndTransition() {
         byte[] scene = "{\"duration\":1000}".getBytes(StandardCharsets.UTF_8);
-        UUID instanceId = UUID.randomUUID();
-        StageFlightPacket packet = new StageFlightPacket(instanceId, "boss", "ab".repeat(32), 420L,
+        StageFlightPacket packet = new StageFlightPacket("boss", "ab".repeat(32), 420L,
                 1_000L, scene, StageClientScene.Transition.BLUR, 40);
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
 
@@ -25,7 +23,6 @@ class StageFlightPacketTest {
         StageFlightPacket decoded = StageFlightPacket.decode(buffer);
 
         assertTrue(decoded.active());
-        assertEquals(packet.instanceId(), decoded.instanceId());
         assertEquals(packet.stageId(), decoded.stageId());
         assertEquals(packet.flightHash(), decoded.flightHash());
         assertEquals(packet.startGameTime(), decoded.startGameTime());
@@ -38,15 +35,13 @@ class StageFlightPacketTest {
 
     @Test
     void preservesClearFlightTransition() {
-        UUID instanceId = UUID.randomUUID();
-        StageFlightPacket packet = StageFlightPacket.clear(instanceId, "boss", StageClientScene.Transition.FADE, 20);
+        StageFlightPacket packet = StageFlightPacket.clear("boss", StageClientScene.Transition.FADE, 20);
         FriendlyByteBuf buffer = new FriendlyByteBuf(Unpooled.buffer());
 
         StageFlightPacket.encode(packet, buffer);
         StageFlightPacket decoded = StageFlightPacket.decode(buffer);
 
         assertFalse(decoded.active());
-        assertEquals(packet.instanceId(), decoded.instanceId());
         assertEquals(packet.stageId(), decoded.stageId());
         assertEquals(packet.transition(), decoded.transition());
         assertEquals(packet.transitionTicks(), decoded.transitionTicks());
