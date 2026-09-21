@@ -27,6 +27,7 @@ public final class DynamicStageNetwork {
 
     public static final net.minecraft.resources.ResourceLocation SESSION = DynamicStage.id("session");
     public static final net.minecraft.resources.ResourceLocation TRANSITION = DynamicStage.id("transition");
+    public static final net.minecraft.resources.ResourceLocation TRANSITION_FAILED = DynamicStage.id("transition_failed");
     public static final net.minecraft.resources.ResourceLocation CLIENT_READY = DynamicStage.id("client_ready");
     public static final net.minecraft.resources.ResourceLocation FLIGHT = DynamicStage.id("flight");
     public static final net.minecraft.resources.ResourceLocation BACKDROP_SWITCH = DynamicStage.id("backdrop_switch");
@@ -60,6 +61,14 @@ public final class DynamicStageNetwork {
                 if (context.getPlayer() instanceof ServerPlayer player) {
                     vibe.liteming.dynamicstage.stage.StageSessionManager.onClientReady(player,
                             packet.instanceId(), packet.ready(), packet.error());
+                }
+            });
+        });
+        NetworkManager.registerReceiver(NetworkManager.Side.C2S, TRANSITION_FAILED, (buf, context) -> {
+            StageTransitionFailedPacket packet = StageTransitionFailedPacket.decode(buf);
+            context.queue(() -> {
+                if (context.getPlayer() instanceof ServerPlayer player) {
+                    StageSessionManager.onTransitionFailed(player, packet.instanceId(), packet.reason());
                 }
             });
         });
@@ -143,6 +152,12 @@ public final class DynamicStageNetwork {
         FriendlyByteBuf buf = buffer();
         StageClientReadyPacket.encode(new StageClientReadyPacket(instanceId, ready, error), buf);
         NetworkManager.sendToServer(CLIENT_READY, buf);
+    }
+
+    public static void transitionFailed(UUID instanceId, String reason) {
+        FriendlyByteBuf buf = buffer();
+        StageTransitionFailedPacket.encode(new StageTransitionFailedPacket(instanceId, reason), buf);
+        NetworkManager.sendToServer(TRANSITION_FAILED, buf);
     }
 
     public static void sendFlight(ServerPlayer player, StageFlightPacket packet) {

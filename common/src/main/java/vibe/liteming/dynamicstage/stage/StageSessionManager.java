@@ -900,6 +900,35 @@ public final class StageSessionManager {
         }
     }
 
+    /** Rolls a player back when the client cannot finish its transition compositor. */
+    public static void onTransitionFailed(ServerPlayer player, UUID instanceId, String reason) {
+        MinecraftServer server = player == null ? null : player.getServer();
+        if (server == null || instanceId == null) {
+            return;
+        }
+        PendingEntry pending = PENDING.get(player.getUUID());
+        if (pending != null && pending.session.instanceId().equals(instanceId)) {
+            if (!PENDING.remove(player.getUUID(), pending)) {
+                return;
+            }
+            releasePendingArenaIfUnused(server, pending);
+            DynamicStageNetwork.clearSession(player);
+            if (!pending.teleportToEntry) {
+                returnPendingPlayer(player, pending.session);
+            }
+            player.sendSystemMessage(Component.literal("Dynamic Stage transition failed: "
+                    + boundedError(reason)));
+            return;
+        }
+        StageSession session = StageSessionData.get(server).get(player.getUUID()).orElse(null);
+        if (session == null || !session.instanceId().equals(instanceId)) {
+            return;
+        }
+        player.sendSystemMessage(Component.literal("Dynamic Stage transition failed: "
+                + boundedError(reason) + ". Returning safely."));
+        exit(player);
+    }
+
     public static boolean exit(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         if (server == null) {
@@ -1238,6 +1267,9 @@ public final class StageSessionManager {
         if (pending.teleportToEntry) {
             DynamicStageNetwork.sendTransition(player,
                     new StageTransitionPacket(session.instanceId(), true, transitionDuration(session)));
+        }
+        sendOrStartFlight(player, session, stageLevel);
+        if (pending.teleportToEntry) {
             player.teleportTo(stageLevel, entry.getX() + 0.5D, entry.getY(), entry.getZ() + 0.5D,
                     player.getYRot(), player.getXRot());
         }
@@ -1252,17 +1284,20 @@ public final class StageSessionManager {
             announce(server, "message.dynamicstage.guide.created", player, instance);
         }
         announce(server, "message.dynamicstage.guide.entered", player, instance);
-        sendOrStartFlight(player, session);
     }
 
     private static void sendOrStartFlight(ServerPlayer player, StageSession session) {
+        sendOrStartFlight(player, session, player.serverLevel());
+    }
+
+    private static void sendOrStartFlight(ServerPlayer player, StageSession session, ServerLevel timelineLevel) {
         if (!session.hasFlight() || !SENT_FLIGHTS.add(player.getUUID())) {
             return;
         }
         MinecraftServer server = player.getServer();
         StageSessionData data = StageSessionData.get(server);
         if (session.flightStartGameTime() < 0L) {
-            long start = player.serverLevel().getGameTime() + 20L;
+            long start = timelineLevel.getGameTime() + 20L;
             data.updateInstanceFlightStart(session.instanceId(), start);
             session = data.get(player.getUUID()).orElse(session.withFlightStart(start));
         }

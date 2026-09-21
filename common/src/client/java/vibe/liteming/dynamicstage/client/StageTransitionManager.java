@@ -2,7 +2,10 @@ package vibe.liteming.dynamicstage.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.screens.ReceivingLevelScreen;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
+import vibe.liteming.dynamicstage.client.lod.StageBackdropEffects;
+import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageTransitionPacket;
 import vibe.liteming.dynamicstage.world.StageWorlds;
 
@@ -11,8 +14,6 @@ import java.util.UUID;
 /** Owns the client frame while a Dynamic Stage dimension change is in flight. */
 public final class StageTransitionManager {
     private static final long MAX_WAIT_NANOS = 15_000_000_000L;
-    private static final int FADE_IN_TICKS = 8;
-    private static final int FADE_OUT_TICKS = 12;
     private static volatile Transition active;
 
     private StageTransitionManager() {
@@ -23,6 +24,9 @@ public final class StageTransitionManager {
         boolean sourceStage = minecraft.level != null && StageWorlds.isStageLevel(minecraft.level);
         active = new Transition(packet.instanceId(), packet.entering(), packet.durationTicks(),
                 sourceStage, System.nanoTime());
+        if (minecraft.screen instanceof ReceivingLevelScreen) {
+            minecraft.setScreen(null);
+        }
     }
 
     public static void tick() {
@@ -31,8 +35,12 @@ public final class StageTransitionManager {
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.level == null || System.nanoTime() - transition.startedNanos > MAX_WAIT_NANOS) {
-            active = null;
+        long now = System.nanoTime();
+        if (now - transition.startedNanos > MAX_WAIT_NANOS) {
+            fail(transition, "timeout");
+            return;
+        }
+        if (minecraft.level == null) {
             return;
         }
         boolean nowStage = StageWorlds.isStageLevel(minecraft.level);
@@ -42,9 +50,7 @@ public final class StageTransitionManager {
         if (targetLoaded && transition.targetReadyNanos == 0L) {
             transition.targetReadyNanos = System.nanoTime();
         }
-        if (transition.targetReadyNanos != 0L
-                && System.nanoTime() - transition.targetReadyNanos
-                >= transition.fadeOutNanos()) {
+        if (transition.targetReadyNanos != 0L && transition.finished(now)) {
             active = null;
         }
     }
@@ -62,6 +68,14 @@ public final class StageTransitionManager {
         }
     }
 
+    private static void fail(Transition transition, String reason) {
+        if (active != transition) {
+            return;
+        }
+        active = null;
+        DynamicStageNetwork.transitionFailed(transition.instanceId, reason);
+    }
+
     public static boolean active() {
         return active != null;
     }
@@ -76,6 +90,17 @@ public final class StageTransitionManager {
             return;
         }
         float alpha = transition.alpha(System.nanoTime(), partialTick);
+        Minecraft minecraft = Minecraft.getInstance();
+        ClientStageSession.Snapshot snapshot = ClientStageSession.active();
+        if (snapshot != null && snapshot.instanceId().equals(transition.instanceId)
+                && minecraft.level != null && StageWorlds.isStageLevel(minecraft.level)) {
+            StageBackdropEffects.State effects = ClientStageSession.backdropEffects(
+                    snapshot.clientScene(), minecraft.level.getGameTime(), minecraft.getFrameTime());
+            // Let the native LOD compositor and Flight show through as their
+            // own scene transition becomes visible.
+            alpha *= 0.55F + 0.45F * (1.0F - effects.opacity());
+            alpha = Math.min(0.94F, alpha + Math.min(0.08F, effects.blurRadius() / 256.0F));
+        }
         if (alpha <= 0.001F) {
             return;
         }
@@ -100,21 +125,35 @@ public final class StageTransitionManager {
             this.startedNanos = startedNanos;
         }
 
-        private long fadeOutNanos() {
-            return FADE_OUT_TICKS * 50_000_000L;
+        private int fadeInTicks() {
+            return Math.max(2, Math.round(durationTicks * 0.25F));
+        }
+
+        private int fadeOutTicks() {
+            return Math.max(2, durationTicks - fadeInTicks());
+        }
+
+        private long fadeOutStartNanos() {
+            long scheduled = startedNanos + fadeInTicks() * 50_000_000L;
+            return targetReadyNanos == 0L ? scheduled : Math.max(scheduled, targetReadyNanos);
+        }
+
+        private boolean finished(long now) {
+            return now - fadeOutStartNanos() >= fadeOutTicks() * 50_000_000L;
         }
 
         private float alpha(long now, float partialTick) {
             double elapsedTicks = (now - startedNanos) / 50_000_000.0D + Math.max(0.0F, Math.min(1.0F, partialTick));
-            double fadeIn = FADE_IN_TICKS;
+            double fadeIn = fadeInTicks();
             if (elapsedTicks < fadeIn) {
                 return smoothstep((float) (elapsedTicks / fadeIn)) * 0.88F;
             }
             if (targetReadyNanos == 0L) {
                 return 0.88F;
             }
-            double fadeElapsed = (now - targetReadyNanos) / 50_000_000.0D + Math.max(0.0F, Math.min(1.0F, partialTick));
-            return Math.max(0.0F, 0.88F * (1.0F - smoothstep((float) (fadeElapsed / FADE_OUT_TICKS))));
+            double fadeElapsed = (now - fadeOutStartNanos()) / 50_000_000.0D
+                    + Math.max(0.0F, Math.min(1.0F, partialTick));
+            return Math.max(0.0F, 0.88F * (1.0F - smoothstep((float) (fadeElapsed / fadeOutTicks()))));
         }
 
         private static float smoothstep(float value) {

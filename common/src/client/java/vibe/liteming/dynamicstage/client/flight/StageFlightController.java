@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import vibe.liteming.dynamicstage.client.StageTransitionManager;
 import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.client.lod.StageBackdropEffects;
 import vibe.liteming.dynamicstage.flight.StageFlightCodec;
@@ -57,6 +58,11 @@ public final class StageFlightController {
         Minecraft minecraft = Minecraft.getInstance();
         ClientStageSession.Snapshot snapshot = ClientStageSession.active();
         if (minecraft.level == null || !StageWorlds.isStageLevel(minecraft.level) || snapshot == null) {
+            if (StageTransitionManager.active() && snapshot != null) {
+                // The flight is deliberately accepted before the respawn
+                // packet so it can resume as soon as the stage renderer exists.
+                return;
+            }
             active = null;
             awaitingSessionHash = null;
             pending = null;
