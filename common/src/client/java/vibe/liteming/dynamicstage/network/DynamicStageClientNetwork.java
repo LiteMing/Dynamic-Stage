@@ -7,6 +7,7 @@ import vibe.liteming.dynamicstage.client.stage.ClientStageSession;
 import vibe.liteming.dynamicstage.client.editor.StageTemplateEditorState;
 import vibe.liteming.dynamicstage.client.gui.StageBrowserState;
 import vibe.liteming.dynamicstage.client.lod.LodPackDownloadManager;
+import vibe.liteming.dynamicstage.client.StageTransitionManager;
 
 public final class DynamicStageClientNetwork {
     private static boolean registered;
@@ -22,6 +23,11 @@ public final class DynamicStageClientNetwork {
                 (buf, context) -> {
                     StageSessionPacket packet = StageSessionPacket.decode(buf);
                     context.queue(() -> ClientStageSession.accept(packet));
+                });
+        NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.TRANSITION,
+                (buf, context) -> {
+                    StageTransitionPacket packet = StageTransitionPacket.decode(buf);
+                    context.queue(() -> StageTransitionManager.begin(packet));
                 });
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, DynamicStageNetwork.BACKDROP_SWITCH,
                 (buf, context) -> {

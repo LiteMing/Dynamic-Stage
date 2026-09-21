@@ -42,6 +42,7 @@ public final class DynamicStageNetwork {
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_CHUNK = DynamicStage.id("lod_download_chunk");
     public static final net.minecraft.resources.ResourceLocation LOD_DOWNLOAD_RESULT = DynamicStage.id("lod_download_result");
     public static final net.minecraft.resources.ResourceLocation LOD_COLLISION_EVENT = DynamicStage.id("lod_collision_event");
+    public static final net.minecraft.resources.ResourceLocation TRANSITION = DynamicStage.id("transition");
     private static final long LOD_COLLISION_REPORT_INTERVAL_TICKS = 5L;
     private static final Map<UUID, Long> LAST_LOD_COLLISION_REPORT = new ConcurrentHashMap<>();
     private static boolean serverRegistered;
@@ -121,6 +122,12 @@ public final class DynamicStageNetwork {
 
     public static void sendSession(ServerPlayer player, StageSession session) {
         send(player, sessionPacket(player, session));
+    }
+
+    public static void sendTransition(ServerPlayer player, StageTransitionPacket packet) {
+        FriendlyByteBuf buf = buffer();
+        StageTransitionPacket.encode(packet, buf);
+        NetworkManager.sendToPlayer(player, TRANSITION, buf);
     }
 
     public static StageSessionPacket sessionPacket(ServerPlayer player, StageSession session) {
@@ -415,6 +422,9 @@ public final class DynamicStageNetwork {
         } else if (packet instanceof StageBackdropSwitchPacket backdrop) {
             StageBackdropSwitchPacket.encode(backdrop, buf);
             NetworkManager.sendToPlayer(player, BACKDROP_SWITCH, buf);
+        } else if (packet instanceof StageTransitionPacket transition) {
+            StageTransitionPacket.encode(transition, buf);
+            NetworkManager.sendToPlayer(player, TRANSITION, buf);
         } else {
             throw new IllegalArgumentException("Unsupported Dynamic Stage packet " + packet.getClass().getName());
         }

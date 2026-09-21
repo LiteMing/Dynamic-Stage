@@ -26,6 +26,7 @@ import vibe.liteming.dynamicstage.network.DynamicStageNetwork;
 import vibe.liteming.dynamicstage.network.StageFlightPacket;
 import vibe.liteming.dynamicstage.network.StageBackdropSwitchPacket;
 import vibe.liteming.dynamicstage.network.StageBackdropSwitchResultPacket;
+import vibe.liteming.dynamicstage.network.StageTransitionPacket;
 import vibe.liteming.dynamicstage.platform.StagePlatform;
 import vibe.liteming.dynamicstage.template.StageTemplate;
 import vibe.liteming.dynamicstage.template.StageTemplateSummary;
@@ -929,6 +930,8 @@ public final class StageSessionManager {
             returnLevel = server.overworld();
         }
         player.fallDistance = 0.0F;
+        DynamicStageNetwork.sendTransition(player,
+                new StageTransitionPacket(session.instanceId(), false, transitionDuration(session)));
         // Release the client-side LOD package before the respawn packet makes
         // the new level renderer open Voxy's normal world storage.
         DynamicStageNetwork.clearSession(player);
@@ -1233,6 +1236,8 @@ public final class StageSessionManager {
         player.stopRiding();
         player.fallDistance = 0.0F;
         if (pending.teleportToEntry) {
+            DynamicStageNetwork.sendTransition(player,
+                    new StageTransitionPacket(session.instanceId(), true, transitionDuration(session)));
             player.teleportTo(stageLevel, entry.getX() + 0.5D, entry.getY(), entry.getZ() + 0.5D,
                     player.getYRot(), player.getXRot());
         }
@@ -1267,6 +1272,12 @@ public final class StageSessionManager {
             return;
         }
         DynamicStageNetwork.sendFlight(player, StageFlightPacket.active(session, asset.sceneJson()));
+    }
+
+    private static int transitionDuration(StageSession session) {
+        int configured = session.clientScene().lodTransitionTicks();
+        return Math.max(20, Math.min(StageTransitionPacket.MAX_DURATION_TICKS,
+                configured > 0 ? configured : 40));
     }
 
     private static StageSession createMembership(ServerPlayer player, UUID instanceId, String stageId,
